@@ -25,7 +25,6 @@ import RiskModulesWidget from '@/components/dashboard/RiskModulesWidget';
 import PyramidAlertsWidget from '@/components/dashboard/PyramidAlertsWidget';
 import HedgeCard from '@/components/dashboard/HedgeCard';
 import ScoringGuideWidget from '@/components/dashboard/ScoringGuideWidget';
-import SystemHeatWidget from '@/components/dashboard/SystemHeatWidget';
 import MigrationBanner from '@/components/dashboard/MigrationBanner';
 import TodayDirectiveCard from '@/components/dashboard/TodayDirectiveCard';
 import EveningReviewSummary from '@/components/dashboard/EveningReviewSummary';
@@ -381,24 +380,19 @@ export default function DashboardPage() {
         {/* Module Status Panel — All 21 modules at a glance */}
         <ModuleStatusPanel />
 
-        {/* Four Column Bottom */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {/* Market Health / Fear & Greed */}
+        {/* Three Column Bottom */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Left: Market Health / Fear & Greed */}
           <div>
             <FearGreedGauge />
           </div>
 
-          {/* Dual Benchmark Regime + Stability */}
+          {/* Center: Dual Benchmark Regime + Stability */}
           <div>
             <DualRegimeWidget />
           </div>
 
-          {/* System Heat — advisory capital deployment tracker */}
-          <div>
-            <SystemHeatWidget />
-          </div>
-
-          {/* Weekly Action Card */}
+          {/* Right: Weekly Action Card */}
           <div>
             <ActionCardWidget />
           </div>

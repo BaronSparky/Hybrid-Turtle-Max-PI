@@ -9,7 +9,7 @@
 import { prisma } from '../../data/src/prisma';
 import { getStopDashboardData } from '../../stops/src';
 import { getNextExecutionSessionDate } from '../../workflow/src/repository';
-import { getPortfolioPageData } from './view';
+import { getPortfolioPageData, decimalToNumber } from './view';
 import type {
   AuditEventReviewRow,
   DataFreshnessStatus,
@@ -19,10 +19,6 @@ import type {
   OrderReviewRow,
   PlannedTradeReviewRow,
 } from './review-types';
-
-function decimalToNumber(value: { toNumber(): number } | null | undefined): number | null {
-  return value ? value.toNumber() : null;
-}
 
 function deriveDataFreshnessStatus(jobStatus: string | null, staleSymbolCount: number): DataFreshnessStatus {
   if (!jobStatus) {

@@ -397,38 +397,6 @@ export async function GET() {
       });
     }
 
-    // ── Deduplicate cross-listed tickers (e.g. SHEL + SHEL.L) ──
-    // When the same company appears via both US and London listings,
-    // prefer the .L (London) listing and drop the duplicate.
-    const SUFFIX_RE = /\.(L|ST|HE|AS)$/;
-    const baseMap: Record<string, CrossRefTicker[]> = {};
-    for (const t of crossRef) {
-      const base = t.ticker.replace(SUFFIX_RE, '');
-      if (!baseMap[base]) baseMap[base] = [];
-      baseMap[base].push(t);
-    }
-    const dupeTickersToRemove = new Set<string>();
-    for (const base of Object.keys(baseMap)) {
-      const group = baseMap[base];
-      if (group.length <= 1) continue;
-      // Prefer the suffixed (non-US) listing; among suffixed, prefer .L
-      const sorted = group.sort((a: CrossRefTicker, b: CrossRefTicker) => {
-        const aHasSuffix = SUFFIX_RE.test(a.ticker);
-        const bHasSuffix = SUFFIX_RE.test(b.ticker);
-        if (aHasSuffix && !bHasSuffix) return -1;
-        if (!aHasSuffix && bHasSuffix) return 1;
-        // Both have suffixes — prefer .L
-        if (a.ticker.endsWith('.L') && !b.ticker.endsWith('.L')) return -1;
-        if (!a.ticker.endsWith('.L') && b.ticker.endsWith('.L')) return 1;
-        return 0;
-      });
-      // Keep the first (preferred), mark the rest for removal
-      for (let i = 1; i < sorted.length; i++) {
-        dupeTickersToRemove.add(sorted[i].ticker);
-      }
-    }
-    const dedupedCrossRef = crossRef.filter((t) => !dupeTickersToRemove.has(t.ticker));
-
     // Sort: trigger-met first → BOTH_RECOMMEND → others, then by agreement score desc
     const typeOrder: Record<string, number> = {
       BOTH_RECOMMEND: 0,
@@ -437,7 +405,7 @@ export async function GET() {
       DUAL_ONLY: 3,
       BOTH_REJECT: 4,
     };
-    dedupedCrossRef.sort((a, b) => {
+    crossRef.sort((a, b) => {
       // Trigger-met candidates float to the very top (actionable now)
       const aTriggerMet = a.scanPrice != null && a.scanEntryTrigger != null && a.scanPrice >= a.scanEntryTrigger;
       const bTriggerMet = b.scanPrice != null && b.scanEntryTrigger != null && b.scanPrice >= b.scanEntryTrigger;
@@ -451,19 +419,18 @@ export async function GET() {
 
     // ── Summary stats ───────────────────────────────────────
     const summary = {
-      total: dedupedCrossRef.length,
-      bothRecommend: dedupedCrossRef.filter((c) => c.matchType === 'BOTH_RECOMMEND').length,
-      conflict: dedupedCrossRef.filter((c) => c.matchType === 'CONFLICT').length,
-      scanOnly: dedupedCrossRef.filter((c) => c.matchType === 'SCAN_ONLY').length,
-      dualOnly: dedupedCrossRef.filter((c) => c.matchType === 'DUAL_ONLY').length,
-      bothReject: dedupedCrossRef.filter((c) => c.matchType === 'BOTH_REJECT').length,
+      total: crossRef.length,
+      bothRecommend: crossRef.filter((c) => c.matchType === 'BOTH_RECOMMEND').length,
+      conflict: crossRef.filter((c) => c.matchType === 'CONFLICT').length,
+      scanOnly: crossRef.filter((c) => c.matchType === 'SCAN_ONLY').length,
+      dualOnly: crossRef.filter((c) => c.matchType === 'DUAL_ONLY').length,
+      bothReject: crossRef.filter((c) => c.matchType === 'BOTH_REJECT').length,
       hasScanData: !!hasScanData,
       hasDualData,
       scanCachedAt: scanCache?.cachedAt ?? null,
-      deduplicated: dupeTickersToRemove.size,
     };
 
-    return NextResponse.json({ tickers: dedupedCrossRef, summary });
+    return NextResponse.json({ tickers: crossRef, summary });
   } catch (error) {
     console.error('[CrossRef] Error:', error);
     return apiError(500, 'CROSS_REF_FAILED', 'Failed to build cross-reference', (error as Error).message, true);

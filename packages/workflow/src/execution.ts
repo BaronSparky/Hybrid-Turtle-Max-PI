@@ -15,15 +15,15 @@ import type { PlaceOrderInput } from '../../broker/src/types';
 import { assertSubmissionAllowed } from './safety-controls';
 
 /** Valid state transitions for planned trades. */
-const VALID_TRANSITIONS: Record<string, string[]> = {
-  DRAFT: ['APPROVED', 'CANCELLED'],
-  APPROVED: ['READY', 'CANCELLED'],
-  READY: ['SUBMITTED', 'CANCELLED'],
-  SUBMITTED: ['FILLED', 'CANCELLED', 'REJECTED'],
+const VALID_TRANSITIONS: Record<string, PlannedTradeStatus[]> = {
+  [PlannedTradeStatus.DRAFT]: [PlannedTradeStatus.APPROVED, PlannedTradeStatus.CANCELLED],
+  [PlannedTradeStatus.APPROVED]: [PlannedTradeStatus.READY, PlannedTradeStatus.CANCELLED],
+  [PlannedTradeStatus.READY]: [PlannedTradeStatus.SUBMITTED, PlannedTradeStatus.CANCELLED],
+  [PlannedTradeStatus.SUBMITTED]: [PlannedTradeStatus.FILLED, PlannedTradeStatus.CANCELLED, PlannedTradeStatus.REJECTED],
   // Terminal states — no further transitions
-  FILLED: [],
-  CANCELLED: [],
-  REJECTED: [],
+  [PlannedTradeStatus.FILLED]: [],
+  [PlannedTradeStatus.CANCELLED]: [],
+  [PlannedTradeStatus.REJECTED]: [],
 };
 
 export interface TradeTransitionResult {
@@ -157,8 +157,8 @@ export async function submitPlannedTrade(plannedTradeId: string): Promise<OrderS
     await upsertBrokerOrder(
       {
         brokerOrderId: result.brokerOrderId,
-        accountId: '',
-        accountType: '',
+        accountId: (result.rawPayload?.accountId as string) ?? adapter.adapterName,
+        accountType: (result.rawPayload?.accountType as string) ?? adapter.adapterName,
         symbol: trade.symbol,
         side: trade.side,
         orderType: orderInput.orderType,

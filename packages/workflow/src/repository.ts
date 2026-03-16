@@ -7,15 +7,11 @@
  * Notes: Provides persistence helpers for Phase 4 workflow orchestration, snapshots, and signal candidate storage.
  */
 import { JobRunStatus, Prisma, ProtectiveStopSource as StopSource, ProtectiveStopStatus } from '@prisma/client';
-import { prisma } from '../../data/src/prisma';
+import { prisma, toInputJson } from '../../data/src/prisma';
 import type { EveningScanCandidate, TonightWorkflowActionKey } from './types';
 
 function toDecimal(value: number): Prisma.Decimal {
   return new Prisma.Decimal(value);
-}
-
-function toInputJson(value: unknown): Prisma.InputJsonValue {
-  return value as Prisma.InputJsonValue;
 }
 
 export function getCurrentSessionDate() {
@@ -140,10 +136,15 @@ export async function replaceSignalCandidates(signalRunId: string, candidates: E
   });
   const instrumentBySymbol = new Map(instruments.map((instrument) => [instrument.symbol, instrument.id]));
 
+  const candidatesWithInstruments = candidates.filter((candidate) => instrumentBySymbol.has(candidate.symbol));
+  if (candidatesWithInstruments.length === 0) {
+    return;
+  }
+
   await prisma.signalCandidate.createMany({
-    data: candidates.map((candidate) => ({
+    data: candidatesWithInstruments.map((candidate) => ({
       signalRunId,
-      instrumentId: instrumentBySymbol.get(candidate.symbol),
+      instrumentId: instrumentBySymbol.get(candidate.symbol)!,
       symbol: candidate.symbol,
       currentPrice: candidate.currentPrice,
       triggerPrice: candidate.triggerPrice,

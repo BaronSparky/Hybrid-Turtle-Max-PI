@@ -33,6 +33,7 @@ export function slope(values: number[]) {
 }
 
 export function highest(values: number[]) {
+  if (values.length === 0) return 0;
   return values.reduce((result, value) => Math.max(result, value), Number.NEGATIVE_INFINITY);
 }
 

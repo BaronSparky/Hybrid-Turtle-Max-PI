@@ -3,10 +3,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import type { WeeklyPhase } from '@/types';
-import { getCurrentWeeklyPhase, OPPORTUNISTIC_GATES } from '@/types';
+import { getCurrentWeeklyPhase } from '@/types';
 import { apiError } from '@/lib/api-response';
-import { getCurrentExecutionMode } from '@/lib/execution-mode';
-import { getMarketRegime } from '@/lib/market-data';
 import { z } from 'zod';
 import { parseJsonBody } from '@/lib/request-validation';
 
@@ -25,24 +23,11 @@ export async function GET(request: NextRequest) {
     }
 
     const currentPhase = getCurrentWeeklyPhase();
-    const regime = await getMarketRegime();
-    const execMode = getCurrentExecutionMode(regime);
 
     // Get the latest plan for this week
     const weekStart = new Date();
     weekStart.setDate(weekStart.getDate() - weekStart.getDay());
     weekStart.setHours(0, 0, 0, 0);
-
-    // Count non-HEDGE positions opened today (for mid-week daily limit)
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEntryCount = await prisma.position.count({
-      where: {
-        userId,
-        entryDate: { gte: todayStart },
-        stock: { sleeve: { not: 'HEDGE' } },
-      },
-    });
 
     const plan = await prisma.executionPlan.findFirst({
       where: {
@@ -52,54 +37,10 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: 'desc' },
     });
 
-    // Pre-trade checklist items
-    const checklist = [
-      {
-        label: currentPhase === 'OBSERVATION'
-          ? 'Not Monday — BLOCKED'
-          : currentPhase === 'EXECUTION'
-            ? 'Tuesday execution day'
-            : execMode.isOpportunistic
-              ? 'Mid-week opportunistic (stricter bar)'
-              : 'Weekend — no execution',
-        passed: currentPhase === 'EXECUTION' || execMode.isOpportunistic,
-      },
-      {
-        label: `Regime: ${regime}`,
-        passed: regime === 'BULLISH',
-      },
-      ...(execMode.isOpportunistic
-        ? [
-            {
-              label: `NCS ≥ ${OPPORTUNISTIC_GATES.minNCS} required`,
-              passed: null as boolean | null, // depends on candidate
-            },
-            {
-              label: `FWS ≤ ${OPPORTUNISTIC_GATES.maxFWS} required`,
-              passed: null as boolean | null,
-            },
-            {
-              label: `Daily limit: ${todayEntryCount}/${OPPORTUNISTIC_GATES.maxNewPositions} used`,
-              passed: todayEntryCount < OPPORTUNISTIC_GATES.maxNewPositions,
-            },
-          ]
-        : []),
-    ];
-
     return NextResponse.json({
       currentPhase,
       plan,
       weekStart,
-      executionMode: {
-        mode: execMode.mode,
-        canEnter: execMode.canEnter,
-        reason: execMode.reason,
-        isOpportunistic: execMode.isOpportunistic,
-        isPlanned: execMode.isPlanned,
-      },
-      regime,
-      todayEntryCount,
-      checklist,
     });
   } catch (error) {
     console.error('Plan error:', error);

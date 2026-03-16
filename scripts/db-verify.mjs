@@ -261,5 +261,8 @@ async function main() {
 
 main().catch(err => {
   logError(`Unexpected error: ${err.message}`);
-  process.exit(0); // Don't block startup on verification failures
+  // Exit 0 intentionally: this script runs during app startup and must not
+  // prevent the application from starting even if verification fails.
+  // Errors are logged above for manual review.
+  process.exit(0);
 });

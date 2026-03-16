@@ -124,7 +124,6 @@ model Position {
   breakoutFailureDetectedAt DateTime?
   nearStopAlertSentAt       DateTime?   // prevents duplicate near-stop alerts — reset when stop moves
   entryTrigger              Float?
-  decisionStack             String?     // CORE | EXTENDED | FULL — which decision stack approved entry
   stock                     Stock          @relation(fields: [stockId], references: [id])
   user                      User           @relation(fields: [userId], references: [id])
   stopHistory               StopHistory[]

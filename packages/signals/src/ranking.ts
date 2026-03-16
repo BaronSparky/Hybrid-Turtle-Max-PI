@@ -43,9 +43,8 @@ export function rankCandidate(symbol: string, trend: TrendAnalysis, breakout: Br
     rankScore += 10;
   } else if (breakout.setupStatus === 'WAIT_PULLBACK') {
     rankScore -= 8;
-  } else if (breakout.setupStatus === 'FRAGILE') {
-    rankScore -= 12;
   } else {
+    // Covers AVOID and any future unrecognised status
     rankScore -= 20;
   }
 

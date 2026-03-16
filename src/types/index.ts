@@ -266,12 +266,12 @@ export const PHASE_CONFIG: Record<WeeklyPhase, {
     description: 'Execute planned trades with pre-trade validation',
   },
   MAINTENANCE: {
-    label: 'Opportunistic / Maintenance',
+    label: 'Maintenance Phase',
     dayLabel: 'Wed-Fri',
     color: '#3b82f6',
     bgColor: 'rgba(59, 130, 246, 0.15)',
     icon: '🔧',
-    description: 'Monitor positions, update stops. Auto-Yes entries allowed (NCS ≥ 70, FWS ≤ 30, max 1/day)',
+    description: 'Monitor positions, update stops, review nightly summaries',
   },
 };
 

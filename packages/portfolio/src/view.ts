@@ -1,7 +1,7 @@
 import { getLatestPortfolioSnapshot, getOpenPositionsWithStops, getRecentAuditEvents } from '../../broker/src/repository';
 import { prisma } from '../../data/src/prisma';
 
-function decimalToNumber(value: { toNumber(): number } | null | undefined) {
+export function decimalToNumber(value: { toNumber(): number } | null | undefined): number | null {
   return value ? value.toNumber() : null;
 }
 

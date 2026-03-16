@@ -15,20 +15,19 @@ import {
   upsertProtectiveStopRecord,
 } from './repository';
 import type { ProtectiveStopWorkflowResult, ResolvedStopPlan } from './types';
+import { ACTIVE_STOP_STATUSES } from './types';
+import { toInputJson } from '../../data/src/prisma';
 
 const STOP_TOLERANCE = 0.0001;
 
-function toInputJson(value: unknown): Prisma.InputJsonValue {
-  return value as Prisma.InputJsonValue;
-}
-
 function isNear(left: number, right: number) {
-  return Math.abs(left - right) <= STOP_TOLERANCE;
+  const divisor = Math.max(Math.abs(left), Math.abs(right), 1);
+  return Math.abs(left - right) / divisor <= STOP_TOLERANCE;
 }
 
 function resolveRelevantStop(position: Awaited<ReturnType<typeof getOpenPositionsForStopManagement>>[number]) {
   return (
-    position.protectiveStops.find((stop) => ['PLANNED', 'SUBMITTED', 'PENDING', 'ACTIVE', 'MISMATCH', 'MISSING'].includes(stop.status)) ??
+    position.protectiveStops.find((stop) => ACTIVE_STOP_STATUSES.includes(stop.status)) ??
     position.protectiveStops[0] ??
     null
   );

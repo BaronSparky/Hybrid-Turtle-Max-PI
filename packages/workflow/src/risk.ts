@@ -1,6 +1,10 @@
 import { createRiskSnapshot, getLatestPortfolioState } from './repository';
 import type { RiskReviewResult } from './types';
 
+/** Open risk thresholds as percentage of account equity. */
+const OPEN_RISK_HIGH_PCT = 8;
+const OPEN_RISK_MEDIUM_PCT = 5;
+
 function round(value: number) {
   return Number(value.toFixed(4));
 }
@@ -31,13 +35,17 @@ export async function reviewEveningRisk(): Promise<RiskReviewResult> {
   const accountEquity = snapshot?.equity.toNumber() ?? null;
   const openRiskPctOfEquity = accountEquity && accountEquity > 0 ? (totalOpenRisk / accountEquity) * 100 : null;
 
-  if ((openRiskPctOfEquity ?? 0) > 8) {
-    warnings.push('Open risk exceeds 8% of account equity.');
+  if (openRiskPctOfEquity != null && openRiskPctOfEquity > OPEN_RISK_HIGH_PCT) {
+    warnings.push(`Open risk exceeds ${OPEN_RISK_HIGH_PCT}% of account equity.`);
   }
 
-  const riskLevel = missingStopsCount > 0 || (openRiskPctOfEquity ?? 0) > 8
+  if (accountEquity == null && totalOpenRisk > 0) {
+    warnings.push('Equity data unavailable — cannot calculate open risk percentage.');
+  }
+
+  const riskLevel = missingStopsCount > 0 || accountEquity == null || (openRiskPctOfEquity != null && openRiskPctOfEquity > OPEN_RISK_HIGH_PCT)
     ? 'HIGH'
-    : (openRiskPctOfEquity ?? 0) > 5
+    : (openRiskPctOfEquity != null && openRiskPctOfEquity > OPEN_RISK_MEDIUM_PCT)
       ? 'MEDIUM'
       : 'LOW';
 

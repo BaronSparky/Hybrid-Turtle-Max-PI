@@ -7,7 +7,8 @@
  * Notes: Phase 10 kill-switch persistence and enforcement helpers.
  */
 import { Prisma } from '@prisma/client';
-import { prisma } from '../../data/src/prisma';
+import { z } from 'zod';
+import { prisma, toInputJson } from '../../data/src/prisma';
 
 const KILL_SWITCH_SETTINGS_KEY = 'phase10.kill-switches';
 
@@ -39,23 +40,17 @@ const DEFAULT_KILL_SWITCH_SETTINGS: KillSwitchSettings = {
   updatedAt: null,
 };
 
-function toInputJson(value: unknown): Prisma.InputJsonValue {
-  return value as Prisma.InputJsonValue;
-}
+const killSwitchSchema = z.object({
+  disableAllSubmissions: z.boolean(),
+  disableAutomatedSubmissions: z.boolean(),
+  disableScansWhenDataStale: z.boolean(),
+  updatedAt: z.string().nullable(),
+});
 
 function normalizeSettings(value: unknown): KillSwitchSettings {
-  if (!value || typeof value !== 'object') {
-    return DEFAULT_KILL_SWITCH_SETTINGS;
-  }
-
-  const input = value as Partial<KillSwitchSettings>;
-
-  return {
-    disableAllSubmissions: input.disableAllSubmissions ?? DEFAULT_KILL_SWITCH_SETTINGS.disableAllSubmissions,
-    disableAutomatedSubmissions: input.disableAutomatedSubmissions ?? DEFAULT_KILL_SWITCH_SETTINGS.disableAutomatedSubmissions,
-    disableScansWhenDataStale: input.disableScansWhenDataStale ?? DEFAULT_KILL_SWITCH_SETTINGS.disableScansWhenDataStale,
-    updatedAt: input.updatedAt ?? null,
-  };
+  const parsed = killSwitchSchema.safeParse(value);
+  if (parsed.success) return parsed.data;
+  return DEFAULT_KILL_SWITCH_SETTINGS;
 }
 
 export async function getKillSwitchSettings(): Promise<KillSwitchSettings> {

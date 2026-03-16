@@ -153,7 +153,6 @@ export default function SignalAuditPage() {
   const [result, setResult] = useState<AuditResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   // Fetch latest result on mount
   useEffect(() => {
@@ -176,7 +175,6 @@ export default function SignalAuditPage() {
 
   const runAudit = async () => {
     setRunning(true);
-    setError(null);
     try {
       const data = await apiRequest<{ ok: boolean; data: AuditResult }>(
         '/api/prediction/signal-audit',
@@ -184,13 +182,9 @@ export default function SignalAuditPage() {
       );
       if (data.data) {
         setResult(data.data);
-        if (data.data.sampleSize < 50) {
-          setError(`Insufficient data: only ${data.data.sampleSize} score breakdowns found (minimum 50 required). Run more scans to build up data.`);
-        }
       }
-    } catch (err) {
-      console.error('Failed to run audit:', err);
-      setError(err instanceof Error ? err.message : 'Failed to run audit');
+    } catch (error) {
+      console.error('Failed to run audit:', error);
     } finally {
       setRunning(false);
     }
@@ -265,22 +259,10 @@ export default function SignalAuditPage() {
           <div className="card-surface p-8 text-center text-muted-foreground">
             <BarChart3 className="w-8 h-8 mx-auto mb-3 opacity-40" />
             <p>No audit results yet. Click &ldquo;Run Analysis&rdquo; to compute signal mutual information.</p>
-            <p className="text-xs mt-2">Requires at least 50 score breakdowns from scans.</p>
-            {error && (
-              <div className="mt-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-left">
-                <p className="text-xs text-amber-300">{error}</p>
-              </div>
-            )}
+            <p className="text-xs mt-2">Requires at least 50 observations in the ScoreBreakdown table.</p>
           </div>
         ) : (
           <>
-            {/* Insufficient data warning */}
-            {error && (
-              <div className="card-surface p-4 flex items-start gap-3 border border-amber-500/30 bg-amber-500/5">
-                <AlertTriangle className="w-5 h-5 text-amber-400 mt-0.5 flex-shrink-0" />
-                <p className="text-sm text-amber-300">{error}</p>
-              </div>
-            )}
             {/* Summary */}
             <div className="card-surface p-4">
               <div className="flex items-start gap-3">

@@ -23,32 +23,15 @@ export async function GET() {
     });
 
     // Use startingEquityOverride from user settings if set (explicit user value),
-    // otherwise fall back to the earliest non-default snapshot, then T212 values
+    // otherwise fall back to the earliest snapshot
     const user = await prisma.user.findUnique({
       where: { id: 'default-user' },
-      select: {
-        equity: true,
-        startingEquityOverride: true,
-        t212TotalValue: true,
-        t212IsaTotalValue: true,
-        t212Connected: true,
-        t212IsaConnected: true,
-      },
+      select: { startingEquityOverride: true },
     });
 
-    // Find the first snapshot that isn't the Prisma default (10000)
-    const firstRealSnapshot = snapshots.find((s) => s.equity !== 10000) ?? snapshots[0] ?? null;
-    // T212 combined value as a fallback for starting equity
-    const t212Combined = (user?.t212TotalValue ?? 0) + (user?.t212IsaTotalValue ?? 0);
-    const hasT212 = user?.t212Connected || user?.t212IsaConnected;
-
     const startingEquity = user?.startingEquityOverride
-      ?? (firstRealSnapshot ? firstRealSnapshot.equity : null)
-      ?? (hasT212 && t212Combined > 0 ? t212Combined : null)
       ?? (snapshots.length > 0 ? snapshots[0].equity : null);
-    // Current equity: prefer live user.equity (updated by broker sync) over stale snapshots
-    const currentEquity = user?.equity
-      ?? (snapshots.length > 0 ? snapshots[snapshots.length - 1].equity : null);
+    const currentEquity = snapshots.length > 0 ? snapshots[snapshots.length - 1].equity : null;
     const totalGainLoss =
       startingEquity != null && currentEquity != null
         ? currentEquity - startingEquity
@@ -58,14 +41,13 @@ export async function GET() {
         ? (totalGainLoss / startingEquity) * 100
         : null;
 
-    // Weeks running — from first real snapshot to now
-    const firstDate = firstRealSnapshot?.capturedAt ?? (snapshots.length > 0 ? snapshots[0].capturedAt : null);
+    // Weeks running — from first snapshot to now
     const weeksRunning =
-      firstDate
+      snapshots.length > 0
         ? Math.max(
             1,
             Math.floor(
-              (Date.now() - new Date(firstDate).getTime()) /
+              (Date.now() - new Date(snapshots[0].capturedAt).getTime()) /
                 (7 * 24 * 60 * 60 * 1000)
             )
           )

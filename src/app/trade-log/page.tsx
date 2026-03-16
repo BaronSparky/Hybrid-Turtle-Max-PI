@@ -44,7 +44,6 @@ type SummaryResponse = {
   topWinningTags: Array<{ key: string; count: number }>;
   topLosingTags: Array<{ key: string; count: number }>;
   byRegime: Record<string, { count: number; avgR: number | null }>;
-  byStack?: Record<string, { count: number; winRate: number; avgR: number | null }>;
 };
 
 type MonthlyTrendPoint = {
@@ -58,7 +57,6 @@ type QueryFilters = {
   ticker: string;
   decision: string;
   tradeType: string;
-  decisionStack: string;
   from: string;
   to: string;
 };
@@ -84,7 +82,6 @@ export default function TradeLogPage() {
   const [tickerFilter, setTickerFilter] = useState('');
   const [decisionFilter, setDecisionFilter] = useState('all');
   const [tradeTypeFilter, setTradeTypeFilter] = useState('all');
-  const [decisionStackFilter, setDecisionStackFilter] = useState('all');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [activePreset, setActivePreset] = useState<PresetType | null>(null);
@@ -99,7 +96,6 @@ export default function TradeLogPage() {
         ticker: tickerFilter.trim(),
         decision: decisionFilter,
         tradeType: tradeTypeFilter,
-        decisionStack: decisionStackFilter,
         from: fromDate,
         to: toDate,
         ...overrides,
@@ -113,7 +109,6 @@ export default function TradeLogPage() {
       if (effective.ticker) query.set('ticker', effective.ticker);
       if (effective.decision !== 'all') query.set('decision', effective.decision);
       if (effective.tradeType !== 'all') query.set('tradeType', effective.tradeType);
-      if (effective.decisionStack !== 'all') query.set('decisionStack', effective.decisionStack);
       if (effective.from) query.set('from', effective.from);
       if (effective.to) query.set('to', effective.to);
 
@@ -131,7 +126,7 @@ export default function TradeLogPage() {
     } finally {
       setLoading(false);
     }
-  }, [tickerFilter, decisionFilter, tradeTypeFilter, decisionStackFilter, fromDate, toDate]);
+  }, [tickerFilter, decisionFilter, tradeTypeFilter, fromDate, toDate]);
 
   const applyPreset = useCallback((preset: PresetType) => {
     const now = new Date();
@@ -251,7 +246,7 @@ export default function TradeLogPage() {
           onSaved={() => void fetchData()}
         />
 
-        <div className="card-surface p-4 grid grid-cols-1 md:grid-cols-3 xl:grid-cols-7 gap-3">
+        <div className="card-surface p-4 grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-3">
           <input
             value={tickerFilter}
             onChange={(e) => setTickerFilter(e.target.value)}
@@ -281,17 +276,6 @@ export default function TradeLogPage() {
             <option value="STOP_HIT">STOP_HIT</option>
             <option value="ADD">ADD</option>
             <option value="TRIM">TRIM</option>
-          </select>
-
-          <select
-            value={decisionStackFilter}
-            onChange={(e) => setDecisionStackFilter(e.target.value)}
-            className="px-3 py-2 rounded-md bg-navy-700/40 border border-border text-sm text-foreground"
-          >
-            <option value="all">All stacks</option>
-            <option value="CORE">CORE</option>
-            <option value="EXTENDED">EXTENDED</option>
-            <option value="FULL">FULL</option>
           </select>
 
           <input
@@ -438,42 +422,6 @@ export default function TradeLogPage() {
             )}
           </div>
         </div>
-
-        {/* Stack Split — EV comparison across decision layers */}
-        {summary?.byStack && Object.keys(summary.byStack).length > 0 && (
-          <div className="card-surface p-4">
-            <h3 className="text-sm font-semibold text-foreground mb-3">Stack Split</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {(['CORE', 'EXTENDED', 'FULL'] as const).map((stack) => {
-                const data = summary.byStack?.[stack];
-                return (
-                  <div key={stack} className="rounded-lg bg-navy-800/50 p-3 border border-border">
-                    <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">{stack}</div>
-                    {data ? (
-                      <>
-                        <div className="flex items-baseline gap-2 mb-1">
-                          <span className={`text-lg font-bold ${data.winRate >= 50 ? 'text-profit' : 'text-loss'}`}>
-                            {fmtNumber(data.winRate, 1)}%
-                          </span>
-                          <span className="text-xs text-muted-foreground">win rate</span>
-                        </div>
-                        <div className="flex items-baseline gap-2 mb-1">
-                          <span className={`text-sm font-semibold ${(data.avgR ?? 0) >= 0 ? 'text-profit' : 'text-loss'}`}>
-                            {fmtNumber(data.avgR, 2)}R
-                          </span>
-                          <span className="text-xs text-muted-foreground">avg</span>
-                        </div>
-                        <div className="text-xs text-muted-foreground">{data.count} trades</div>
-                      </>
-                    ) : (
-                      <div className="text-xs text-muted-foreground">No data</div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="card-surface p-4">

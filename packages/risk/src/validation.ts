@@ -138,17 +138,31 @@ export function assessTradeRisk(
 
 /**
  * Validates a batch of candidates against the current account risk state.
- * Returns assessments for all candidates, regardless of approval status.
+ * Progressively updates the working account state as candidates are approved,
+ * so that each subsequent candidate sees the cumulative risk impact.
  */
 export async function validateCandidateBatch(
   candidates: Array<{ symbol: string; entryPrice: number; stopPrice: number }>,
 ): Promise<{ accountState: AccountRiskState; assessments: TradeRiskAssessment[] }> {
   const accountState = await getAccountRiskState();
   const assessments: TradeRiskAssessment[] = [];
+  let workingState = { ...accountState };
 
   for (const candidate of candidates) {
-    const assessment = assessTradeRisk(candidate.symbol, candidate.entryPrice, candidate.stopPrice, accountState);
+    const assessment = assessTradeRisk(candidate.symbol, candidate.entryPrice, candidate.stopPrice, workingState);
     assessments.push(assessment);
+
+    // If approved, update working state so subsequent candidates see cumulative risk
+    if (assessment.approved) {
+      workingState = {
+        ...workingState,
+        totalOpenRisk: assessment.sizing.openRiskAfterTrade,
+        openRiskPct: assessment.sizing.openRiskPctAfterTrade,
+        openPositionCount: workingState.openPositionCount + 1,
+        totalMarketValue: workingState.totalMarketValue + assessment.sizing.positionValue,
+        cashBalance: workingState.cashBalance - assessment.sizing.positionValue,
+      };
+    }
   }
 
   return { accountState, assessments };

@@ -26,7 +26,6 @@ export async function GET(request: NextRequest) {
     const decision = searchParams.get('decision')?.trim();
     const tradeType = searchParams.get('tradeType')?.trim();
     const regime = searchParams.get('regime')?.trim();
-    const decisionStack = searchParams.get('decisionStack')?.trim();
     const from = parseDate(searchParams.get('from'));
     const to = parseDate(searchParams.get('to'));
     const limit = Math.min(Math.max(Number(searchParams.get('limit') || 200), 1), 500);
@@ -38,7 +37,6 @@ export async function GET(request: NextRequest) {
         ...(decision ? { decision } : {}),
         ...(tradeType ? { tradeType } : {}),
         ...(regime ? { regime } : {}),
-        ...(decisionStack ? { position: { decisionStack } } : {}),
         ...(from || to
           ? {
               tradeDate: {

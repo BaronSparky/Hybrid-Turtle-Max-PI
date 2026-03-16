@@ -142,60 +142,6 @@ export async function GET(request: NextRequest) {
       regimeCounter[regime] = { count: values.length, avgR: avg };
     });
 
-    // ── Decision Stack breakdown (advisory analytics) ──
-    // Join through positionId to get decisionStack from Position
-    const stackRows = await prisma.tradeLog.findMany({
-      where: {
-        userId,
-        positionId: { not: null },
-        tradeType: 'ENTRY',
-        ...(ticker ? { ticker: { contains: ticker } } : {}),
-        ...(regime ? { regime } : {}),
-        ...(from || to
-          ? {
-              tradeDate: {
-                ...(from ? { gte: from } : {}),
-                ...(to ? { lte: to } : {}),
-              },
-            }
-          : {}),
-      },
-      select: {
-        finalRMultiple: true,
-        gainLossGbp: true,
-        position: {
-          select: { decisionStack: true },
-        },
-      },
-    });
-
-    const byStack: Record<string, { count: number; winRate: number; avgR: number | null }> = {};
-    const stackGrouped: Record<string, { wins: number; total: number; rValues: number[] }> = {};
-
-    for (const row of stackRows) {
-      const stack = row.position?.decisionStack || 'UNKNOWN';
-      if (!stackGrouped[stack]) stackGrouped[stack] = { wins: 0, total: 0, rValues: [] };
-
-      const hasOutcome = row.finalRMultiple !== null || row.gainLossGbp !== null;
-      if (!hasOutcome) continue;
-
-      stackGrouped[stack].total += 1;
-      stackGrouped[stack].rValues.push(row.finalRMultiple ?? 0);
-
-      const won = row.finalRMultiple !== null ? row.finalRMultiple > 0 : (row.gainLossGbp ?? 0) > 0;
-      if (won) stackGrouped[stack].wins += 1;
-    }
-
-    for (const [stack, data] of Object.entries(stackGrouped)) {
-      byStack[stack] = {
-        count: data.total,
-        winRate: data.total > 0 ? (data.wins / data.total) * 100 : 0,
-        avgR: data.rValues.length > 0
-          ? data.rValues.reduce((a, b) => a + b, 0) / data.rValues.length
-          : null,
-      };
-    }
-
     return NextResponse.json({
       totals: {
         totalLogs: rows.length,
@@ -210,7 +156,6 @@ export async function GET(request: NextRequest) {
       topWinningTags: topItems(winningTagCounter),
       topLosingTags: topItems(losingTagCounter),
       byRegime: regimeCounter,
-      byStack,
     });
   } catch (error) {
     console.error('Trade log summary error:', error);

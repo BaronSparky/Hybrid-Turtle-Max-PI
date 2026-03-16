@@ -25,7 +25,7 @@ export interface BreakoutAnalysis {
   breakoutHigh55: number;
   volumeRatio20: number;
   breakoutDistancePct: number;
-  setupStatus: 'READY_NEXT_SESSION' | 'READY_ON_TRIGGER' | 'EARLY_BIRD' | 'WATCH' | 'WAIT_PULLBACK' | 'AVOID' | 'FRAGILE';
+  setupStatus: 'READY_NEXT_SESSION' | 'READY_ON_TRIGGER' | 'EARLY_BIRD' | 'WATCH' | 'WAIT_PULLBACK' | 'AVOID';
   reasons: string[];
   warnings: string[];
 }
@@ -46,7 +46,7 @@ export interface RankedCandidate {
   initialStop: number;
   stopDistancePercent: number;
   riskPerShare: number;
-  setupStatus: string;
+  setupStatus: BreakoutAnalysis['setupStatus'];
   rankScore: number;
   reasons: string[];
   warnings: string[];

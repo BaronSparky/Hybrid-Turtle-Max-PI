@@ -8,6 +8,7 @@
  */
 import { PlannedTradeStatus, Prisma, ProtectiveStopSource, ProtectiveStopStatus, StopAlertState } from '@prisma/client';
 import { prisma } from '../../data/src/prisma';
+import { ACTIVE_STOP_STATUSES } from './types';
 
 function toDecimal(value: number): Prisma.Decimal {
   return new Prisma.Decimal(value);
@@ -86,7 +87,7 @@ export async function upsertProtectiveStopRecord(args: {
     where: {
       linkedPositionId: args.linkedPositionId,
       status: {
-        in: ['PLANNED', 'SUBMITTED', 'PENDING', 'ACTIVE', 'MISMATCH', 'MISSING'],
+        in: [...ACTIVE_STOP_STATUSES],
       },
     },
     orderBy: { updatedAt: 'desc' },
@@ -129,7 +130,7 @@ export async function closeInactiveProtectiveStops() {
   const stoppable = await prisma.protectiveStop.findMany({
     where: {
       status: {
-        in: ['PLANNED', 'SUBMITTED', 'PENDING', 'ACTIVE', 'MISMATCH', 'MISSING'],
+        in: [...ACTIVE_STOP_STATUSES],
       },
       linkedPosition: {
         isOpen: false,

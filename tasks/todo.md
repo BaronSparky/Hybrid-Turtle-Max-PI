@@ -1,3 +1,33 @@
+# Breakout-First Evidence Capture & Analytics — 11 Mar 2026
+
+**Risk-sensitive:** NO — advisory Layer 2 only. No sacred files touched. No scan/risk/stop logic modified.
+**Goal:** Surface breakout as the primary trading context. Passively capture entropy + network isolation for future Phase 6 learning.
+
+## Plan
+
+- [x] Prisma migration: add 9 fields to SnapshotTicker (isBreakout20, breakoutDistancePct, breakoutWindowDays, entropy63, netIsolation, entropyObsCount, netIsolationPeerCount, netIsolationObsCount, novelSignalVersion)
+- [x] Create src/lib/signals/breakout-signals.ts — compute breakout state from daily bars
+- [x] Create src/lib/signals/entropy-signal.ts — compute Shannon entropy of 63-day returns
+- [x] Create src/lib/signals/network-isolation.ts — compute cross-correlation isolation score
+- [x] Wire signal capture into snapshot-sync.ts (computed during per-ticker processing, network isolation as post-batch pass)
+- [x] Persist captured values to SnapshotTicker rows
+- [x] Build GET /api/analytics/breakout-evidence — aggregate breakout vs non-breakout outcomes
+- [x] Build /breakout-evidence page — analytics dashboard with primary + shadow stats
+- [x] Update CandidateTable to show breakout badge ("BO") when at/above 20-day high
+- [x] Update dashboard trigger status to include breakout candidate count
+- [x] Write tests for breakout-signals (9), entropy-signal (7), network-isolation (7) = 23 new tests
+- [x] Run full test suite (42 files, 647 tests — all pass) + build (success)
+
+## Review
+
+All changes are Layer 2 advisory only. No sacred files touched. The three signal modules are pure functions that operate on daily bar arrays. Breakout + entropy are computed per-ticker inside snapshot-sync (daily bars already available). Network isolation is computed in a post-batch pass using cached close prices grouped by cluster. The analytics API aggregates snapshot data against CandidateOutcome forward returns. UI labels show breakout context without affecting scan decisions.
+
+## Architecture Decision
+
+The task spec requested a nightly Step 2.5 for signal capture. Instead, the signals are computed inside the existing Step 7 snapshot-sync where daily bars are already fetched per-ticker. This avoids a second full-universe Yahoo fetch (~268 tickers), saves ~5 minutes of nightly runtime, and keeps the data flow colocated. The net effect is identical: signals are captured before the scan pipeline processes candidates.
+
+---
+
 # Repo Cleanup — 9 Mar 2026
 
 **Risk-sensitive:** NO — remove only disposable scratch/debug artifacts and backups that are not referenced by runtime code

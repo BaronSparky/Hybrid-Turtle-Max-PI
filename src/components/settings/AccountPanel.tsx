@@ -26,47 +26,19 @@ export default function AccountPanel() {
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [dirty, setDirty] = useState(false);
-  const [t212EquityHint, setT212EquityHint] = useState<string | null>(null);
 
   const profile = RISK_PROFILES[riskProfile as keyof typeof RISK_PROFILES];
 
-  // Load saved settings on mount — auto-fill equity from T212 if blank/default
+  // Load saved startingEquityOverride on mount
   useEffect(() => {
-    apiRequest<{
-      startingEquityOverride?: number | null;
-      equity?: number;
-      t212Connected?: boolean;
-      t212TotalValue?: number | null;
-      t212IsaConnected?: boolean;
-      t212IsaTotalValue?: number | null;
-    }>(`/api/settings?userId=${DEFAULT_USER_ID}`)
+    apiRequest<{ startingEquityOverride?: number | null }>(`/api/settings?userId=${DEFAULT_USER_ID}`)
       .then((data) => {
         if (data.startingEquityOverride != null) {
           setStartingEquityOverride(data.startingEquityOverride.toString());
         }
-
-        // Auto-fill equity from T212 if still at default and T212 has data
-        const currentEquity = data.equity ?? 0;
-        const isDefault = currentEquity === 10000 || currentEquity === 0;
-        if (isDefault) {
-          const investValue = data.t212TotalValue ?? 0;
-          const isaValue = data.t212IsaTotalValue ?? 0;
-          const t212Equity = investValue + isaValue;
-          if (t212Equity > 0) {
-            setEquityInput(t212Equity.toString());
-            setEquity(t212Equity);
-            setDirty(true);
-            setT212EquityHint(`Auto-filled from T212: £${t212Equity.toFixed(2)} — save to confirm`);
-          }
-        } else if ((data.t212Connected || data.t212IsaConnected) && (data.t212TotalValue || data.t212IsaTotalValue)) {
-          const t212Total = (data.t212TotalValue ?? 0) + (data.t212IsaTotalValue ?? 0);
-          if (t212Total > 0 && Math.abs(currentEquity - t212Total) > 1) {
-            setT212EquityHint(`T212 account value: £${t212Total.toFixed(2)} — run broker sync to update`);
-          }
-        }
       })
       .catch(() => {});
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // Sync equity input when store changes (e.g. from T212 sync)
   useEffect(() => {
@@ -140,9 +112,6 @@ export default function AccountPanel() {
           <p className="text-xs text-muted-foreground mt-1">
             Risk per trade: {formatCurrency(parseFloat(equityInput || '0') * profile.riskPerTrade / 100)}
           </p>
-          {t212EquityHint && (
-            <p className="text-xs text-primary-400 mt-1">{t212EquityHint}</p>
-          )}
         </div>
         <div>
           <label className="block text-sm text-muted-foreground mb-1">Risk Profile</label>

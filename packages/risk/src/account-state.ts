@@ -7,6 +7,7 @@
  */
 import { prisma } from '../../data/src/prisma';
 import type { AccountRiskState, PositionConcentration } from './types';
+import { round } from './sizing';
 
 /**
  * Loads the unified account risk state from the latest portfolio snapshot and open broker positions.
@@ -36,7 +37,6 @@ export async function getAccountRiskState(): Promise<AccountRiskState> {
   // Use user settings equity when broker snapshot is from mock/demo/disabled adapter
   const isDemo = !snapshot || snapshot.accountType === 'DEMO' || snapshot.accountType === 'DISABLED';
   const accountEquity = isDemo ? (user?.equity ?? 0) : (snapshot?.equity.toNumber() ?? 0);
-  const cashBalance = isDemo ? (user?.equity ?? 0) : (snapshot?.cashBalance.toNumber() ?? 0);
 
   let totalMarketValue = 0;
   let totalOpenRisk = 0;
@@ -70,6 +70,11 @@ export async function getAccountRiskState(): Promise<AccountRiskState> {
 
   const openRiskPct = accountEquity > 0 ? (totalOpenRisk / accountEquity) * 100 : 0;
 
+  // In demo mode, estimate cash as equity minus invested value
+  const cashBalance = isDemo
+    ? Math.max((user?.equity ?? 0) - totalMarketValue, 0)
+    : (snapshot?.cashBalance.toNumber() ?? 0);
+
   return {
     accountEquity,
     cashBalance,
@@ -80,8 +85,4 @@ export async function getAccountRiskState(): Promise<AccountRiskState> {
     concentrations,
     missingStopCount,
   };
-}
-
-function round(value: number, precision = 4) {
-  return Number(value.toFixed(precision));
 }

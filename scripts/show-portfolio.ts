@@ -6,6 +6,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(error);
+  console.error('Portfolio view failed:', error instanceof Error ? error.message : error);
   process.exit(1);
 });

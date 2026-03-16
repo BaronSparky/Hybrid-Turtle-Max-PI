@@ -391,54 +391,6 @@ export async function POST(request: NextRequest) {
     const fxToGbp = newFxToGbp; // already computed above for risk gates
     const effectivePlannedEntry = plannedEntry ?? null;
 
-    // ── Compute Decision Stack (advisory metadata — no execution effect) ──
-    // CORE: regime BULLISH + all 6 risk gates passed + technical filters — by this point, all are verified
-    // EXTENDED: CORE + NCS >= 70 AND FWS <= 30 (Auto-Yes threshold)
-    // FULL: EXTENDED + prediction engine approved (conformal lower bound >= 70, no FMs triggered, MC stop-hit <= 25%)
-    let decisionStack: 'CORE' | 'EXTENDED' | 'FULL' = 'CORE';
-
-    const hasExtended = typeof ncsScore === 'number' && typeof fwsScore === 'number'
-      && ncsScore >= 70 && fwsScore <= 30;
-
-    if (hasExtended) {
-      decisionStack = 'EXTENDED';
-
-      // Check FULL: read prediction engine results from existing output
-      try {
-        const [latestFM, latestMC, latestCal] = await Promise.all([
-          prisma.failureModeScore.findFirst({
-            where: { ticker },
-            orderBy: { scoredAt: 'desc' },
-            select: { gatePass: true },
-          }),
-          prisma.stressTestResult.findFirst({
-            where: { ticker },
-            orderBy: { testedAt: 'desc' },
-            select: { stopHitProbability: true },
-          }),
-          prisma.conformalCalibration.findFirst({
-            where: { regime: regime || undefined },
-            orderBy: { calibratedAt: 'desc' },
-            select: { qHatDown: true },
-          }),
-        ]);
-
-        const fmPassed = latestFM?.gatePass === true;
-        const mcPassed = latestMC != null && latestMC.stopHitProbability <= 0.25;
-        const conformalLower = latestCal != null && typeof ncsScore === 'number'
-          ? Math.max(0, ncsScore - latestCal.qHatDown)
-          : null;
-        const conformalPassed = conformalLower != null && conformalLower >= 70;
-
-        if (fmPassed && mcPassed && conformalPassed) {
-          decisionStack = 'FULL';
-        }
-      } catch (predErr) {
-        // If prediction data is unavailable, default stays at EXTENDED
-        console.warn('[DecisionStack] Prediction engine lookup failed (defaulting to EXTENDED):', (predErr as Error).message);
-      }
-    }
-
     // Atomic: position create + trade log in one transaction
     const position = await prisma.$transaction(async (tx) => {
       const pos = await tx.position.create({
@@ -461,7 +413,6 @@ export async function POST(request: NextRequest) {
           source: 'manual',
           // T212 dual-account: ISA vs Invest — routes stops to the correct account
           accountType: accountType ?? 'invest',
-          decisionStack,
           notes,
         },
         include: { stock: true },

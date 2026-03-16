@@ -7,11 +7,12 @@
  * Notes: Projects stop protection state into a dashboard-friendly table.
  */
 import type { StopDashboardData, StopDashboardRow, StopDashboardStatus } from './types';
+import { ACTIVE_STOP_STATUSES } from './types';
 import { getOpenPositionsForStopManagement } from './repository';
 
 function resolveRelevantStop(position: Awaited<ReturnType<typeof getOpenPositionsForStopManagement>>[number]) {
   return (
-    position.protectiveStops.find((stop) => ['PLANNED', 'SUBMITTED', 'PENDING', 'ACTIVE', 'MISMATCH', 'MISSING'].includes(stop.status)) ??
+    position.protectiveStops.find((stop) => ACTIVE_STOP_STATUSES.includes(stop.status)) ??
     position.protectiveStops[0] ??
     null
   );
@@ -19,6 +20,8 @@ function resolveRelevantStop(position: Awaited<ReturnType<typeof getOpenPosition
 
 function mapDashboardStatus(status: string | null): StopDashboardStatus {
   switch (status) {
+    case null:
+      return 'MISSING';
     case 'PLANNED':
     case 'SUBMITTED':
     case 'PENDING':
@@ -51,7 +54,7 @@ export async function getStopDashboardData(): Promise<StopDashboardData> {
       intendedStop: currentStop?.stopPrice?.toNumber() ?? null,
       brokerStopReference: currentStop?.brokerReference ?? null,
       verificationTime: currentStop?.lastVerifiedAt?.toISOString() ?? null,
-      alertState: currentStop?.alertState ?? 'CRITICAL',
+      alertState: currentStop?.alertState ?? 'WARNING',
       stopSource: currentStop?.source ?? 'UNKNOWN',
       status,
       isProtected: status === 'ACTIVE',

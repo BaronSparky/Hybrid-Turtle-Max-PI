@@ -182,7 +182,7 @@ export async function runFullScan(
     include: { stock: true },
   });
 
-  const positionsForGates = await Promise.all(existingPositions.map(async (p) => {
+  const positionResults = await Promise.allSettled(existingPositions.map(async (p) => {
     const currency = (p.stock.currency || 'USD').toUpperCase();
     const isUk = p.stock.ticker.endsWith('.L') || /^[A-Z]{2,5}l$/.test(p.stock.ticker);
     const fxToGbp = isUk || currency === 'GBX' || currency === 'GBP' || currency === 'GBp'
@@ -208,6 +208,15 @@ export async function runFullScan(
       currentPrice: currentPriceGbp,
     };
   }));
+
+  const positionsForGates = positionResults
+    .filter((r): r is PromiseFulfilledResult<typeof r extends PromiseFulfilledResult<infer V> ? V : never> => {
+      if (r.status === 'rejected') {
+        console.warn('[scan-engine] Position gate data failed, skipping:', r.reason);
+      }
+      return r.status === 'fulfilled';
+    })
+    .map((r) => r.value);
 
   const fxCache = new Map<string, number>();
   async function getFxToGbp(currency: string | null, ticker: string): Promise<number> {

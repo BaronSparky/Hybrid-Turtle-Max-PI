@@ -8,6 +8,9 @@
  */
 export type StopDashboardStatus = 'PENDING' | 'ACTIVE' | 'MISSING' | 'MISMATCHED' | 'FAILED' | 'CLOSED';
 
+/** Protective stop statuses considered "active" for resolution and filtering. */
+export const ACTIVE_STOP_STATUSES = ['PLANNED', 'SUBMITTED', 'PENDING', 'ACTIVE', 'MISMATCH', 'MISSING'] as const;
+
 export interface ResolvedStopPlan {
   stopPrice: number;
   reference: string | null;

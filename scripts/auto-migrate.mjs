@@ -91,8 +91,11 @@ async function getFailedMigrations() {
     ).all();
     db.close();
     return rows;
-  } catch {
-    // better-sqlite3 not available or table doesn't exist — that's fine
+  } catch (err) {
+    // better-sqlite3 not available or _prisma_migrations table doesn't exist
+    if (err?.code === 'MODULE_NOT_FOUND' || err?.code === 'SQLITE_ERROR') return [];
+    // Also tolerate unknown import/table errors during startup
+    if (err?.message?.includes('Cannot find') || err?.message?.includes('no such table')) return [];
     return [];
   }
 }

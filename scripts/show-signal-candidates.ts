@@ -8,6 +8,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(error);
+  console.error('Signal candidates failed:', error instanceof Error ? error.message : error);
   process.exit(1);
 });

@@ -63,7 +63,9 @@ export function validateRiskGates(
       : (p.currentPrice - p.currentStop) * p.shares;
     return sum + Math.max(0, posRisk);
   }, 0);
-  const totalOpenRiskPercent = ((currentOpenRisk + newPosition.riskDollars) / equity) * 100;
+  const totalOpenRiskPercent = equity > 0
+    ? ((currentOpenRisk + newPosition.riskDollars) / equity) * 100
+    : 100; // Fail-closed: treat zero equity as 100% risk
   results.push({
     passed: totalOpenRiskPercent <= profile.maxOpenRisk,
     gate: 'Total Open Risk',

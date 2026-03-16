@@ -47,38 +47,41 @@ export async function ensureInstrument(symbol: string, metadata?: HistoricalBars
 export async function upsertDailyBars({ symbol, bars, metadata }: UpsertDailyBarsInput) {
   const instrument = await ensureInstrument(symbol, metadata);
 
-  for (const bar of bars) {
-    await prisma.dailyBar.upsert({
-      where: {
-        instrumentId_date_source: {
+  // Batch all upserts in a single transaction for atomicity and performance
+  await prisma.$transaction(
+    bars.map((bar) =>
+      prisma.dailyBar.upsert({
+        where: {
+          instrumentId_date_source: {
+            instrumentId: instrument.id,
+            date: bar.date,
+            source: bar.source,
+          },
+        },
+        update: {
+          open: bar.open,
+          high: bar.high,
+          low: bar.low,
+          close: bar.close,
+          volume: BigInt(bar.volume),
+          adjustedClose: bar.adjustedClose,
+          fetchedAt: bar.fetchedAt,
+        },
+        create: {
           instrumentId: instrument.id,
           date: bar.date,
+          open: bar.open,
+          high: bar.high,
+          low: bar.low,
+          close: bar.close,
+          volume: BigInt(bar.volume),
+          adjustedClose: bar.adjustedClose,
           source: bar.source,
+          fetchedAt: bar.fetchedAt,
         },
-      },
-      update: {
-        open: bar.open,
-        high: bar.high,
-        low: bar.low,
-        close: bar.close,
-        volume: BigInt(bar.volume),
-        adjustedClose: bar.adjustedClose,
-        fetchedAt: bar.fetchedAt,
-      },
-      create: {
-        instrumentId: instrument.id,
-        date: bar.date,
-        open: bar.open,
-        high: bar.high,
-        low: bar.low,
-        close: bar.close,
-        volume: BigInt(bar.volume),
-        adjustedClose: bar.adjustedClose,
-        source: bar.source,
-        fetchedAt: bar.fetchedAt,
-      },
-    });
-  }
+      })
+    )
+  );
 
   const lastBarDate = bars.length > 0 ? bars[bars.length - 1].date : null;
 
@@ -199,7 +202,11 @@ export async function finalizeDataRefreshRun(args: {
   results: SymbolRefreshResult[];
 }) {
   const finishedAt = new Date();
-  const status = args.failedSymbols > 0 ? JobRunStatus.PARTIAL : JobRunStatus.SUCCEEDED;
+  const status = args.failedSymbols >= args.requestedSymbols
+    ? JobRunStatus.FAILED
+    : args.failedSymbols > 0
+      ? JobRunStatus.PARTIAL
+      : JobRunStatus.SUCCEEDED;
 
   await prisma.dataRefreshRun.update({
     where: { id: args.dataRefreshRunId },

@@ -35,9 +35,7 @@ export function useWeeklyPhase() {
   const isPlanningDay = weeklyPhase === 'PLANNING';
   const isManageDay = weeklyPhase === 'MAINTENANCE';
 
-  // Tuesday: full planned execution. Wed-Fri: opportunistic (Auto-Yes only, BULLISH, 1/day)
-  const canPlaceNewTrades = isTradingDay || isManageDay;
-  const isOpportunistic = isManageDay;
+  const canPlaceNewTrades = isTradingDay;
   const canUpdateStops = isTradingDay || isManageDay;
   const canRunScan = true; // Always allowed
   const canRunHealthCheck = true; // Always allowed
@@ -48,7 +46,6 @@ export function useWeeklyPhase() {
     isObserveOnly,
     isPlanningDay,
     isManageDay,
-    isOpportunistic,
     canPlaceNewTrades,
     canUpdateStops,
     canRunScan,

@@ -54,6 +54,6 @@ export function calculateTradeSize(
   };
 }
 
-function round(value: number, precision = 4) {
+export function round(value: number, precision = 4) {
   return Number(value.toFixed(precision));
 }

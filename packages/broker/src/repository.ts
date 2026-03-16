@@ -5,7 +5,7 @@ import {
   PlannedTradeStatus,
   Prisma,
 } from '@prisma/client';
-import { prisma } from '../../data/src/prisma';
+import { prisma, toInputJson } from '../../data/src/prisma';
 import type {
   BrokerInstrumentMeta,
   BrokerOrderSnapshot,
@@ -15,10 +15,6 @@ import type {
 
 function toDecimal(value: number): Prisma.Decimal {
   return new Prisma.Decimal(value);
-}
-
-function toInputJson(value: unknown): Prisma.InputJsonValue {
-  return value as Prisma.InputJsonValue;
 }
 
 export async function createBrokerSyncRun(adapter: string) {

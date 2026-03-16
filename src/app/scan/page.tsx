@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState, lazy, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Navbar from '@/components/shared/Navbar';
 import StageFunnel from '@/components/scan/StageFunnel';
-import GateBlockerBreakdown from '@/components/scan/GateBlockerBreakdown';
 import TechnicalFilterGrid from '@/components/scan/TechnicalFilterGrid';
 import CandidateTable from '@/components/scan/CandidateTable';
 import PositionSizer from '@/components/scan/PositionSizer';
@@ -540,11 +539,6 @@ function ScanPageInner() {
           </div>
         )}
 
-        {/* Gate Blocker Breakdown — collapsible advisory panel */}
-        {(activeStage === 1 || activeStage === 4 || activeStage === 7) && (
-          <GateBlockerBreakdown />
-        )}
-
         <div className={cn('grid gap-6', (activeStage === 1 || activeStage === 4 || activeStage === 7) ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-3')}>
           {/* Left: Funnel + Stage Content */}
           <div className={cn((activeStage === 1 || activeStage === 4 || activeStage === 7) ? '' : 'lg:col-span-2', 'space-y-6')}>
@@ -952,7 +946,6 @@ function ScanPageInner() {
             <div className="space-y-6">
               <StageFunnel stages={funnelStages} />
               <PositionSizer />
-              <GateBlockerBreakdown />
             </div>
           )}
         </div>
