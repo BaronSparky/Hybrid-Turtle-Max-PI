@@ -12,6 +12,8 @@ import ReviewStatusBadge from '@/components/review/ReviewStatusBadge';
 import { formatDateTime, formatNumber } from '@/lib/utils';
 import { getEveningReviewData } from '../../../packages/portfolio/src';
 
+export const dynamic = 'force-dynamic';
+
 export default async function JobsPage() {
   const data = await getEveningReviewData();
   const failedJobs = data.jobs.filter((job) => job.status === 'FAILED').length;

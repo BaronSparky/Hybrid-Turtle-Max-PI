@@ -682,7 +682,7 @@ Invariant Risk Minimisation identifies which signals are causally stable across 
 | **Persistence** | localStorage | Only `riskProfile` + `equity` survive page reload |
 | **Caching** | In-memory TTL | Scan/modules 5min, quotes 30min, modules 10min |
 | **API** | REST + Zod | All external data validated with Zod schemas |
-| **Auth** | NextAuth JWT | Opt-in via `ENFORCE_API_AUTH=true` (default: off for local use) |
+| **Auth** | NextAuth JWT | Enforced by default; `DISABLE_API_AUTH=true` is development-only |
 
 ### Zustand Store Sections
 - **System:** healthStatus, marketRegime, weeklyPhase, heartbeat status

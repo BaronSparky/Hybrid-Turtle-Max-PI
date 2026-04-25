@@ -63,13 +63,16 @@ export function validateRiskGates(
       : (p.currentPrice - p.currentStop) * p.shares;
     return sum + Math.max(0, posRisk);
   }, 0);
-  const totalOpenRiskPercent = equity > 0
+  const hasValidEquity = Number.isFinite(equity) && equity > 0;
+  const totalOpenRiskPercent = hasValidEquity
     ? ((currentOpenRisk + newPosition.riskDollars) / equity) * 100
-    : 100; // Fail-closed: treat zero equity as 100% risk
+    : Number.POSITIVE_INFINITY;
   results.push({
     passed: totalOpenRiskPercent <= profile.maxOpenRisk,
     gate: 'Total Open Risk',
-    message: `Total open risk: ${totalOpenRiskPercent.toFixed(1)}% (max ${profile.maxOpenRisk}%) — ex-hedge`,
+    message: hasValidEquity
+      ? `Total open risk: ${totalOpenRiskPercent.toFixed(1)}% (max ${profile.maxOpenRisk}%) — ex-hedge`
+      : 'Account equity is unknown or zero — new entries blocked',
     current: totalOpenRiskPercent,
     limit: profile.maxOpenRisk,
   });

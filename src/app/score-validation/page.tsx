@@ -24,7 +24,7 @@
  *     rebalancing is needed.
  */
 
-import { useEffect, useState, useMemo } from 'react';
+import { useCallback, useEffect, useState, useMemo } from 'react';
 import Navbar from '@/components/shared/Navbar';
 import { cn } from '@/lib/utils';
 import { apiRequest } from '@/lib/api-client';
@@ -199,7 +199,7 @@ export default function ScoreValidationPage() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
 
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -217,9 +217,9 @@ export default function ScoreValidationPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [from, sleeve, to]);
 
-  useEffect(() => { loadData(); }, [sleeve, from, to]);
+  useEffect(() => { loadData(); }, [loadData]);
 
   async function runBackfill() {
     setBackfilling(true);

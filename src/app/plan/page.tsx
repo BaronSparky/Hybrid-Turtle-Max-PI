@@ -176,6 +176,10 @@ export default function PlanPage() {
   // EV modifier map: ticker → { modifier, dataQuality, tradeCount, expectancy }
   const [evModifiers, setEvModifiers] = useState<Record<string, { modifier: number; dataQuality: string; tradeCount: number; expectancy: number | null }>>({});
 
+  const livePriceCandidateKey = scanCandidates
+    .map((candidate) => `${candidate.ticker}:${candidate.yahooTicker || candidate.ticker}`)
+    .join('|');
+
   // Advanced view toggle — persisted in localStorage
   const [advancedView, setAdvancedView] = useState(false);
   useEffect(() => {
@@ -370,10 +374,14 @@ export default function PlanPage() {
 
   // Fetch live prices for READY/WATCH candidates and update distance/price/status
   useEffect(() => {
-    if (scanCandidates.length === 0) return;
+    if (!livePriceCandidateKey) return;
     const fetchLivePrices = async () => {
       try {
-        const tickers = scanCandidates.map((c) => c.yahooTicker || c.ticker);
+        const candidateRefs = livePriceCandidateKey.split('|').map((item) => {
+          const [ticker, yahooTicker] = item.split(':');
+          return { ticker, yahooTicker };
+        });
+        const tickers = candidateRefs.map((c) => c.yahooTicker || c.ticker);
         if (tickers.length === 0) return;
         const data = await apiRequest<{
           prices: Record<string, { price: number; change: number; changePercent: number }>;
@@ -387,7 +395,7 @@ export default function PlanPage() {
 
         // Build a map from display ticker → live price
         const liveMap = new Map<string, number>();
-        scanCandidates.forEach((c) => {
+        candidateRefs.forEach((c) => {
           const key = c.yahooTicker || c.ticker;
           if (data.prices[key]?.price) liveMap.set(c.ticker, data.prices[key].price);
         });
@@ -413,7 +421,7 @@ export default function PlanPage() {
       }
     };
     fetchLivePrices();
-  }, [scanCandidates.length]);
+  }, [livePriceCandidateKey]);
 
   // Use cross-referenced scan candidates from 7-stage engine + dual scores
   const candidates = scanCandidates;

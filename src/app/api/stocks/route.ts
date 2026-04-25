@@ -179,22 +179,15 @@ export async function DELETE(request: NextRequest) {
     }
 
     if (hard) {
-      // Check for positions first
-      const positionCount = await prisma.position.count({
-        where: { stock: { ticker } },
-      });
-      if (positionCount > 0) {
-        return apiError(409, 'STOCK_DELETE_CONFLICT', `Cannot delete ${ticker} — has ${positionCount} positions. Use soft delete.`);
-      }
-      await prisma.stock.delete({ where: { ticker } });
-    } else {
-      await prisma.stock.update({
-        where: { ticker },
-        data: { active: false },
-      });
+      return apiError(400, 'HARD_DELETE_DISABLED', 'Hard delete is disabled for stocks. Use soft delete.');
     }
 
-    return NextResponse.json({ message: `${ticker} ${hard ? 'deleted' : 'deactivated'}` });
+    await prisma.stock.update({
+      where: { ticker },
+      data: { active: false },
+    });
+
+    return NextResponse.json({ message: `${ticker} deactivated` });
   } catch (error) {
     console.error('DELETE /api/stocks error:', error);
     return apiError(500, 'STOCK_DELETE_FAILED', 'Failed to delete stock', (error as Error).message, true);

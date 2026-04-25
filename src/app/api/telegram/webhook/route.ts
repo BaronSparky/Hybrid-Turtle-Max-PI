@@ -33,6 +33,18 @@ const telegramUpdateSchema = z.object({
  */
 export async function POST(request: NextRequest) {
   try {
+    const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+    if (webhookSecret) {
+      const receivedSecret = request.headers.get('x-telegram-bot-api-secret-token');
+      if (receivedSecret !== webhookSecret) {
+        console.warn('[telegram/webhook] Rejected update with invalid webhook secret token');
+        return NextResponse.json({ ok: true });
+      }
+    } else if (process.env.NODE_ENV === 'production') {
+      console.error('[telegram/webhook] TELEGRAM_WEBHOOK_SECRET is required in production');
+      return NextResponse.json({ ok: true });
+    }
+
     const body = await request.json();
     const parsed = telegramUpdateSchema.safeParse(body);
 
@@ -54,7 +66,7 @@ export async function POST(request: NextRequest) {
     // ── Security: verify chat ID ──
     const authorisedChatId = process.env.TELEGRAM_CHAT_ID;
     if (!authorisedChatId || String(chatId) !== authorisedChatId) {
-      console.warn(`[telegram/webhook] Unauthorised chat ID: ${chatId} (expected: ${authorisedChatId ?? 'not set'})`);
+      console.warn(`[telegram/webhook] Unauthorised chat ID: ${chatId}`);
       return NextResponse.json({ ok: true }); // Silent ignore
     }
 

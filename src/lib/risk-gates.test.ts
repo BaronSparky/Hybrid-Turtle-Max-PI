@@ -145,6 +145,26 @@ describe('risk-gates formulas', () => {
     expect(openRiskGate?.current).toBeCloseTo(6, 8);
   });
 
+  it('fails total open risk gate when equity is missing or zero', () => {
+    const results = validateRiskGates(
+      {
+        sleeve: 'CORE',
+        sector: 'TECH',
+        cluster: 'SOFTWARE',
+        value: 1000,
+        riskDollars: 10,
+      },
+      [],
+      0,
+      'BALANCED'
+    );
+
+    const openRiskGate = results.find((r) => r.gate === 'Total Open Risk');
+    expect(openRiskGate?.passed).toBe(false);
+    expect(openRiskGate?.current).toBe(Number.POSITIVE_INFINITY);
+    expect(openRiskGate?.message).toContain('new entries blocked');
+  });
+
   it('excludes HEDGE positions from open-risk and max-position counting', () => {
     const results = validateRiskGates(
       {

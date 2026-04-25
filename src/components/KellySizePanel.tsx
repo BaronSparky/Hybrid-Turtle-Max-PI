@@ -36,6 +36,11 @@ export function useKellySize(params: {
   beliefMean?: number;
   gnnConf?: number;
 } | null): KellyData {
+  const ncs = params?.ncs;
+  const maxRisk = params?.maxRisk;
+  const conformalWidth = params?.conformalWidth;
+  const beliefMean = params?.beliefMean;
+  const gnnConf = params?.gnnConf;
   const [data, setData] = useState<KellyData>({
     suggestedRiskPercent: 0, profileFixedRisk: 2, kellyVsFixed: 1,
     edge: 0, hasEdge: false, uncertaintyMultiplier: 1,
@@ -43,17 +48,17 @@ export function useKellySize(params: {
   });
 
   useEffect(() => {
-    if (!params) { setData(prev => ({ ...prev, loading: false })); return; }
+    if (ncs === undefined || maxRisk === undefined) { setData(prev => ({ ...prev, loading: false })); return; }
     let cancelled = false;
 
     const fetchKelly = async () => {
       try {
         const qs = new URLSearchParams({
-          ncs: String(params.ncs),
-          maxRisk: String(params.maxRisk),
-          conformalWidth: String(params.conformalWidth ?? 10),
-          beliefMean: String(params.beliefMean ?? 0.5),
-          gnnConf: String(params.gnnConf ?? 0.5),
+          ncs: String(ncs),
+          maxRisk: String(maxRisk),
+          conformalWidth: String(conformalWidth ?? 10),
+          beliefMean: String(beliefMean ?? 0.5),
+          gnnConf: String(gnnConf ?? 0.5),
         });
         const res = await fetch(`/api/prediction/kelly-size?${qs}`);
         if (!res.ok) { if (!cancelled) setData(prev => ({ ...prev, loading: false })); return; }
@@ -81,7 +86,7 @@ export function useKellySize(params: {
 
     fetchKelly();
     return () => { cancelled = true; };
-  }, [params?.ncs, params?.maxRisk, params?.conformalWidth, params?.beliefMean, params?.gnnConf]);
+  }, [beliefMean, conformalWidth, gnnConf, maxRisk, ncs]);
 
   return data;
 }

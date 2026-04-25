@@ -5,6 +5,8 @@
  * Risk-sensitive: YES — uses position sizer and risk gates (advisory only)
  * Last modified: 2026-03-06
  */
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { rankForCapitalAllocation } from '@/lib/capital-ranker';

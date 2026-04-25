@@ -108,8 +108,9 @@ export default function StopUpdateQueue({ userId, onApplied, refreshTrigger = 0 
 
   // Clean up fade timers on unmount
   useEffect(() => {
+    const timers = fadeTimers.current;
     return () => {
-      fadeTimers.current.forEach((timer) => clearTimeout(timer));
+      timers.forEach((timer) => clearTimeout(timer));
     };
   }, []);
 

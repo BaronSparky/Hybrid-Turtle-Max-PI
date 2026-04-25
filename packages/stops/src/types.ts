@@ -6,10 +6,12 @@
  * Last modified: 2026-03-08
  * Notes: Phase 8 stop-management view and workflow contracts.
  */
+import type { ProtectiveStopStatus } from '@prisma/client';
+
 export type StopDashboardStatus = 'PENDING' | 'ACTIVE' | 'MISSING' | 'MISMATCHED' | 'FAILED' | 'CLOSED';
 
 /** Protective stop statuses considered "active" for resolution and filtering. */
-export const ACTIVE_STOP_STATUSES = ['PLANNED', 'SUBMITTED', 'PENDING', 'ACTIVE', 'MISMATCH', 'MISSING'] as const;
+export const ACTIVE_STOP_STATUSES: readonly ProtectiveStopStatus[] = ['PLANNED', 'SUBMITTED', 'PENDING', 'ACTIVE', 'MISMATCH', 'MISSING'];
 
 export interface ResolvedStopPlan {
   stopPrice: number;

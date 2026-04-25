@@ -424,7 +424,7 @@ export default function BuyConfirmationModal({
       isExecutingRef.current = false;
       abortRef.current = null;
     }
-  }, [sizing, candidate, accountType]);
+  }, [sizing, candidate, accountType, adjustedShares]);
 
   if (!isOpen) return null;
 

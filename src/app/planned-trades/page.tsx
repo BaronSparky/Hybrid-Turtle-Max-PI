@@ -12,6 +12,8 @@ import ReviewStatusBadge from '@/components/review/ReviewStatusBadge';
 import { formatCurrency, formatDate, formatNumber } from '@/lib/utils';
 import { getEveningReviewData } from '../../../packages/portfolio/src';
 
+export const dynamic = 'force-dynamic';
+
 export default async function PlannedTradesPage() {
   const data = await getEveningReviewData();
   const totalTrades = data.plannedTrades.length;

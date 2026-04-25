@@ -11,6 +11,8 @@ import Navbar from '@/components/shared/Navbar';
 import ReviewStatusBadge from '@/components/review/ReviewStatusBadge';
 import { getActiveSafetyAlerts } from '@/lib/safety-alerts';
 
+export const dynamic = 'force-dynamic';
+
 export default async function AlertsPage() {
   const snapshot = await getActiveSafetyAlerts();
 

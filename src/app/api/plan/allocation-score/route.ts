@@ -5,6 +5,8 @@
  * Risk-sensitive: NO — advisory ranking, no orders
  * Last modified: 2026-03-06
  */
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import {

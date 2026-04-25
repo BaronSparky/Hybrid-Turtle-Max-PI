@@ -32,6 +32,11 @@ interface StressTestInput {
 }
 
 export function useStressTest(input: StressTestInput | null): StressTestData {
+  const ticker = input?.ticker;
+  const entryPrice = input?.entryPrice;
+  const stopPrice = input?.stopPrice;
+  const atr = input?.atr;
+  const regime = input?.regime;
   const [data, setData] = useState<StressTestData>({
     stopHitProbability: 0,
     gate: 'PASS',
@@ -44,7 +49,7 @@ export function useStressTest(input: StressTestInput | null): StressTestData {
   });
 
   useEffect(() => {
-    if (!input || !input.ticker) {
+    if (!ticker || entryPrice === undefined || stopPrice === undefined || atr === undefined || regime === undefined) {
       setData(prev => ({ ...prev, loading: false, hasResult: false }));
       return;
     }
@@ -54,7 +59,7 @@ export function useStressTest(input: StressTestInput | null): StressTestData {
     const runTest = async () => {
       try {
         // Check cache first
-        const cacheRes = await fetch(`/api/prediction/stress-test?ticker=${encodeURIComponent(input.ticker)}`);
+        const cacheRes = await fetch(`/api/prediction/stress-test?ticker=${encodeURIComponent(ticker)}`);
         if (cacheRes.ok) {
           const cacheJson = await cacheRes.json();
           if (!cancelled && cacheJson.ok && cacheJson.data?.hasResult) {
@@ -78,11 +83,11 @@ export function useStressTest(input: StressTestInput | null): StressTestData {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            ticker: input.ticker,
-            entryPrice: input.entryPrice,
-            stopPrice: input.stopPrice,
-            atr: input.atr,
-            regime: input.regime,
+            ticker,
+            entryPrice,
+            stopPrice,
+            atr,
+            regime,
           }),
         });
 
@@ -116,7 +121,7 @@ export function useStressTest(input: StressTestInput | null): StressTestData {
 
     runTest();
     return () => { cancelled = true; };
-  }, [input?.ticker, input?.entryPrice, input?.stopPrice, input?.atr, input?.regime]);
+  }, [atr, entryPrice, regime, stopPrice, ticker]);
 
   return data;
 }

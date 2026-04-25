@@ -12,6 +12,8 @@ import ReviewStatusBadge from '@/components/review/ReviewStatusBadge';
 import { formatCurrency, formatDateTime, formatNumber } from '@/lib/utils';
 import { getEveningReviewData } from '../../../packages/portfolio/src';
 
+export const dynamic = 'force-dynamic';
+
 export default async function StopsPage() {
   const data = await getEveningReviewData();
   const { summary, rows } = data.stops;

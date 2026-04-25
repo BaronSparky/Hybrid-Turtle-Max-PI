@@ -13,13 +13,20 @@ import type { NextRequest } from 'next/server';
 
 // ── Hoisted Mocks ────────────────────────────────────────────
 
-const { prismaMock, mockClient, mockEnsureDefaultUser } = vi.hoisted(() => {
+const { prismaMock, mockClient, mockEnsureDefaultUser, mockAssertSubmissionAllowed, MockSafetyControlError } = vi.hoisted(() => {
   const mockClient = {
     placeMarketOrder: vi.fn(),
     getOrder: vi.fn(),
     placeStopOrder: vi.fn(),
     getPositions: vi.fn(),
   };
+
+  class MockSafetyControlError extends Error {
+    constructor(public readonly code: string, message: string) {
+      super(message);
+      this.name = 'SafetyControlError';
+    }
+  }
 
   return {
     prismaMock: {
@@ -29,6 +36,8 @@ const { prismaMock, mockClient, mockEnsureDefaultUser } = vi.hoisted(() => {
     },
     mockClient,
     mockEnsureDefaultUser: vi.fn().mockResolvedValue('default-user'),
+    mockAssertSubmissionAllowed: vi.fn().mockResolvedValue(undefined),
+    MockSafetyControlError,
   };
 });
 
@@ -39,6 +48,11 @@ vi.mock('@/lib/prisma', () => ({
 vi.mock('@/lib/default-user', () => ({
   ensureDefaultUser: mockEnsureDefaultUser,
   DEFAULT_USER_ID: 'default-user',
+}));
+
+vi.mock('../../../../../packages/workflow/src', () => ({
+  assertSubmissionAllowed: mockAssertSubmissionAllowed,
+  SafetyControlError: MockSafetyControlError,
 }));
 
 // Mock the Trading212Client constructor to return our mock client
@@ -203,6 +217,7 @@ describe('POST /api/positions/execute', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     prismaMock.executionLog.create.mockResolvedValue({ id: 1 });
+    mockAssertSubmissionAllowed.mockResolvedValue(undefined);
     setupUserMock();
     setupStockMock();
 
@@ -260,6 +275,22 @@ describe('POST /api/positions/execute', () => {
   // ── Safety Assertions ──
 
   describe('safety assertions', () => {
+    it('aborts before broker calls when submissions are disabled', async () => {
+      mockAssertSubmissionAllowed.mockRejectedValue(
+        new MockSafetyControlError('ALL_SUBMISSIONS_DISABLED', 'All order submissions are currently disabled')
+      );
+
+      const req = makeRequest();
+      const response = await POST(req);
+      const events = await parseSSEResponse(response);
+
+      const errorEvent = events.find(e => e.event === 'error');
+      expect(errorEvent).toBeDefined();
+      expect(errorEvent!.data.phase).toBe('KILL_SWITCH_BLOCK');
+      expect(mockClient.placeMarketOrder).not.toHaveBeenCalled();
+      expect(mockClient.placeStopOrder).not.toHaveBeenCalled();
+    });
+
     it('aborts if stock not found in DB', async () => {
       prismaMock.stock.findUnique.mockResolvedValue(null);
       const req = makeRequest();

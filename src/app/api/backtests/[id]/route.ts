@@ -13,9 +13,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getStoredBacktestRun } from '../../../../../packages/backtest/src';
 import { apiError } from '@/lib/api-response';
 
-export async function GET(_: NextRequest, context: { params: { id: string } }) {
+export async function GET(_: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const run = await getStoredBacktestRun(context.params.id);
+    const { id } = await context.params;
+    const run = await getStoredBacktestRun(id);
     if (!run) {
       return apiError(404, 'BACKTEST_NOT_FOUND', 'Backtest run not found.');
     }

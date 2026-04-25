@@ -26,10 +26,11 @@ function parseDirection(value?: string): Direction {
 export default async function CandidatesPage({
   searchParams,
 }: {
-  searchParams?: { sortBy?: string; direction?: string };
+  searchParams?: Promise<{ sortBy?: string; direction?: string }>;
 }) {
-  const sortBy = parseSortBy(searchParams?.sortBy);
-  const direction = parseDirection(searchParams?.direction);
+  const params = await searchParams;
+  const sortBy = parseSortBy(params?.sortBy);
+  const direction = parseDirection(params?.direction);
   const view = await getCandidateListView(sortBy, direction);
 
   return (

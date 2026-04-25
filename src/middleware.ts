@@ -7,9 +7,8 @@ import { getToken } from 'next-auth/jwt';
  * Protects all /api/* routes except whitelisted paths.
  * Uses the NextAuth JWT token to verify session — no DB call required.
  *
- * NOTE: This is a single-user local app. Auth enforcement is only active
- * when ENFORCE_API_AUTH=true is set in .env (e.g. if the machine is
- * network-exposed). In the default local setup, all API routes are open.
+ * API auth is enforced by default. For isolated local troubleshooting only,
+ * set DISABLE_API_AUTH=true while NODE_ENV is not production.
  */
 
 const PUBLIC_PATHS = [
@@ -24,9 +23,8 @@ function isPublicPath(pathname: string): boolean {
 }
 
 export async function middleware(request: NextRequest) {
-  // Auth enforcement is opt-in for this single-user local app.
-  // Set ENFORCE_API_AUTH=true in .env if the machine is network-exposed.
-  if (process.env.ENFORCE_API_AUTH !== 'true') {
+  // Development-only escape hatch for isolated local troubleshooting.
+  if (process.env.NODE_ENV !== 'production' && process.env.DISABLE_API_AUTH === 'true') {
     return NextResponse.next();
   }
 

@@ -12,6 +12,8 @@ import ReviewStatusBadge from '@/components/review/ReviewStatusBadge';
 import { formatCurrency, formatDateTime, formatNumber } from '@/lib/utils';
 import { getEveningReviewData } from '../../../packages/portfolio/src';
 
+export const dynamic = 'force-dynamic';
+
 export default async function OrdersPage() {
   const data = await getEveningReviewData();
   const pendingCount = data.orders.filter((order) => ['PENDING', 'SUBMITTED'].includes(order.status)).length;

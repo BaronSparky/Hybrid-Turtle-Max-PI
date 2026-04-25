@@ -19,6 +19,16 @@ import { analyzeTrend } from './trend';
 import type { CandidateListView, RankedCandidate, SignalBar, SignalScanResult } from './types';
 
 type NumericLike = number | { toNumber(): number } | null | undefined;
+type SetupStatus = RankedCandidate['setupStatus'];
+
+const SETUP_STATUSES: readonly SetupStatus[] = [
+  'READY_NEXT_SESSION',
+  'READY_ON_TRIGGER',
+  'EARLY_BIRD',
+  'WATCH',
+  'WAIT_PULLBACK',
+  'AVOID',
+];
 
 function toNumeric(value: NumericLike): number {
   if (value == null) {
@@ -30,6 +40,10 @@ function toNumeric(value: NumericLike): number {
   }
 
   return value.toNumber();
+}
+
+function toSetupStatus(value: string): SetupStatus {
+  return SETUP_STATUSES.includes(value as SetupStatus) ? value as SetupStatus : 'AVOID';
 }
 
 function toSignalBars(
@@ -136,7 +150,7 @@ export async function getCandidateListView(
     initialStop: toNumeric(candidate.initialStop),
     stopDistancePercent: toNumeric(candidate.stopDistancePercent),
     riskPerShare: toNumeric(candidate.riskPerShare),
-    setupStatus: candidate.setupStatus,
+    setupStatus: toSetupStatus(candidate.setupStatus),
     rankScore: toNumeric(candidate.rankScore),
     reasons: Array.isArray(candidate.reasonsJson) ? (candidate.reasonsJson as string[]) : [],
     warnings: Array.isArray(candidate.warningsJson) ? (candidate.warningsJson as string[]) : [],

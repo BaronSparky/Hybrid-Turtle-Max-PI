@@ -39,22 +39,26 @@ export function useTradeRecommendation(params: {
   stopDistanceAtr: number;
   ncs?: number;
 } | null): TradeRecData {
+  const rMultiple = params?.rMultiple;
+  const daysInTrade = params?.daysInTrade;
+  const stopDistanceAtr = params?.stopDistanceAtr;
+  const ncs = params?.ncs;
   const [data, setData] = useState<TradeRecData>({
     recommendation: '', label: '', confidence: 0,
     topFeatures: [], modelTrained: false, loading: !!params, hasResult: false,
   });
 
   useEffect(() => {
-    if (!params) { setData(prev => ({ ...prev, loading: false })); return; }
+    if (rMultiple === undefined || daysInTrade === undefined || stopDistanceAtr === undefined) { setData(prev => ({ ...prev, loading: false })); return; }
     let cancelled = false;
 
     const fetchRec = async () => {
       try {
         const qs = new URLSearchParams({
-          rMultiple: String(params.rMultiple),
-          daysInTrade: String(params.daysInTrade),
-          stopDistanceAtr: String(params.stopDistanceAtr),
-          ncs: String(params.ncs ?? 50),
+          rMultiple: String(rMultiple),
+          daysInTrade: String(daysInTrade),
+          stopDistanceAtr: String(stopDistanceAtr),
+          ncs: String(ncs ?? 50),
         });
         const res = await fetch(`/api/prediction/trade-recommendation?${qs}`);
         if (!res.ok) { if (!cancelled) setData(prev => ({ ...prev, loading: false })); return; }
@@ -80,7 +84,7 @@ export function useTradeRecommendation(params: {
 
     fetchRec();
     return () => { cancelled = true; };
-  }, [params?.rMultiple, params?.daysInTrade, params?.stopDistanceAtr, params?.ncs]);
+  }, [daysInTrade, ncs, rMultiple, stopDistanceAtr]);
 
   return data;
 }

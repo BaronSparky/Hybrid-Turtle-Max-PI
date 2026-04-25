@@ -98,7 +98,7 @@ export default function ModuleStatusPanel() {
     return new Set(['BACKGROUND', 'PLANNED']);
   });
 
-  const statuses = data?.moduleStatuses || [];
+  const statuses = useMemo(() => data?.moduleStatuses || [], [data?.moduleStatuses]);
   const uncategorised = getUncategorisedModules(statuses);
 
   // Decide initial Exit Signals state: collapsed if all clear
