@@ -18,6 +18,7 @@ const killSwitchPatchSchema = z.object({
   disableAllSubmissions: z.boolean().optional(),
   disableAutomatedSubmissions: z.boolean().optional(),
   disableScansWhenDataStale: z.boolean().optional(),
+  enableAutoTrading: z.boolean().optional(),
 });
 
 export async function GET() {

@@ -16,6 +16,7 @@ export interface KillSwitchSettings {
   disableAllSubmissions: boolean;
   disableAutomatedSubmissions: boolean;
   disableScansWhenDataStale: boolean;
+  enableAutoTrading: boolean;
   updatedAt: string | null;
 }
 
@@ -37,6 +38,7 @@ const DEFAULT_KILL_SWITCH_SETTINGS: KillSwitchSettings = {
   disableAllSubmissions: false,
   disableAutomatedSubmissions: false,
   disableScansWhenDataStale: true,
+  enableAutoTrading: false,
   updatedAt: null,
 };
 
@@ -44,6 +46,7 @@ const killSwitchSchema = z.object({
   disableAllSubmissions: z.boolean(),
   disableAutomatedSubmissions: z.boolean(),
   disableScansWhenDataStale: z.boolean(),
+  enableAutoTrading: z.boolean().default(false),
   updatedAt: z.string().nullable(),
 });
 
@@ -129,6 +132,15 @@ export async function assertSubmissionAllowed(options: { automated: boolean }) {
       'Automated order submissions are currently disabled by the Phase 10 kill switch.'
     );
   }
+}
+
+/**
+ * Check if auto-trading is enabled (DB setting takes priority, env var as fallback).
+ */
+export async function isAutoTradingEnabled(): Promise<boolean> {
+  const settings = await getKillSwitchSettings();
+  // DB setting is the source of truth; env var is a fallback for headless-only setups
+  return settings.enableAutoTrading || process.env.ENABLE_AUTO_TRADING === 'true';
 }
 
 export async function assertScanAllowed() {

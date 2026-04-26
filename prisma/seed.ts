@@ -9,6 +9,8 @@
 import { AssetType, PrismaClient } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
+import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
@@ -379,6 +381,8 @@ async function main() {
   // 4. Ensure default user exists
   console.log('\n👤 Ensuring default user...');
   try {
+    const seedPassword = crypto.randomBytes(16).toString('hex');
+    const hashedPassword = await bcrypt.hash(seedPassword, 10);
     await prisma.user.upsert({
       where: { id: 'default-user' },
       update: {},
@@ -386,12 +390,12 @@ async function main() {
         id: 'default-user',
         email: 'turtle@hybridturtle.local',
         name: 'Turtle Trader',
-        password: '$2a$10$placeholder',
+        password: hashedPassword,
         riskProfile: 'BALANCED',
         equity: 10000,
       },
     });
-    console.log('  ✓ Default user ready');
+    console.log(`  ✓ Default user ready (password: ${seedPassword})`);
   } catch (error) {
     // Older local SQLite files can lag the evolving User schema; do not block universe/instrument seeding on that drift.
     console.warn('  ⚠ Skipping default user bootstrap:', error instanceof Error ? error.message : String(error));

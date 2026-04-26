@@ -16,6 +16,7 @@ export {
   assertSubmissionAllowed,
   getKillSwitchSettings,
   getMarketDataSafetyStatus,
+  isAutoTradingEnabled,
   SafetyControlError,
   updateKillSwitchSettings,
 } from './safety-controls';

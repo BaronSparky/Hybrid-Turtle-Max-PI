@@ -281,6 +281,20 @@ export interface NightlyBreakoutFailureAlert {
 }
 
 /**
+ * Profit acceleration recommendation for the nightly Telegram message.
+ * Advisory-only — every action requires human approval.
+ */
+export interface NightlyAcceleratorAlert {
+  action: string;
+  ticker: string;
+  replacementTicker?: string;
+  urgency: 'HIGH' | 'MEDIUM' | 'LOW';
+  reason: string;
+  expectedBenefit: string;
+  riskImpact: string;
+}
+
+/**
  * Send nightly summary via Telegram
  */
 export async function sendNightlySummary(summary: {
@@ -312,6 +326,7 @@ export async function sendNightlySummary(summary: {
   momentumAlert?: NightlyMomentumAlert;
   gapRiskAlerts?: NightlyGapRiskAlert[];
   breakoutFailures?: NightlyBreakoutFailureAlert[];
+  acceleratorAlerts?: NightlyAcceleratorAlert[];
 }): Promise<boolean> {
   const healthEmoji = summary.healthStatus === 'GREEN' ? '🟢'
     : summary.healthStatus === 'YELLOW' ? '🟡' : '🔴';
@@ -371,6 +386,27 @@ export async function sendNightlySummary(summary: {
           ? `\n       → ${p.addShares.toFixed(2)} shares (risk £${p.addRiskAmount.toFixed(2)} — ${scalePct} of base)`
           : '';
         return `  📐 <b>${p.ticker}</b>  Add #${p.addNumber}  ${sym}${p.currentPrice.toFixed(2)} ≥ trigger ${p.triggerPrice ? sym + p.triggerPrice.toFixed(2) : 'R-based'}  (${p.rMultiple >= 0 ? '+' : ''}${p.rMultiple.toFixed(1)}R)${sizingLine}`;
+      }).join('\n')
+    : '';
+
+  // ── Accelerator lines ──
+  const accelList = (summary.acceleratorAlerts || []).filter(
+    (a) => a.action !== 'HOLD' && a.action !== 'NO_ACTION'
+  );
+  const accelLines = accelList.length > 0
+    ? accelList.map((a) => {
+        const urgencyEmoji = a.urgency === 'HIGH' ? '🔴' : a.urgency === 'MEDIUM' ? '🟡' : '⚪';
+        const actionEmoji: Record<string, string> = {
+          BUY_NEW_A_GRADE: '⚡',
+          PYRAMID_WINNER: '📐',
+          SWAP_WEAK_FOR_STRONG: '🔄',
+          EXIT_LAGGARD: '🗑',
+          TIGHTEN_STOP: '🛡',
+        };
+        const emoji = actionEmoji[a.action] || '📋';
+        const swap = a.replacementTicker ? ` → <b>${escapeHtml(a.replacementTicker)}</b>` : '';
+        return `  ${urgencyEmoji}${emoji} <b>${escapeHtml(a.ticker)}</b>${swap}  [${a.urgency}]
+       ${escapeHtml(a.reason)}`;
       }).join('\n')
     : '';
 
@@ -470,6 +506,9 @@ ${triggerMetLines}
 
 ` : ''}${pyramidList.length > 0 ? `<b>━━━ Pyramid Adds (${pyramidList.length}) ━━━</b>
 ${pyramidLines}
+
+` : ''}${accelList.length > 0 ? `<b>━━━ ⚡ Capital Priority (${accelList.length}) ━━━</b>
+${accelLines}
 
 ` : ''}${climaxList.length > 0 ? `<b>━━━ Climax Signals (${climaxList.length}) ━━━</b>
 ${climaxLines}

@@ -78,6 +78,11 @@ export function calculatePositionSize(input: PositionSizeInput): PositionSizingR
     riskCash = Math.max(riskCash, profile.risk_cash_floor);
   }
 
+  // Re-apply cap after floor to ensure cap is never exceeded (floor > cap = config error, cap wins)
+  if (profile.risk_cash_cap !== undefined) {
+    riskCash = Math.min(riskCash, profile.risk_cash_cap);
+  }
+
   // Calculate shares — floor to permitted precision (whole or 0.01 for fractional brokers)
   let shares = floorShares(riskCash / riskPerShare, allowFractional);
 

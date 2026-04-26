@@ -3,6 +3,8 @@
 import { cn } from '@/lib/utils';
 import { formatCurrency, formatPrice, formatPercent, formatR } from '@/lib/utils';
 import StatusBadge from '@/components/shared/StatusBadge';
+import EntryQualityBadge from './EntryQualityBadge';
+import type { EntryQuality } from '@/types';
 import WhyCardPopover, { WhyCardProvider, type WhyCardData, type WhyCardSection } from '@/components/shared/WhyCardPopover';
 import {
   SCAN_STATUS_EXPLANATIONS,
@@ -59,6 +61,7 @@ interface Candidate {
     version: string;
     featureTimestamp: string;
   };
+  entryQuality?: EntryQuality;
 }
 
 interface CandidateTableProps {
@@ -101,6 +104,7 @@ export default function CandidateTable({ candidates, showSizing = false }: Candi
             <th className="text-right whitespace-nowrap w-28">Stop Price</th>
             <th className="text-right whitespace-nowrap w-20">Distance%</th>
             <th className="text-right whitespace-nowrap w-16">Base</th>
+            <th className="text-center whitespace-nowrap w-20">Entry</th>
             {hasModelOverlay && <th className="text-right whitespace-nowrap">Model</th>}
             {hasModelOverlay && <th className="text-right whitespace-nowrap">Blended</th>}
             {hasModelOverlay && <th className="text-right whitespace-nowrap">Conf</th>}
@@ -213,6 +217,13 @@ export default function CandidateTable({ candidates, showSizing = false }: Candi
                 <td className="text-right font-mono text-sm text-foreground whitespace-nowrap">
                   {c.rankScore.toFixed(1)}
                 </td>
+                <td className="text-center">
+                  {c.entryQuality ? (
+                    <EntryQualityBadge entryQuality={c.entryQuality} priceCurrency={c.priceCurrency} compact />
+                  ) : (
+                    <span className="text-muted-foreground text-xs">—</span>
+                  )}
+                </td>
                 {hasModelOverlay && (
                   <td className={cn('text-right font-mono text-sm whitespace-nowrap', recommendationClass)}>
                     {c.modelOverlay ? c.modelOverlay.modelScore.toFixed(1) : '—'}
@@ -295,6 +306,15 @@ function buildCandidateWhyData(c: Candidate): WhyCardData {
       label: 'Anti-Chase Guard',
       value: c.antiChaseResult.reason,
       status: 'fail',
+    });
+  }
+
+  // Add entry quality info if available
+  if (c.entryQuality) {
+    sections.push({
+      label: 'Entry Quality',
+      value: c.entryQuality.reason,
+      status: c.entryQuality.quality === 'GREEN' ? 'pass' : c.entryQuality.quality === 'RED' ? 'fail' : 'info',
     });
   }
 

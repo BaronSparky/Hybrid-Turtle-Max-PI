@@ -121,6 +121,7 @@ for /f "tokens=*" %%i in ('powershell -NoProfile -Command "$b = New-Object byte[
 >> ".env" echo NEXTAUTH_URL=http://localhost:3000
 >> ".env" echo NEXTAUTH_SECRET=!NEXTAUTH_SECRET!
 >> ".env" echo CRON_SECRET=!CRON_SECRET!
+>> ".env" echo DISABLE_API_AUTH=true
 >> ".env" echo.
 >> ".env" echo # Broker adapter: disabled, mock, or trading212
 >> ".env" echo BROKER_ADAPTER=disabled
@@ -143,13 +144,13 @@ if exist "package-lock.json" (
 )
 if errorlevel 1 (
     echo.
-    echo  !! npm install failed. Common fixes:
-    echo  !!   1. Close VS Code and any other editors, then re-run
-    echo  !!   2. Run: npm install --ignore-scripts
-    echo  !!      then: npx prisma generate
-    echo  !!   3. Disable antivirus temporarily
-    echo  !!   4. Run installer as Administrator
-    echo  !! See install.log for details.
+    echo  !! npm install failed. Try these steps:
+    echo  !!
+    echo  !!   1. Close any other programs, then double-click install.bat again
+    echo  !!   2. Right-click install.bat and choose "Run as administrator"
+    echo  !!   3. If your antivirus is active, temporarily disable it and retry
+    echo  !!
+    echo  !! If the problem persists, see install.log for technical details.
     >> "%LOG%" echo [%date% %time%] FAIL: npm install
     goto :fail
 )
@@ -182,7 +183,7 @@ if errorlevel 1 (
 
 :: ── Step 5b: Verify build compiles ──
 echo.
-echo         Verifying dashboard compiles correctly...
+echo         Building the dashboard (this may take 2-5 minutes, please wait)...
 call npx next build >> "%LOG%" 2>&1
 if errorlevel 1 (
     echo(
@@ -210,7 +211,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$scriptDir = '%SCRIPT_DI
 if %errorlevel% equ 0 (
     echo         Desktop shortcut created!
 ) else (
-    echo         Could not create shortcut. No problem - you can run start.bat manually.
+    echo         Could not create shortcut. You can launch by double-clicking:
+    echo         %SCRIPT_DIR%start.bat
 )
 
 :: ── Step 7: Optional — Nightly Telegram Scheduled Task ──
@@ -340,6 +342,85 @@ if !errorlevel! equ 0 (
 
 :skip_tg_setup
 
+:: ── Optional — Auto-Trade Scheduled Tasks ──
+echo.
+echo  ───────────────────────────────────────────────────────────
+echo   Automated Trading (optional)
+echo  ───────────────────────────────────────────────────────────
+echo.
+echo   This sets up scheduled tasks that automatically scan for
+echo   breakout candidates, buy stocks that meet all criteria,
+echo   and place protective stops — all without the dashboard.
+echo.
+echo   Schedule:
+echo     20:00  Evening scan (candidates for tomorrow)
+echo     08:15  UK/EU entries
+echo     14:45  US entries (early session)
+echo     20:30  US near-close entries
+echo.
+echo   You will receive Telegram updates for every trade.
+echo   Safety: requires ENABLE_AUTO_TRADING=true in .env
+echo           + Trading 212 connected + kill switch off
+echo.
+set /p SETUP_AUTOTRADE="  Set up automated trading? (Y/N): "
+if /i not "%SETUP_AUTOTRADE%"=="Y" if /i not "%SETUP_AUTOTRADE%"=="N" (
+    echo         Input not recognized, defaulting to N.
+    set "SETUP_AUTOTRADE=N"
+)
+if /i not "%SETUP_AUTOTRADE%"=="Y" (
+    echo         Skipped — you can set this up later with register-auto-trade.bat
+    goto :skip_autotrade
+)
+
+:: Check admin privileges
+net session >nul 2>&1
+if !errorlevel! neq 0 (
+    echo.
+    echo  !! Creating scheduled tasks requires Administrator privileges.
+    echo  !! Re-run install.bat as Administrator, or run register-auto-trade.bat later.
+    >> "%LOG%" echo [%date% %time%] WARN: Skipped auto-trade tasks - no admin
+    goto :skip_autotrade
+)
+
+:: Add ENABLE_AUTO_TRADING to .env if not present
+findstr /c:"ENABLE_AUTO_TRADING" ".env" >nul 2>&1
+if !errorlevel! neq 0 (
+    >> ".env" echo.
+    >> ".env" echo # Automated trading - set to true to enable auto-buy
+    >> ".env" echo ENABLE_AUTO_TRADING=true
+    echo         Added ENABLE_AUTO_TRADING=true to .env
+) else (
+    echo         ENABLE_AUTO_TRADING already in .env
+)
+
+:: Create all 4 scheduled tasks
+set "AT_BAT=%SCRIPT_DIR%auto-trade-task.bat"
+
+schtasks /Delete /TN "HybridTurtle-Scan" /F >> "%LOG%" 2>&1
+schtasks /Create /TN "HybridTurtle-Scan" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 20:00 /TR "\"%AT_BAT%\" scan --scheduled" /RL HIGHEST /F >> "%LOG%" 2>&1
+echo         Evening scan: 20:00 Mon-Fri
+
+schtasks /Delete /TN "HybridTurtle-Trade-UK" /F >> "%LOG%" 2>&1
+schtasks /Create /TN "HybridTurtle-Trade-UK" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 08:15 /TR "\"%AT_BAT%\" uk --scheduled" /RL HIGHEST /F >> "%LOG%" 2>&1
+echo         UK entries: 08:15 Mon-Fri
+
+schtasks /Delete /TN "HybridTurtle-Trade-US" /F >> "%LOG%" 2>&1
+schtasks /Create /TN "HybridTurtle-Trade-US" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 14:45 /TR "\"%AT_BAT%\" us --scheduled" /RL HIGHEST /F >> "%LOG%" 2>&1
+echo         US entries: 14:45 Mon-Fri
+
+schtasks /Delete /TN "HybridTurtle-Trade-USC" /F >> "%LOG%" 2>&1
+schtasks /Create /TN "HybridTurtle-Trade-USC" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 20:30 /TR "\"%AT_BAT%\" us-close --scheduled" /RL HIGHEST /F >> "%LOG%" 2>&1
+echo         US near-close: 20:30 Mon-Fri
+
+set "HS_BAT=%SCRIPT_DIR%hourly-status-task.bat"
+schtasks /Delete /TN "HybridTurtle-HourlyStatus" /F >> "%LOG%" 2>&1
+schtasks /Create /TN "HybridTurtle-HourlyStatus" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 08:00 /RI 60 /DU 13:00 /TR "\"%HS_BAT%\" --scheduled" /RL HIGHEST /F >> "%LOG%" 2>&1
+echo         Hourly Telegram status: 08:00-21:00 Mon-Fri
+
+>> "%LOG%" echo [%date% %time%] Auto-trade scheduled tasks created
+
+:skip_autotrade
+
 :: ── Done! ──
 echo.
 echo  ===========================================================
@@ -356,6 +437,12 @@ echo   First run may take a moment while the app compiles.
 if /i "%SETUP_TELEGRAM%"=="Y" (
     echo.
     echo   Telegram: Nightly summary at 21:10 Mon-Fri
+)
+if /i "%SETUP_AUTOTRADE%"=="Y" (
+    echo.
+    echo   Auto-Trade: Scan 20:00, UK 08:15, US 14:45, US-Close 20:30
+    echo   Hourly Telegram status: every hour 08:00-21:00
+    echo   Disable anytime: toggle in Settings or set ENABLE_AUTO_TRADING=false
 )
 echo.
 echo   Full install log: install.log

@@ -237,6 +237,36 @@ describe('risk-gates formulas', () => {
     expect(result.riskScalar).toBe(0.25); // Add #2 = 25% of base risk
   });
 
+  it('enforces concentration gate when cluster is empty string (regression)', () => {
+    // Two positions with empty cluster should be grouped under UNKNOWN
+    const existing = [
+      { id: '1', ticker: 'A', sleeve: 'CORE' as const, sector: 'TECH', cluster: '', value: 4000, riskDollars: 100, shares: 40, entryPrice: 100, currentStop: 95, currentPrice: 100 },
+      { id: '2', ticker: 'B', sleeve: 'CORE' as const, sector: 'TECH', cluster: '', value: 4000, riskDollars: 100, shares: 40, entryPrice: 100, currentStop: 95, currentPrice: 100 },
+    ];
+    const results = validateRiskGates(
+      { sleeve: 'CORE', sector: 'TECH', cluster: '', value: 4000, riskDollars: 100 },
+      existing,
+      10_000,
+      'BALANCED'
+    );
+    const clusterGate = results.find((r) => r.gate === 'Cluster Concentration');
+    // All 3 positions should be grouped under UNKNOWN cluster
+    expect(clusterGate).toBeDefined();
+    expect(clusterGate!.message).toContain('UNKNOWN');
+  });
+
+  it('enforces concentration gate when sector is empty string (regression)', () => {
+    const results = validateRiskGates(
+      { sleeve: 'CORE', sector: '', cluster: 'SOFT', value: 1000, riskDollars: 50 },
+      [],
+      10_000,
+      'BALANCED'
+    );
+    const sectorGate = results.find((r) => r.gate === 'Sector Concentration');
+    expect(sectorGate).toBeDefined();
+    expect(sectorGate!.message).toContain('UNKNOWN');
+  });
+
   it('blocks pyramiding when open risk ratio >= 70%', () => {
     // Price at trigger, but risk budget 75% full
     const result = canPyramid(106, 100, 5, 10, 0, 0.75);

@@ -23,6 +23,7 @@ import ActionCardWidget from '@/components/dashboard/ActionCardWidget';
 import DualRegimeWidget from '@/components/dashboard/DualRegimeWidget';
 import RiskModulesWidget from '@/components/dashboard/RiskModulesWidget';
 import PyramidAlertsWidget from '@/components/dashboard/PyramidAlertsWidget';
+import AcceleratorWidget from '@/components/dashboard/AcceleratorWidget';
 import HedgeCard from '@/components/dashboard/HedgeCard';
 import ScoringGuideWidget from '@/components/dashboard/ScoringGuideWidget';
 import MigrationBanner from '@/components/dashboard/MigrationBanner';
@@ -376,6 +377,9 @@ export default function DashboardPage() {
 
         {/* Pyramid Add Alerts — Triggered and upcoming */}
         <PyramidAlertsWidget />
+
+        {/* Capital Priority — Profit Acceleration Layer */}
+        <AcceleratorWidget />
 
         {/* Module Status Panel — All 21 modules at a glance */}
         <ModuleStatusPanel />

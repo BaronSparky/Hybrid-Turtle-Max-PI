@@ -19,6 +19,7 @@ model User {
   name                String?
   password            String
   riskProfile         String           @default("BALANCED")
+  operatingMode       String           @default("NORMAL")
   equity              Float            @default(10000)
   t212ApiKey          String?
   t212ApiSecret       String?
@@ -133,6 +134,7 @@ model Position {
   @@index([userId])
   @@index([stockId])
   @@index([status])
+  @@index([userId, status])
 }
 
 model StopHistory {
@@ -183,12 +185,34 @@ model ScanResult {
   passesAntiChase  Boolean?
   shares           Float?
   riskDollars      Float?
+  grade            String?  // A_GRADE_BUY, B_GRADE_WATCH, C_GRADE_IGNORE, BLOCKED_*
+  gradeReason      String?  // Plain-English explanation
   mode             String   @default("FULL")  // FULL or BENCHMARK
   stock            Stock    @relation(fields: [stockId], references: [id])
   scan             Scan     @relation(fields: [scanId], references: [id])
 
   @@index([scanId])
   @@index([stockId])
+  @@index([scanId, rankScore])
+}
+
+model OverrideLog {
+  id                   String   @id @default(cuid())
+  userId               String
+  timestamp            DateTime @default(now())
+  action               String   // BUY, SWITCH_PROFILE, SWITCH_MODE
+  ticker               String?
+  blockedRule          String   // Which rule was overridden
+  blockType            String   // HARD or SOFT
+  reason               String   // User's stated reason
+  riskProfile          String
+  operatingMode        String
+  systemRecommendation String   // What the system recommended
+  actionCompleted      Boolean  @default(false)
+  tradeOutcomeR        Float?   // Later: R-multiple of trade if applicable
+
+  @@index([userId])
+  @@index([timestamp])
 }
 
 model ExecutionPlan {

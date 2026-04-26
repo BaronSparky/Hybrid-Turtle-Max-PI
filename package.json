@@ -31,6 +31,7 @@
     "db:studio": "npx prisma studio",
     "db:status": "prisma migrate status",
     "fix:account-types": "tsx scripts/fix-account-types.ts",
+    "system:check": "tsx scripts/system-check.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {

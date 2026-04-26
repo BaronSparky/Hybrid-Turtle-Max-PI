@@ -11,6 +11,7 @@ import { isT212FromEnv, isTelegramFromEnv } from '@/lib/secrets';
 const settingsPutSchema = z.object({
   userId: z.string().trim().min(1).optional(),
   riskProfile: z.enum(['CONSERVATIVE', 'BALANCED', 'SMALL_ACCOUNT', 'AGGRESSIVE']).optional(),
+  operatingMode: z.enum(['NORMAL', 'AGGRESSIVE_QUALITY', 'CAPITAL_PRESERVATION', 'RESEARCH']).optional(),
   equity: z.number().positive('Equity must be positive').optional(),
   startingEquityOverride: z.number().positive('Starting equity must be positive').nullable().optional(),
   marketDataProvider: z.enum(['yahoo', 'eodhd']).optional(),
@@ -43,6 +44,7 @@ export async function GET(request: NextRequest) {
       where: { id: userId },
       select: {
         riskProfile: true,
+        operatingMode: true,
         equity: true,
         startingEquityOverride: true,
         marketDataProvider: true,
@@ -142,7 +144,7 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const { riskProfile, equity, startingEquityOverride, marketDataProvider, eodhApiKey,
+    const { riskProfile, operatingMode, equity, startingEquityOverride, marketDataProvider, eodhApiKey,
       gapGuardMode, gapGuardWeekendATR, gapGuardWeekendPct, gapGuardDailyATR, gapGuardDailyPct,
       showIntradayNCS, applyKellyMultiplier, rlShadowMode, modelLayerEnabled,
     } = parsed.data;
@@ -150,6 +152,7 @@ export async function PUT(request: NextRequest) {
 
     const data: Record<string, unknown> = {};
     if (riskProfile) data.riskProfile = riskProfile;
+    if (operatingMode) data.operatingMode = operatingMode;
     if (equity !== undefined) data.equity = equity;
     if (startingEquityOverride !== undefined) data.startingEquityOverride = startingEquityOverride;
     if (marketDataProvider) data.marketDataProvider = marketDataProvider;

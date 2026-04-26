@@ -57,7 +57,7 @@ describe('getExecutionMode', () => {
     expect(result.gates).not.toBeNull();
     expect(result.gates?.minNCS).toBe(70);
     expect(result.gates?.maxFWS).toBe(30);
-    expect(result.gates?.maxNewPositions).toBe(1);
+    expect(result.gates?.maxNewPositions).toBe(2);
   });
 
   it('Wednesday: OPPORTUNISTIC, blocked in SIDEWAYS', () => {

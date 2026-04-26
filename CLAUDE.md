@@ -1,3 +1,35 @@
+## Prime Directive
+
+HybridTurtle is a trend-following alpha engine. Every change must serve this loop:
+
+```
+Scan → Review → Act → Manage → Learn
+```
+
+The system has eight jobs:
+
+1. Market regime decides whether trading is allowed
+2. Scanner finds trend + breakout candidates
+3. Ranking selects only the best few
+4. Risk engine sizes positions
+5. Dashboard produces plain-English actions
+6. Broker sync verifies holdings
+7. Nightly process updates stops
+8. Weekly review checks performance and drift
+
+Everything else is support for those eight jobs.
+
+Existing automation (nightly, midday sync, watchdog, heartbeat, health checks, Telegram alerts, backup, stop sync, broker sync, scheduled tasks) is load-bearing infrastructure. Do not remove, weaken, or bypass it. Improve it.
+
+If a proposed *new* feature does not make one of those eight jobs clearer, safer, or more effective — it does not belong. New features must reduce decisions, not add buttons. New modules must produce clearer actions, not more complexity.
+
+The goal is not more controls. The goal is:
+- fewer, stronger trades
+- plain-English daily actions
+- safety gates that cannot be bypassed
+- automation that runs reliably without manual intervention
+- evidence that proves what works
+
 ## Execution Discipline
 
 This repository is a live, risk-sensitive trading system.

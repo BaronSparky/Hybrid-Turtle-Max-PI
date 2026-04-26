@@ -106,49 +106,35 @@ export function validateRiskGates(
   });
 
   // Gate 4: Cluster concentration (profile-aware cap)
-  // Always push a result — missing cluster data should not silently bypass this gate
-  if (newPosition.cluster) {
+  // Missing cluster assigned 'UNKNOWN' — gate still enforced to prevent untracked concentration
+  const effectiveCluster = newPosition.cluster || 'UNKNOWN';
+  {
     const clusterValue = existingPositions
-      .filter((p) => p.cluster === newPosition.cluster)
+      .filter((p) => (p.cluster || 'UNKNOWN') === effectiveCluster)
       .reduce((sum, p) => sum + p.value, 0) + newPosition.value;
     const clusterPercent = denom > 0 ? clusterValue / denom : 0;
     results.push({
       passed: clusterPercent <= caps.clusterCap,
       gate: 'Cluster Concentration',
-      message: `${newPosition.cluster} cluster: ${(clusterPercent * 100).toFixed(1)}% (max ${(caps.clusterCap * 100).toFixed(0)}%)`,
+      message: `${effectiveCluster} cluster: ${(clusterPercent * 100).toFixed(1)}% (max ${(caps.clusterCap * 100).toFixed(0)}%)`,
       current: clusterPercent * 100,
-      limit: caps.clusterCap * 100,
-    });
-  } else {
-    results.push({
-      passed: true,
-      gate: 'Cluster Concentration',
-      message: 'No cluster assigned — gate N/A',
-      current: 0,
       limit: caps.clusterCap * 100,
     });
   }
 
   // Gate 5: Sector concentration (profile-aware cap)
-  // Always push a result — missing sector data should not silently bypass this gate
-  if (newPosition.sector) {
+  // Missing sector assigned 'UNKNOWN' — gate still enforced to prevent untracked concentration
+  const effectiveSector = newPosition.sector || 'UNKNOWN';
+  {
     const sectorValue = existingPositions
-      .filter((p) => p.sector === newPosition.sector)
+      .filter((p) => (p.sector || 'UNKNOWN') === effectiveSector)
       .reduce((sum, p) => sum + p.value, 0) + newPosition.value;
     const sectorPercent = denom > 0 ? sectorValue / denom : 0;
     results.push({
       passed: sectorPercent <= caps.sectorCap,
       gate: 'Sector Concentration',
-      message: `${newPosition.sector} sector: ${(sectorPercent * 100).toFixed(1)}% (max ${(caps.sectorCap * 100).toFixed(0)}%)`,
+      message: `${effectiveSector} sector: ${(sectorPercent * 100).toFixed(1)}% (max ${(caps.sectorCap * 100).toFixed(0)}%)`,
       current: sectorPercent * 100,
-      limit: caps.sectorCap * 100,
-    });
-  } else {
-    results.push({
-      passed: true,
-      gate: 'Sector Concentration',
-      message: 'No sector assigned — gate N/A',
-      current: 0,
       limit: caps.sectorCap * 100,
     });
   }

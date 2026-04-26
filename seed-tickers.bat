@@ -44,9 +44,9 @@ if not exist "Planning" (
     exit /b 1
 )
 
-:: Kill any running Node processes that may lock Prisma files
-echo  [*] Stopping any running Node processes...
-taskkill /F /IM node.exe >nul 2>&1
+:: Stop HybridTurtle Node processes that may lock Prisma files
+echo  [*] Checking for running HybridTurtle processes...
+powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" >nul 2>&1
 timeout /t 2 /nobreak >nul
 
 :: Generate Prisma client if needed

@@ -10,8 +10,8 @@ title HybridTurtle Watchdog
 setlocal
 cd /d "%~dp0"
 
-:: Ensure migrations are current
-call npx prisma migrate deploy --schema=prisma/schema.prisma 2>nul
+:: Ensure migrations are current (uses retry logic, matches other scripts)
+call node scripts/auto-migrate.mjs --quiet 2>nul
 
 :: Run the watchdog check
 call npx tsx src/cron/watchdog.ts

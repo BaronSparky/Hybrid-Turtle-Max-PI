@@ -28,6 +28,7 @@ import { calculateAdaptiveBuffer } from './modules/adaptive-atr-buffer';
 import { calculatePositionSize } from './position-sizer';
 import { validateRiskGates } from './risk-gates';
 import { checkAntiChasingGuard, checkPullbackContinuationEntry } from './scan-guards';
+import { assessEntryQuality } from './entry-quality-engine';
 import { validateTickerData } from './modules/data-validator';
 import { getEarningsInfo, evaluateEarningsRisk } from './earnings-calendar';
 import { calcHurst } from './hurst';
@@ -90,6 +91,7 @@ export function classifyCandidate(
   price: number,
   entryTrigger: number
 ): CandidateStatus {
+  if (price <= 0) return 'FAR'; // Corrupt data guard
   const distance = ((entryTrigger - price) / price) * 100;
 
   if (distance <= 2) return 'READY';
@@ -280,8 +282,10 @@ export async function runFullScan(
           volRegime
         );
         let entryTrigger = adaptiveBuffer.adjustedEntryTrigger;
-        let stopPrice = entryTrigger - technicals.atr * ATR_STOP_MULTIPLIER;
-        let distancePercent = ((entryTrigger - price) / price) * 100;
+        // Guard: ensure stop is always below entry (ATR=0 → use 0.5% min distance)
+        const minStopDistance = 0.005 * entryTrigger;
+        let stopPrice = entryTrigger - Math.max(technicals.atr * ATR_STOP_MULTIPLIER, minStopDistance);
+        let distancePercent = price > 0 ? ((entryTrigger - price) / price) * 100 : 100;
         let status = classifyCandidate(price, entryTrigger);
         let passesAllFilters = filterResults.passesAll;
 
@@ -443,7 +447,7 @@ export async function runFullScan(
               if (pullbackSignal.triggered) {
                 entryTrigger = pullbackSignal.entryPrice ?? price;
                 stopPrice = pullbackSignal.stopPrice ?? stopPrice;
-                distancePercent = ((entryTrigger - price) / price) * 100;
+                distancePercent = price > 0 ? ((entryTrigger - price) / price) * 100 : 100;
                 status = 'READY';
                 antiChaseResult = {
                   passed: true,
@@ -491,6 +495,20 @@ export async function runFullScan(
           passesAntiChase = antiChaseResult?.passed ?? passesAntiChase;
         }
 
+        // ── Entry Quality Assessment ──
+        const entryQuality = assessEntryQuality({
+          price,
+          entryTrigger,
+          stopPrice,
+          atr: technicals.atr,
+          atrPercent: technicals.atrPercent,
+          status,
+          slippageBuffer,
+          pullbackTriggered: pullbackSignal?.triggered ?? false,
+          pullbackEntryPrice: pullbackSignal?.entryPrice,
+          antiChaseFailed: !(antiChaseResult?.passed ?? true),
+        });
+
         // Determine native price currency (matches what T212/Yahoo shows)
         const isUK = stock.ticker.endsWith('.L');
         const priceCurrency = isUK ? 'GBX' : (stock.currency || 'USD').toUpperCase();
@@ -521,6 +539,7 @@ export async function runFullScan(
           riskDollars,
           riskPercent,
           totalCost,
+          entryQuality,
           earningsInfo: earningsCheckResult ? {
             daysUntilEarnings: earningsCheckResult.info.daysUntilEarnings,
             nextEarningsDate: earningsCheckResult.info.nextEarningsDate?.toISOString() ?? null,

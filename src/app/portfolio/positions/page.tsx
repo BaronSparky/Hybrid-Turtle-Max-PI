@@ -19,6 +19,7 @@ import { Loader2, Briefcase, PieChart, BarChart3, XCircle } from 'lucide-react';
 // Dynamic import keeps ~ReadyToBuyPanel out of initial bundle (only loads when visible)
 const ReadyToBuyPanel = dynamic(() => import('@/components/portfolio/ReadyToBuyPanel'), { ssr: false });
 const BreakoutFailurePanel = dynamic(() => import('@/components/portfolio/BreakoutFailurePanel'), { ssr: false });
+const ExitIntelligenceCard = dynamic(() => import('@/components/portfolio/ExitIntelligenceCard'), { ssr: false });
 
 // Lazy tabs — Distribution and Performance only load on first click
 const DistributionTab = lazy(() => import('@/components/portfolio/DistributionTab'));
@@ -384,6 +385,9 @@ function PositionsPageInner() {
 
         {/* Stop-Loss Recommendations — fetches live from /api/stops */}
         <StopUpdateQueue userId={DEFAULT_USER_ID} onApplied={fetchPositions} refreshTrigger={stopRefreshKey} />
+
+        {/* Exit Intelligence — per-position scoring and action recommendations */}
+        <ExitIntelligenceCard />
 
         {/* Breakout Failure Alerts — amber warnings for positions that failed within 5 days */}
         <BreakoutFailurePanel />

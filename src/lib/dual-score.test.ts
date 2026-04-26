@@ -124,6 +124,12 @@ describe('computeBQS', () => {
     expect(close.bqs_proximity).toBeGreaterThan(far.bqs_proximity);
   });
 
+  it('proximity returns 0 when both distance fields are null (regression)', () => {
+    const row = makeRow({ distance_to_20d_high_pct: null as unknown as number, distance_to_55d_high_pct: undefined });
+    const bqs = computeBQS(row);
+    expect(bqs.bqs_proximity).toBe(0);
+  });
+
   it('tailwind highest in BULLISH + LOW_VOL + aligned regime', () => {
     const best = computeBQS(makeRow({
       market_regime: 'BULLISH', vol_regime: 'LOW_VOL', dual_regime_aligned: true,
@@ -312,7 +318,7 @@ describe('scoreRow', () => {
     expect(scored.NCS).toBeGreaterThan(50);
   });
 
-  it('fragile stock gets low NCS and Auto-No', () => {
+  it('fragile stock gets high FWS and conditional classification', () => {
     const scored = scoreRow(makeRow({
       adx_14: 18,
       vol_ratio: 0.3,
@@ -321,8 +327,10 @@ describe('scoreRow', () => {
       atr_spiking: true,
       market_regime_stable: false,
     }));
-    expect(scored.FWS).toBeGreaterThan(50);
-    expect(scored.ActionNote).toContain('Auto-No');
+    // FWS ~49 with rebalanced weights (reduced extension/volume penalties)
+    // Still flags as fragile, but not Auto-No (threshold is FWS > 65)
+    expect(scored.FWS).toBeGreaterThan(40);
+    expect(scored.ActionNote).toContain('Conditional');
   });
 });
 
@@ -370,6 +378,68 @@ describe('normaliseRow', () => {
   it('uses ticker as name fallback', () => {
     const row = normaliseRow({ ticker: 'AAPL', name: '' });
     expect(row.name).toBe('AAPL');
+  });
+});
+
+// ── Tuning regression tests (Batch 1 optimizations) ─────────
+
+describe('scoring tuning regressions', () => {
+  it('trendStrength caps at 15 (not 25) to avoid ADX double-counting', () => {
+    const lowAdx = computeBQS(makeRow({ adx_14: 20 }));
+    const highAdx = computeBQS(makeRow({ adx_14: 50 }));
+    // Max trend at ADX 50 should be 15 (capped), not 25
+    expect(highAdx.bqs_trend).toBeLessThanOrEqual(15);
+    expect(highAdx.bqs_trend).toBeGreaterThan(lowAdx.bqs_trend);
+  });
+
+  it('volumeRisk penalises contraction (vol < 0.8), not expansion', () => {
+    const highVol = computeFWS(makeRow({ vol_ratio: 2.0 }));
+    const lowVol = computeFWS(makeRow({ vol_ratio: 0.5 }));
+    // High volume should have ZERO volume risk (breakout confirmation)
+    expect(highVol.fws_volume).toBe(0);
+    // Low volume should be penalised
+    expect(lowVol.fws_volume).toBeGreaterThan(0);
+  });
+
+  it('extensionRisk is reduced for breakout targets near highs', () => {
+    const both = computeFWS(makeRow({ chasing_20_last5: true, chasing_55_last5: true }));
+    const one = computeFWS(makeRow({ chasing_20_last5: true, chasing_55_last5: false }));
+    // Both chasing = 10 (was 25), one = 5 (was 15)
+    expect(both.fws_extension).toBe(10);
+    expect(one.fws_extension).toBe(5);
+  });
+
+  it('earningsPenalty uses max(byDays, byFlag) not just one source', () => {
+    // When only boolean flag is set (days field null), penalty should still apply
+    const result = computePenalties(makeRow({
+      days_to_earnings: null as unknown as number,
+      earnings_in_next_5d: true,
+    }));
+    expect(result.EarningsPenalty).toBe(12);
+  });
+
+  it('earningsPenalty takes stronger of two sources when both present', () => {
+    // days=2 → 15, flag=true → 12. Should use max(15, 12) = 15
+    const result = computePenalties(makeRow({
+      days_to_earnings: 2,
+      earnings_in_next_5d: true,
+    }));
+    expect(result.EarningsPenalty).toBe(15);
+  });
+
+  it('breakout candidates with good volume rank higher than low-volume alternatives', () => {
+    const breakout = scoreRow(makeRow({
+      vol_ratio: 1.5,
+      chasing_20_last5: true,
+      distance_to_20d_high_pct: 0.5,
+    }));
+    const quiet = scoreRow(makeRow({
+      vol_ratio: 0.5,
+      chasing_20_last5: false,
+      distance_to_20d_high_pct: 3.0,
+    }));
+    // Good breakout candidate should score higher NCS than quiet alternative
+    expect(breakout.NCS).toBeGreaterThan(quiet.NCS);
   });
 });
 

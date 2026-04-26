@@ -132,6 +132,17 @@ export default function SafetyControlsPanel() {
             onToggle={() => updateSwitch('disableScansWhenDataStale')}
           />
 
+          <div className="mt-4 pt-4 border-t border-border">
+            <div className="mb-3 text-sm font-semibold text-foreground">Automated Trading</div>
+            <ToggleRow
+              label="Enable auto-trading"
+              description="When ON, the system will automatically scan for candidates, place buy orders, and set protective stops on the scheduled session times. Requires Trading 212 to be connected."
+              checked={settings.enableAutoTrading}
+              saving={savingKey === 'enableAutoTrading'}
+              onToggle={() => updateSwitch('enableAutoTrading')}
+            />
+          </div>
+
           <div className="rounded-lg border border-border bg-navy-800/50 px-4 py-3 text-xs text-muted-foreground">
             <div>
               Market data status: <span className={cn(marketData?.isStale ? 'text-loss' : 'text-profit')}>{marketData?.isStale ? 'STALE' : 'FRESH'}</span>

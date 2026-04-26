@@ -122,4 +122,14 @@ describe('scan-engine: CORE_LITE contract', () => {
       expect(technicals.twentyDayHigh).toBe(105);
     });
   });
+
+  describe('classifyCandidate edge cases (regression)', () => {
+    it('returns FAR when price is zero (corrupt data guard)', () => {
+      expect(classifyCandidate(0, 102)).toBe('FAR');
+    });
+
+    it('returns FAR when price is negative (corrupt data guard)', () => {
+      expect(classifyCandidate(-5, 102)).toBe('FAR');
+    });
+  });
 });

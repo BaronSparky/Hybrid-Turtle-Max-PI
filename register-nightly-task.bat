@@ -19,7 +19,7 @@ echo.
 schtasks /delete /tn "HybridTurtle Nightly" /f >nul 2>&1
 
 :: Use PowerShell Register-ScheduledTask for full control (already elevated)
-powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Turtle-Hybrid\Hybrid-Turtle\register-nightly-task.ps1" -FromBat
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0register-nightly-task.ps1" -FromBat
 
 echo.
 pause

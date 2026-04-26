@@ -33,6 +33,7 @@ import { saveCandidateOutcomes } from '@/lib/candidate-outcome';
 import { getDataFreshness } from '@/lib/market-data';
 import { applyModelLayerToCandidates } from '../../../../packages/model/src';
 import { assertScanAllowed, SafetyControlError } from '../../../../packages/workflow/src';
+import { classifyCandidates, type GradingContext } from '@/lib/candidate-grade';
 
 const scanRequestSchema = z.object({
   userId: z.string().trim().min(1),
@@ -105,9 +106,30 @@ export async function POST(request: NextRequest) {
     const modelLayer = applyModelLayerToCandidates(result.candidates, {
       enabled: userSettings?.modelLayerEnabled ?? false,
     }, result.regime);
+
+    // ── Classify candidates (A/B/C/BLOCKED grades) ──
+    const latestHealth = await prisma.healthCheck.findFirst({
+      where: { userId },
+      orderBy: { runDate: 'desc' },
+      select: { overall: true },
+    }).catch(() => null);
+
+    const gradingContext: GradingContext = {
+      regime: result.regime,
+      healthOverall: (latestHealth?.overall as string) ?? 'GREEN',
+    };
+
+    // Classify each candidate — NCS/BQS/FWS come from dual-score if available
+    // (scan candidates don't carry these yet; they're in the snapshot/cross-ref layer)
+    // For now, use what's available from modelOverlay or leave null for B/C grading
+    const gradedCandidates = classifyCandidates(
+      modelLayer.candidates,
+      gradingContext,
+    );
+
     const responseResult = {
       ...result,
-      candidates: modelLayer.candidates,
+      candidates: gradedCandidates,
       modelLayer: {
         enabled: modelLayer.settings.enabled,
         versions: modelLayer.versions,
@@ -153,6 +175,8 @@ export async function POST(request: NextRequest) {
                 passesAllFilters: c.passesAllFilters,
                 shares: c.shares ?? null,
                 riskDollars: c.riskDollars ?? null,
+                grade: (c as { classification?: { grade: string } }).classification?.grade ?? null,
+                gradeReason: (c as { classification?: { reason: string } }).classification?.reason ?? null,
               })),
           },
         },

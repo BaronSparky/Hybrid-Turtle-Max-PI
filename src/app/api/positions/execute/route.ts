@@ -18,6 +18,8 @@ import type { T212AccountType } from '@/lib/trading212-dual';
 import { ensureDefaultUser } from '@/lib/default-user';
 import { z } from 'zod';
 import { assertSubmissionAllowed, SafetyControlError } from '../../../../../packages/workflow/src';
+import { runPreExecutionDryRun } from '@/lib/pre-execution-dry-run';
+import { getMarketRegime } from '@/lib/market-data';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -136,7 +138,7 @@ async function validateSafetyAssertions(
   stopPrice: number,
   quantity: number,
   accountType: T212AccountType
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; resolvedT212Ticker?: string; resolvedStockId?: string }> {
   // 1. stopPrice > 0
   if (stopPrice <= 0) {
     return { ok: false, error: 'ABORT: stopPrice must be > 0' };
@@ -148,10 +150,18 @@ async function validateSafetyAssertions(
   }
 
   // 3. t212Ticker exists on Stock record
-  const stock = await prisma.stock.findUnique({
+  // Support both Prisma cuid (from auto-trade) and ticker string (from BuyConfirmationModal)
+  let stock = await prisma.stock.findUnique({
     where: { id: stockId },
-    select: { t212Ticker: true, isaEligible: true, ticker: true },
+    select: { id: true, t212Ticker: true, isaEligible: true, ticker: true },
   });
+  if (!stock) {
+    // Fallback: try looking up by ticker (frontend sends candidate.ticker as stockId)
+    stock = await prisma.stock.findUnique({
+      where: { ticker: stockId },
+      select: { id: true, t212Ticker: true, isaEligible: true, ticker: true },
+    });
+  }
 
   if (!stock) {
     return { ok: false, error: 'ABORT: Stock not found in database' };
@@ -161,16 +171,15 @@ async function validateSafetyAssertions(
     return { ok: false, error: `ABORT: No T212 ticker mapped for ${stock.ticker}. Set it in the database first.` };
   }
 
-  if (stock.t212Ticker !== t212Ticker) {
-    return { ok: false, error: `ABORT: T212 ticker mismatch — DB has "${stock.t212Ticker}" but request sent "${t212Ticker}"` };
-  }
+  // Use the DB's authoritative t212Ticker — the frontend may send the Yahoo ticker
+  // as t212Ticker which would mismatch. The DB is the source of truth.
 
   // 4. ISA eligibility check — abort if explicitly ineligible
   if (accountType === 'isa' && stock.isaEligible === false) {
     return { ok: false, error: `ABORT: ${stock.ticker} is not ISA eligible — cannot buy on ISA account` };
   }
 
-  return { ok: true };
+  return { ok: true, resolvedT212Ticker: stock.t212Ticker, resolvedStockId: stock.id };
 }
 
 // ── SSE Helpers ──────────────────────────────────────────────
@@ -270,6 +279,41 @@ export async function POST(request: NextRequest) {
           return;
         }
 
+        // Use DB-resolved values — the frontend may send ticker as stockId/t212Ticker
+        const resolvedT212Ticker = safety.resolvedT212Ticker || t212Ticker;
+        const resolvedStockId = safety.resolvedStockId || stockId;
+
+        // ── PRE-EXECUTION DRY RUN ──
+        const regime = await getMarketRegime().catch(() => undefined);
+        const dryRun = await runPreExecutionDryRun({
+          userId: resolvedUserId,
+          ticker,
+          entryPrice,
+          stopPrice,
+          quantity,
+          accountType,
+          regime,
+          ncsScore,
+          fwsScore,
+          dualScoreAction,
+        });
+
+        if (!dryRun.passed) {
+          const failureMsg = dryRun.summary;
+          await logExecution({
+            ticker, phase: 'DRY_RUN_FAIL', requestBody: JSON.stringify(body),
+            accountType, error: failureMsg,
+          });
+          send('error', {
+            error: failureMsg,
+            phase: 'DRY_RUN_FAIL',
+            dryRunChecks: dryRun.checks,
+            hardFailures: dryRun.hardFailures,
+          });
+          controller.close();
+          return;
+        }
+
         // ── Get T212 Client ──
         let client: Trading212Client;
         try {
@@ -292,7 +336,7 @@ export async function POST(request: NextRequest) {
         updatePhase(0, { status: 'running' });
 
         let buyOrder: T212PendingOrder;
-        const buyRequest = { quantity, ticker: t212Ticker };
+        const buyRequest = { quantity, ticker: resolvedT212Ticker };
 
         try {
           buyOrder = await client.placeMarketOrder(buyRequest);
@@ -454,7 +498,7 @@ export async function POST(request: NextRequest) {
           const stopRequest = {
             quantity: stopQuantity,
             stopPrice,
-            ticker: t212Ticker,
+            ticker: resolvedT212Ticker,
             timeValidity: 'GOOD_TILL_CANCEL' as const,
           };
 
@@ -516,7 +560,7 @@ export async function POST(request: NextRequest) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               userId: resolvedUserId,
-              stockId,
+              stockId: resolvedStockId,
               entryPrice: filledPrice,
               shares: filledQuantity,
               stopLoss: stopPrice,

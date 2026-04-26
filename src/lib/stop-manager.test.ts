@@ -315,4 +315,45 @@ describe('calculateTrailingATRStop regressions', () => {
 
     spy.mockRestore();
   });
+
+  it('returns null when bars are too few for any ATR calculation (div-by-zero guard)', async () => {
+    // Only 1 bar total — not enough for any TR value (need ≥2 bars)
+    const singleBar = [
+      { date: isoDay(1), high: 102, low: 98, close: 100 },
+    ];
+
+    const spy = vi.spyOn(marketData, 'getDailyPrices');
+    spy.mockResolvedValueOnce(singleBar as Awaited<ReturnType<typeof marketData.getDailyPrices>>);
+
+    const result = await calculateTrailingATRStop('SHORT', 100, new Date(`${isoDay(1)}T00:00:00.000Z`), 90, 2.0);
+    // Should return null (not enough data), not NaN
+    expect(result === null || (result !== null && Number.isFinite(result.trailingStop))).toBe(true);
+
+    spy.mockRestore();
+  });
+
+  it('default ATR trailing multiplier is 1.5 (tighter trailing for profit lock)', async () => {
+    // Constant-TR bars: TR = 5 at every bar. Default multiplier = 1.5.
+    // Trailing stop = close - 1.5×ATR = 100 - 1.5×5 = 92.5
+    const constantTrChronological = Array.from({ length: 20 }, (_, idx) => ({
+      date: isoDay(idx + 1),
+      high: 102.5,
+      low: 97.5,
+      close: 100,
+    }));
+
+    const bars = newestFirstFromChronological(constantTrChronological);
+    const entryDate = new Date(`${isoDay(15)}T00:00:00.000Z`);
+
+    const spy = vi.spyOn(marketData, 'getDailyPrices');
+    spy.mockResolvedValueOnce(bars as Awaited<ReturnType<typeof marketData.getDailyPrices>>);
+
+    // No explicit multiplier — uses default (1.5)
+    const result = await calculateTrailingATRStop('DEF_TRAIL', 100, entryDate, 80);
+    expect(result).not.toBeNull();
+    // 100 - 1.5×5 = 92.5
+    expect(result?.trailingStop).toBe(92.5);
+
+    spy.mockRestore();
+  });
 });

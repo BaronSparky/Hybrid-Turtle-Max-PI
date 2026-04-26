@@ -5,6 +5,7 @@ import type {
   MarketRegime,
   WeeklyPhase,
   RiskProfileType,
+  OperatingMode,
   MarketIndex,
   FearGreedData,
   NightlySummary,
@@ -52,6 +53,7 @@ interface AppState {
 
   // User State
   riskProfile: RiskProfileType;
+  operatingMode: OperatingMode;
   equity: number;
   userId: string | null;
   applyKellyMultiplier: boolean;
@@ -91,6 +93,7 @@ interface AppState {
   setHeartbeat: (timestamp: Date) => void;
   setHeartbeatStatus: (status: 'SUCCESS' | 'PARTIAL' | 'FAILED') => void;
   setRiskProfile: (profile: RiskProfileType) => void;
+  setOperatingMode: (mode: OperatingMode) => void;
   setEquity: (equity: number) => void;
   setUserId: (id: string) => void;
   setApplyKellyMultiplier: (enabled: boolean) => void;
@@ -133,6 +136,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
 
   // User State
   riskProfile: 'BALANCED',
+  operatingMode: 'NORMAL',
   equity: 10000,
   userId: null,
   applyKellyMultiplier: false,
@@ -183,6 +187,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     }),
   setHeartbeatStatus: (status: 'SUCCESS' | 'PARTIAL' | 'FAILED') => set({ heartbeatStatus: status }),
   setRiskProfile: (profile) => set({ riskProfile: profile }),
+  setOperatingMode: (mode) => set({ operatingMode: mode }),
   setEquity: (equity) => set({ equity }),
   setUserId: (id) => set({ userId: id }),
   setApplyKellyMultiplier: (enabled) => set({ applyKellyMultiplier: enabled }),
@@ -220,6 +225,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
   name: 'hybrid-turtle-settings',
   partialize: (state) => ({
     riskProfile: state.riskProfile,
+    operatingMode: state.operatingMode,
     equity: state.equity,
     applyKellyMultiplier: state.applyKellyMultiplier,
   }),

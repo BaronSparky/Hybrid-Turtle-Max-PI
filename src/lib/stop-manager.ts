@@ -13,6 +13,7 @@
 // if (newStop < currentStop) throw Error
 
 import type { ProtectionLevel } from '@/types';
+import { ATR_TRAILING_MULTIPLIER } from '@/types';
 import { PROTECTION_LEVELS } from '@/types';
 import prisma from './prisma';
 import { getDailyPrices, calculateATR } from './market-data';
@@ -261,7 +262,7 @@ export async function calculateTrailingATRStop(
   entryPrice: number,
   entryDate: Date,
   currentStop: number,
-  atrMultiplier: number = 2.0
+  atrMultiplier: number = ATR_TRAILING_MULTIPLIER
 ): Promise<{
   trailingStop: number;
   highestClose: number;
@@ -316,6 +317,7 @@ export async function calculateTrailingATRStop(
         );
         trs.push(tr);
       }
+      if (trs.length === 0) continue; // Not enough bars for ATR — skip this bar
       const atr = trs.reduce((s, v) => s + v, 0) / trs.length;
 
       // Track highest close since entry

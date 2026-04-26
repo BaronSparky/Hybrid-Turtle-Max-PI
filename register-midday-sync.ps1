@@ -30,8 +30,8 @@ try {
 
     $Action = New-ScheduledTaskAction `
         -Execute "cmd.exe" `
-        -Argument "/c `"C:\Turtle-Hybrid\Hybrid-Turtle\Hybrid-Turtle\midday-sync-task.bat`" --scheduled" `
-        -WorkingDirectory "C:\Turtle-Hybrid\Hybrid-Turtle\Hybrid-Turtle"
+        -Argument "/c `"$PSScriptRoot\midday-sync-task.bat`" --scheduled" `
+        -WorkingDirectory "$PSScriptRoot"
 
     # Create 4 triggers: 10:00, 13:00, 16:00, 19:00 on weekdays
     $Triggers = @(

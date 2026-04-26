@@ -30,8 +30,8 @@ import prisma from '@/lib/prisma';
 import { runHealthCheck } from '@/lib/health-check';
 import { generateStopRecommendations, generateTrailingStopRecommendations, updateStopLoss } from '@/lib/stop-manager';
 import { sendNightlySummary } from '@/lib/telegram';
-import type { NightlyPositionDetail, NightlyStopChange, NightlyReadyCandidate, NightlyTriggerMetCandidate, NightlyLaggardAlert, NightlyClimaxAlert, NightlySwapAlert, NightlyWhipsawAlert, NightlyBreadthAlert, NightlyMomentumAlert, NightlyPyramidAlert, NightlyGapRiskAlert, NightlyBreakoutFailureAlert } from '@/lib/telegram';
-import { getBatchQuotes, normalizeBatchPricesToGBP, getDailyPrices, calculateADX, calculateATR, calculateMA, preCacheHistoricalData, getDataFreshness } from '@/lib/market-data';
+import type { NightlyPositionDetail, NightlyStopChange, NightlyReadyCandidate, NightlyTriggerMetCandidate, NightlyLaggardAlert, NightlyClimaxAlert, NightlySwapAlert, NightlyWhipsawAlert, NightlyBreadthAlert, NightlyMomentumAlert, NightlyPyramidAlert, NightlyGapRiskAlert, NightlyBreakoutFailureAlert, NightlyAcceleratorAlert } from '@/lib/telegram';
+import { getBatchQuotes, normalizeBatchPricesToGBP, getDailyPrices, calculateADX, calculateATR, calculateMA, preCacheHistoricalData, getDataFreshness, getMarketRegime } from '@/lib/market-data';
 import { fetchWithFallback, toPriceRecord } from '@/lib/data-provider';
 import type { DataSourceHealth } from '@/lib/data-provider';
 import { recordEquitySnapshot } from '@/lib/equity-snapshot';
@@ -39,6 +39,7 @@ import { syncClosedPositions } from '@/lib/position-sync';
 import type { PositionSyncResult } from '@/lib/position-sync';
 import { syncSnapshot } from '@/lib/snapshot-sync';
 import { detectLaggards } from '@/lib/laggard-detector';
+import { rankActions, type AcceleratorContext, type HeldPosition, type ReadyCandidate as AcceleratorCandidate } from '@/lib/profit-accelerator';
 import { detectBreakoutFailures } from '@/lib/breakout-failure-detector';
 import type { BreakoutFailureResult } from '@/lib/breakout-failure-detector';
 import { scanClimaxSignals } from '@/lib/modules/climax-detector';
@@ -54,6 +55,9 @@ import { getRiskBudget, canPyramid, calculatePyramidAddSize } from '@/lib/risk-g
 import { calculateRMultiple } from '@/lib/position-sizer';
 import { sendAlert } from '@/lib/alert-service';
 import { backupDatabase } from '@/lib/db-backup';
+import { isAutoTradingEnabled } from '../../packages/workflow/src';
+import { Trading212Client } from '@/lib/trading212';
+import type { T212AccountType } from '@/lib/trading212-dual';
 import { isEnabled } from '@/lib/feature-flags';
 import { saveScoreBreakdowns } from '@/lib/score-tracker';
 import { scoreRow, normaliseRow } from '@/lib/dual-score';
@@ -74,6 +78,27 @@ function getUKDayOfWeek(): number {
     now.toLocaleString('en-GB', { timeZone: 'Europe/London' })
   );
   return ukTime.getDay();
+}
+
+async function getNightlyT212Client(userId: string, accountType: T212AccountType): Promise<Trading212Client | null> {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        t212ApiKey: true, t212ApiSecret: true, t212Environment: true, t212Connected: true,
+        t212IsaApiKey: true, t212IsaApiSecret: true, t212IsaConnected: true,
+      },
+    });
+    if (!user) return null;
+    if (accountType === 'isa') {
+      if (!user.t212IsaApiKey || !user.t212IsaApiSecret || !user.t212IsaConnected) return null;
+      return new Trading212Client(user.t212IsaApiKey, user.t212IsaApiSecret, user.t212Environment as 'demo' | 'live');
+    }
+    if (!user.t212ApiKey || !user.t212ApiSecret || !user.t212Connected) return null;
+    return new Trading212Client(user.t212ApiKey, user.t212ApiSecret, user.t212Environment as 'demo' | 'live');
+  } catch {
+    return null;
+  }
 }
 
 async function runNightlyProcess() {
@@ -562,6 +587,79 @@ async function runNightlyProcess() {
     }
     console.log(`        Near-stop alerts: ${nearStopCount} sent`);
 
+    // Step 3g: Auto-push updated stops to T212 (requires ENABLE_AUTO_TRADING)
+    const autoTradingEnabled = await isAutoTradingEnabled();
+    let stopsPushedToT212 = 0;
+    let stopsPushFailed = 0;
+    if (autoTradingEnabled && (stopChanges.length > 0 || trailingStopChanges.length > 0)) {
+      console.log('  [3g] Auto-pushing stops to Trading 212...');
+      try {
+        // Only push stops for positions that actually changed (not all positions)
+        const changedTickers = new Set([
+          ...stopChanges.map(s => s.ticker),
+          ...trailingStopChanges.map(s => s.ticker),
+        ]);
+
+        // Group changed positions by account type
+        const changedPositions = positions.filter(p => changedTickers.has(p.stock.ticker));
+        const positionsByAccount = new Map<T212AccountType, typeof positions>();
+        for (const p of changedPositions) {
+          const acctType: T212AccountType = p.accountType === 'isa' ? 'isa' : 'invest';
+          const group = positionsByAccount.get(acctType) ?? [];
+          group.push(p);
+          positionsByAccount.set(acctType, group);
+        }
+
+        for (const [acctType, acctPositions] of Array.from(positionsByAccount.entries())) {
+          const client = await getNightlyT212Client(userId, acctType);
+          if (!client) {
+            console.warn(`  [3g] T212 ${acctType} client unavailable — skipping stop push`);
+            continue;
+          }
+
+          // Build batch of stops to push (only positions with t212Ticker)
+          const batchInput = acctPositions
+            .filter(p => {
+              const t212Ticker = p.t212Ticker || p.stock.t212Ticker;
+              return t212Ticker && p.currentStop > 0;
+            })
+            .map(p => ({
+              t212Ticker: (p.t212Ticker || p.stock.t212Ticker)!,
+              shares: p.shares,
+              stopPrice: p.currentStop,
+            }));
+
+          if (batchInput.length === 0) continue;
+
+          try {
+            const results = await client.setStopLossBatch(batchInput);
+            for (const r of results) {
+              if (r.action === 'PLACED' || r.action === 'UPDATED') {
+                stopsPushedToT212++;
+              } else {
+                stopsPushFailed++;
+                console.warn(`  [3g] Stop push ${r.action} for ${r.t212Ticker}: ${r.error || ''}`);
+              }
+            }
+          } catch (err) {
+            console.warn(`  [3g] Batch stop push failed for ${acctType}: ${(err as Error).message}`);
+            stopsPushFailed += batchInput.length;
+          }
+        }
+
+        if (stopsPushedToT212 > 0) {
+          alerts.push(`✅ ${stopsPushedToT212} stop(s) auto-pushed to T212`);
+        }
+        if (stopsPushFailed > 0) {
+          alerts.push(`⚠ ${stopsPushFailed} stop(s) failed to push to T212 — check manually`);
+        }
+      } catch (error) {
+        console.warn('  [3g] Auto-push stops failed:', (error as Error).message);
+        alerts.push('⚠ Auto stop-push to T212 failed — check manually');
+      }
+    }
+    console.log(`        T212 stop push: ${stopsPushedToT212} pushed, ${stopsPushFailed} failed`);
+
     // Step 4: Detect laggards + collect alerts
     console.log('  [4/9] Detecting laggards...');
     startStep('4', 'Laggard detection');
@@ -575,10 +673,12 @@ async function runNightlyProcess() {
     if (gapRiskAlerts.length > 0) alerts.push(`${gapRiskAlerts.length} HIGH_RISK position(s) with overnight gap > 2× ATR%`);
 
     let laggardAlerts: NightlyLaggardAlert[] = [];
+    // Hoisted for reuse by accelerator engine (step 6c)
+    const laggardExtrasCache = new Map<string, { ma20: number; adxToday: number; adxYesterday: number }>();
     try {
       // Pre-compute MA20 + ADX (today vs yesterday) from cached daily bars
       // getDailyPrices hits cache here — bars were fetched in Step 3
-      const laggardExtras = new Map<string, { ma20: number; adxToday: number; adxYesterday: number }>();
+      const laggardExtras = laggardExtrasCache;
       for (const p of positions) {
         try {
           const bars = await getDailyPrices(p.stock.ticker, 'full');
@@ -845,6 +945,8 @@ async function runNightlyProcess() {
     }
 
     let pyramidAlerts: NightlyPyramidAlert[] = [];
+    // Hoisted for reuse by accelerator engine (step 6c)
+    const addsMap = new Map<string, number>();
     try {
       // Count existing pyramid adds per position from TradeLog
       const addCounts = await prisma.tradeLog.groupBy({
@@ -852,7 +954,6 @@ async function runNightlyProcess() {
         where: { userId, tradeType: 'ADD', positionId: { not: null } },
         _count: { id: true },
       });
-      const addsMap = new Map<string, number>();
       for (const row of addCounts) {
         if (row.positionId) addsMap.set(row.positionId, row._count.id);
       }
@@ -945,6 +1046,139 @@ async function runNightlyProcess() {
     }
     console.log(`        Equity: ${equity.toFixed(2)}, Risk: ${openRiskPercent.toFixed(1)}%, Pyramids: ${pyramidAlerts.length}`);
 
+    // Step 6-auto: Auto-execute pyramid adds (requires ENABLE_AUTO_TRADING + regime BULLISH)
+    let pyramidsExecuted = 0;
+    let pyramidsFailed = 0;
+    if (autoTradingEnabled && pyramidAlerts.length > 0) {
+      const regime = await getMarketRegime().catch(() => 'UNKNOWN');
+      const dayOfWeek = getUKDayOfWeek();
+
+      // Only pyramid on execution days (Tue-Fri) in BULLISH regime
+      if (regime === 'BULLISH' && dayOfWeek >= 2 && dayOfWeek <= 5) {
+        console.log('  [6-auto] Auto-executing pyramid adds...');
+        try {
+          for (const pa of pyramidAlerts) {
+            if (pa.addShares <= 0) continue;
+
+            // Find the position and its stock
+            const pos = positions.find(p => p.stock.ticker === pa.ticker);
+            if (!pos) continue;
+
+            const t212Ticker = pos.t212Ticker || pos.stock.t212Ticker;
+            if (!t212Ticker) {
+              console.warn(`  [6-auto] ${pa.ticker}: no T212 ticker — skipping`);
+              pyramidsFailed++;
+              continue;
+            }
+
+            const acctType: T212AccountType = pos.accountType === 'isa' ? 'isa' : 'invest';
+            const client = await getNightlyT212Client(userId, acctType);
+            if (!client) {
+              console.warn(`  [6-auto] ${pa.ticker}: T212 ${acctType} client unavailable`);
+              pyramidsFailed++;
+              continue;
+            }
+
+            // Cash check: verify sufficient funds before placing order
+            try {
+              const summary = await client.getAccountSummary();
+              const availableCash = summary.cash.availableToTrade;
+              const estimatedCost = pa.addShares * pa.currentPrice;
+
+              if (availableCash < estimatedCost) {
+                console.warn(`  [6-auto] ${pa.ticker}: insufficient cash (need ${estimatedCost.toFixed(2)}, have ${availableCash.toFixed(2)})`);
+                alerts.push(`⚠ Pyramid ${pa.ticker}: insufficient cash (need ${estimatedCost.toFixed(2)}, have ${availableCash.toFixed(2)})`);
+                pyramidsFailed++;
+                continue;
+              }
+            } catch (err) {
+              console.warn(`  [6-auto] ${pa.ticker}: cash check failed — ${(err as Error).message}`);
+              pyramidsFailed++;
+              continue;
+            }
+
+            // Place market buy order for the add
+            try {
+              const buyOrder = await client.placeMarketOrder({ quantity: pa.addShares, ticker: t212Ticker });
+              console.log(`  [6-auto] ${pa.ticker}: pyramid add placed (order ${buyOrder.id}, ${pa.addShares} shares)`);
+
+              // Note: entryPrice uses pa.currentPrice (last close from scan), not the actual fill.
+              // The actual fill may differ due to slippage. The next T212 position sync (midday/nightly)
+              // will reconcile the real fill price. This is acceptable for the pyramid use case
+              // because the position already has a stop, and slippage on an add is small relative to R.
+
+              // Fix 4: Update position shares in DB so next nightly uses correct count
+              const newTotalShares = pos.shares + pa.addShares;
+              await prisma.position.update({
+                where: { id: pos.id },
+                data: { shares: newTotalShares },
+              });
+
+              // Fix 2: Place protective stop for the full position (original + added shares)
+              // This ensures the added shares are covered by the existing stop on T212.
+              try {
+                await client.setStopLoss(t212Ticker, newTotalShares, pos.currentStop);
+                console.log(`  [6-auto] ${pa.ticker}: stop updated for ${newTotalShares.toFixed(2)} total shares`);
+              } catch (stopErr) {
+                console.warn(`  [6-auto] ${pa.ticker}: stop update after pyramid failed — ${(stopErr as Error).message}`);
+                alerts.push(`⚠ ${pa.ticker}: pyramid bought but stop may not cover new shares — check T212`);
+              }
+
+              // Log to execution audit
+              await prisma.executionLog.create({
+                data: {
+                  ticker: pa.ticker,
+                  phase: 'PYRAMID_ADD',
+                  orderId: String(buyOrder.id),
+                  requestBody: JSON.stringify({ shares: pa.addShares, t212Ticker, addNumber: pa.addNumber, newTotalShares }),
+                  responseStatus: 200,
+                  quantity: pa.addShares,
+                  accountType: acctType,
+                },
+              });
+
+              // Log to TradeLog as ADD type
+              await prisma.tradeLog.create({
+                data: {
+                  userId,
+                  positionId: pos.id,
+                  ticker: pa.ticker,
+                  tradeDate: new Date(),
+                  tradeType: 'ADD',
+                  entryPrice: pa.currentPrice, // Approximate — actual fill reconciled by T212 sync
+                  shares: pa.addShares,
+                  decision: 'AUTO_PYRAMID',
+                  decisionReason: `Auto pyramid add #${pa.addNumber} at ${pa.rMultiple.toFixed(1)}R`,
+                },
+              });
+
+              // Send alert
+              await sendAlert({
+                type: 'PYRAMID_ADD',
+                title: `✅ Auto pyramid: ${pa.ticker} add #${pa.addNumber}`,
+                message: `Bought ${pa.addShares.toFixed(2)} shares at ~${pa.currentPrice.toFixed(2)} (${pa.rMultiple.toFixed(1)}R). Total: ${newTotalShares.toFixed(2)} shares. Stop covers full position.`,
+                priority: 'INFO',
+              });
+
+              pyramidsExecuted++;
+              alerts.push(`✅ Pyramid ${pa.ticker}: ${pa.addShares.toFixed(2)} shares added at ${pa.rMultiple.toFixed(1)}R`);
+            } catch (err) {
+              console.error(`  [6-auto] ${pa.ticker}: pyramid buy failed — ${(err as Error).message}`);
+              alerts.push(`⚠ Pyramid ${pa.ticker} FAILED: ${(err as Error).message}`);
+              pyramidsFailed++;
+            }
+          }
+        } catch (error) {
+          console.warn('  [6-auto] Auto pyramid execution failed:', (error as Error).message);
+        }
+      } else {
+        console.log(`  [6-auto] Pyramid auto-exec skipped (regime=${regime}, day=${dayOfWeek})`);
+      }
+    }
+    if (pyramidsExecuted > 0 || pyramidsFailed > 0) {
+      console.log(`        Auto pyramids: ${pyramidsExecuted} executed, ${pyramidsFailed} failed`);
+    }
+
     // Step 6b: Equity milestone check (advisory only — never auto-changes risk profile)
     try {
       const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -967,6 +1201,102 @@ async function runNightlyProcess() {
     } catch (error) {
       // Non-critical — don't fail the pipeline for an advisory check
       console.warn('  [6b] Equity milestone check failed:', (error as Error).message);
+    }
+
+    // Step 6c: Profit Acceleration — Capital Priority Engine (advisory only)
+    let acceleratorAlerts: NightlyAcceleratorAlert[] = [];
+    try {
+      // Build HeldPosition data for the accelerator
+      const accelPositions: HeldPosition[] = positions.map((p) => {
+        const rawPrice = livePrices[p.stock.ticker] || p.entryPrice;
+        const rMult = calculateRMultiple(rawPrice, p.entryPrice, p.initialRisk);
+        const extras = laggardExtrasCache?.get(p.stock.ticker);
+        return {
+          id: p.id,
+          ticker: p.stock.ticker,
+          sleeve: p.stock.sleeve as Sleeve,
+          sector: p.stock.sector || 'Unknown',
+          cluster: p.stock.cluster || 'General',
+          entryPrice: p.entryPrice,
+          currentPrice: rawPrice,
+          currentStop: p.currentStop,
+          shares: p.shares,
+          initialRisk: p.initialRisk,
+          entryDate: p.entryDate,
+          daysHeld: Math.floor((Date.now() - p.entryDate.getTime()) / 86400000),
+          rMultiple: rMult,
+          atr: p.atr_at_entry || 0,
+          currency: p.stock.currency || 'USD',
+          pyramidAdds: addsMap.get(p.id) ?? 0,
+          ma20: extras?.ma20,
+          adxToday: extras?.adxToday,
+          adxYesterday: extras?.adxYesterday,
+        };
+      });
+
+      // Build candidate data from latest scan (CandidateOutcome has NCS/FWS)
+      const accelCandidates: AcceleratorCandidate[] = [];
+      try {
+        const recentCandidates = await prisma.candidateOutcome.findMany({
+          where: {
+            status: 'READY',
+            scanDate: { gte: new Date(Date.now() - 48 * 60 * 60 * 1000) },
+          },
+          orderBy: { ncs: 'desc' },
+          take: 30,
+        });
+        const heldTickers = new Set(positions.map((p) => p.stock.ticker));
+        for (const r of recentCandidates) {
+          if (heldTickers.has(r.ticker)) continue;
+          accelCandidates.push({
+            ticker: r.ticker,
+            sleeve: (r.sleeve || 'CORE') as Sleeve,
+            sector: r.sector || 'Unknown',
+            cluster: r.cluster || 'General',
+            ncs: r.ncs ?? 0,
+            fws: r.fws ?? 0,
+            actionNote: r.dualScoreAction ?? '',
+            entryTrigger: r.entryTrigger ?? 0,
+            stopPrice: r.stopPrice ?? 0,
+            riskDollars: r.suggestedRiskGbp ?? 0,
+            totalCost: r.suggestedCostGbp ?? 0,
+          });
+        }
+      } catch {
+        // Non-critical — accelerator runs with empty candidates
+      }
+
+      const accelCtx: AcceleratorContext = {
+        positions: accelPositions,
+        candidates: accelCandidates,
+        equity,
+        riskProfile,
+        regime: (await getMarketRegime()) as AcceleratorContext['regime'],
+        openRiskPercent,
+      };
+
+      const recommendations = rankActions(accelCtx);
+      const actionable = recommendations.filter(
+        (r) => r.action !== 'HOLD' && r.action !== 'NO_ACTION'
+      );
+
+      acceleratorAlerts = actionable.map((r) => ({
+        action: r.action,
+        ticker: r.ticker,
+        replacementTicker: r.replacementTicker,
+        urgency: r.urgency,
+        reason: r.reason,
+        expectedBenefit: r.expectedBenefit,
+        riskImpact: r.riskImpact,
+      }));
+
+      if (acceleratorAlerts.length > 0) {
+        alerts.push(`⚡ ${acceleratorAlerts.length} capital priority action(s) — review in plan page`);
+      }
+      console.log(`        Accelerator: ${acceleratorAlerts.length} actionable recommendations`);
+    } catch (error) {
+      // Non-critical — accelerator is advisory-only
+      console.warn('  [6c] Profit accelerator failed:', (error as Error).message);
     }
 
     // Step 7: Sync snapshot + query READY candidates
@@ -1330,6 +1660,7 @@ async function runNightlyProcess() {
       momentumAlert,
       gapRiskAlerts,
       breakoutFailures: breakoutFailureAlerts,
+      acceleratorAlerts,
     });
     } catch (error) {
       // Telegram is optional infrastructure — failure must not degrade heartbeat

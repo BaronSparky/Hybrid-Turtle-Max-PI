@@ -30,8 +30,8 @@ try {
 
     $Action = New-ScheduledTaskAction `
         -Execute "cmd.exe" `
-        -Argument "/c `"C:\Turtle-Hybrid\Hybrid-Turtle\nightly-task.bat`" --scheduled" `
-        -WorkingDirectory "C:\Turtle-Hybrid\Hybrid-Turtle"
+        -Argument "/c `"$PSScriptRoot\nightly-task.bat`" --scheduled" `
+        -WorkingDirectory "$PSScriptRoot"
 
     $Trigger = New-ScheduledTaskTrigger `
         -Weekly `
@@ -67,12 +67,12 @@ try {
     Write-Host ""
 
     # Write result for verification
-    "SUCCESS" | Out-File "C:\Turtle-Hybrid\Hybrid-Turtle\schtask-result.txt"
+    "SUCCESS" | Out-File "$PSScriptRoot\schtask-result.txt"
 
 } catch {
     Write-Host ""
     Write-Host "  FAILED: $($_.Exception.Message)" -ForegroundColor Red
-    "FAILED: $($_.Exception.Message)" | Out-File "C:\Turtle-Hybrid\Hybrid-Turtle\schtask-result.txt"
+    "FAILED: $($_.Exception.Message)" | Out-File "$PSScriptRoot\schtask-result.txt"
 }
 
 Write-Host ""

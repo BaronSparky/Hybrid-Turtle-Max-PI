@@ -101,12 +101,27 @@ if not exist "tsconfig.json" (
     exit /b 1
 )
 
-:: Kill any stale node processes on port 3000
-echo  Checking for stale processes...
-powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+:: Kill any stale HybridTurtle processes on port 3000 (only targets port 3000, not all Node)
+echo  Checking for stale processes on port 3000...
+netstat -aon 2>nul | findstr ":3000 " | findstr "LISTENING" >nul 2>&1
+if %errorlevel%==0 (
+    echo          Stopping previous dashboard instance...
+    for /f "tokens=5" %%p in ('netstat -aon ^| findstr ":3000 " ^| findstr "LISTENING"') do taskkill /PID %%p /F >nul 2>&1
+)
 
 :: Wait a moment for the port to free up
 timeout /t 1 /nobreak >nul
+
+:: Ensure production build exists (install.bat pre-builds; this catches edge cases)
+if not exist ".next" (
+    echo  Building dashboard for the first time ^(this may take a few minutes^)...
+    call npx next build
+    if %errorlevel% neq 0 (
+        echo  !! Build failed. Try running install.bat again.
+        pause
+        exit /b 1
+    )
+)
 
 echo  Starting dashboard server...
 echo.
@@ -118,10 +133,10 @@ echo   Press Ctrl+C or close this window to stop.
 echo  ───────────────────────────────────────────────────────────
 echo.
 
-:: Open browser after a short delay (background task)
-start /min cmd /c "timeout /t 4 /nobreak >nul && start http://localhost:3000/dashboard"
+:: Open browser once server is ready (polls until responsive, max 60s)
+start /min cmd /v:on /c "set TRIES=0 && :loop && set /a TRIES+=1 && if !TRIES! GTR 30 (echo Server did not start in time. Open http://localhost:3000 manually. && pause && exit /b) && timeout /t 2 /nobreak >nul && powershell -NoProfile -Command \"try { (Invoke-WebRequest -Uri http://localhost:3000 -UseBasicParsing -TimeoutSec 2).StatusCode } catch { exit 1 }\" >nul 2>&1 && start http://localhost:3000/dashboard || goto loop"
 
-:: Start the dev server (blocks until user closes)
-call npm run dev
+:: Start the production server (blocks until user closes)
+call npm start
 
 pause

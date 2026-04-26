@@ -17,14 +17,12 @@ echo   HybridTurtle — Updating (v6.0)...
 echo  ===========================================================
 echo.
 
-:: Stop any running instances
-echo  [1/4] Stopping any running instances...
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":3000" ^| findstr "LISTENING"') do (
-    taskkill /PID %%a /F >nul 2>&1
-)
+:: Stop any running HybridTurtle instances on port 3000
+echo  [1/5] Stopping any running dashboard instances...
+powershell -NoProfile -Command "$conns = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue; if ($conns) { Write-Host '         Stopping dashboard on port 3000...'; $conns | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } }" 2>nul
 
 :: Update dependencies
-echo  [2/4] Updating dependencies...
+echo  [2/5] Updating dependencies...
 if exist "package-lock.json" (
     call npm ci
 ) else (
@@ -37,7 +35,7 @@ if %errorlevel% neq 0 (
 )
 
 :: Regenerate Prisma client and apply migrations
-echo  [3/4] Updating database schema...
+echo  [3/5] Updating database schema...
 call npx prisma generate
 if %errorlevel% neq 0 (
     echo  !! Prisma generate failed.
@@ -52,8 +50,15 @@ if %errorlevel% neq 0 (
 )
 
 :: Re-seed (upserts, so safe to re-run)
-echo  [4/4] Refreshing stock universe...
+echo  [4/5] Refreshing stock universe...
 call npx prisma db seed 2>nul
+
+:: Rebuild for production (start.bat uses production mode)
+echo  [5/5] Building dashboard (this may take a few minutes)...
+call npx next build
+if %errorlevel% neq 0 (
+    echo  !! Build failed. The dashboard may still work — try start.bat.
+)
 
 echo.
 echo  ===========================================================

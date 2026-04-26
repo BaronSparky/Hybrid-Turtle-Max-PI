@@ -12,7 +12,7 @@ A systematic trading dashboard built on the Turtle Trading methodology with mode
    - It will check for Node.js (and help you install it if missing)
    - Installs all dependencies automatically
    - Sets up the local SQLite database
-   - Seeds the stock universe (268 tickers)
+   - Seeds the stock universe (~600 tickers)
    - Creates a desktop shortcut
 
 2. **That's it!** The installer will ask if you want to launch immediately.
@@ -39,6 +39,9 @@ A systematic trading dashboard built on the Turtle Trading methodology with mode
 | `watchdog-task.bat` | Check for missed nightly heartbeats, send Telegram alert |
 | `register-nightly-task.bat` | Register nightly as a Windows Scheduled Task |
 | `register-watchdog-task.bat` | Register watchdog as a Windows Scheduled Task (10:00 AM daily) |
+| `auto-trade-task.bat` | Run automated trading for a session (scan/uk/us/us-close) |
+| `register-auto-trade.bat` | Register all auto-trade + hourly status Scheduled Tasks |
+| `hourly-status-task.bat` | Send Telegram status update (portfolio, blockers, candidates) |
 
 ---
 
@@ -108,7 +111,7 @@ The `start.bat` script handles this automatically. If it persists:
 ### Dashboard shows no data
 1. Go to the **Scan** page
 2. Click **Run Full Scan** — this fetches live data from Yahoo Finance
-3. The first scan may take 2-3 minutes for all 268 tickers
+3. The first scan may take 2-3 minutes for all ~600 tickers
 
 ### Need to reset the database
 Delete the file `prisma/dev.db` and run `install.bat` again.
@@ -135,7 +138,7 @@ npx prisma db seed             # Re-seed stock universe
 
 ---
 
-*Built with Next.js 14, Prisma, TailwindCSS, and lightweight-charts.*
+*Built with Next.js 15, Prisma, TailwindCSS, and lightweight-charts.*
 
 ---
 

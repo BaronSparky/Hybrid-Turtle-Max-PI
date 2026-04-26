@@ -334,10 +334,110 @@ If PC is off at schedule time, task may run late when machine resumes (depending
 - Move stops only upward (the app enforces this)
 - Sync positions after trading activity
 - Review nightly summaries/alerts regularly
+- Run `npm run system:check` after any update
 
 ---
 
-## 14) Where to Read More
+## 14) Operating Modes
+
+The system has four operating modes (Settings → Account):
+
+| Mode | What it does |
+|------|-------------|
+| **Normal** | Standard operation — scan, review, buy, manage |
+| **Aggressive Quality** | Only A-grade candidates shown. Fewer but stronger trades. |
+| **Capital Preservation** | No new trades. Manage exits and stops only. |
+| **Research** | Read-only. Scan and review with no execution at all. |
+
+Operating mode controls **behaviour** (what you can do). Risk profile controls **sizing** (how much you risk). They are independent — you can combine any profile with any mode.
+
+---
+
+## 15) Pre-Execution Safety (Dry Run)
+
+Before any trade executes on Trading 212, the system runs 13 automatic checks:
+
+1. Kill switch off
+2. System health not RED
+3. Account equity positive
+4. Execution day valid (not Monday, not weekend)
+5. Market regime BULLISH
+6. Position size valid
+7. Stop-loss below entry
+8. T212 broker connected
+9. Heartbeat recent
+10. Market data fresh
+11. Backup recent
+12. No Fatal Weakness (FWS ≤ 65)
+13. Operating mode allows buying
+
+If any hard check fails, execution is blocked with a clear reason and recovery steps.
+
+---
+
+## 16) Profit Scoreboard (`/performance`)
+
+View R-based trading performance:
+
+- Win rate, expectancy per trade, profit factor
+- Max and current drawdown
+- Average and median hold time
+- System grade (A through F)
+- Sample-size warnings at 30/50/100 trade milestones
+
+The system will not declare you profitable until you have enough closed trades to prove it.
+
+---
+
+## 17) Discipline Score (`/api/discipline`)
+
+Tracks rule compliance:
+
+- Score starts at 100
+- Drops -5 per soft-block override
+- Drops -15 per hard-block attempt
+- Recovers +1 per compliant trade
+- Displayed as GREEN (90+), AMBER (70-89), RED (<70)
+
+---
+
+## 18) System Safety Check
+
+After any update or if something feels wrong, run:
+
+```
+npm run system:check
+```
+
+This runs 8 checks: TypeScript, sacred file tests, scoring, risk maths, execution safety, evidence analytics, full test suite, and production build.
+
+- **✅ PASS — system safe to use** → you're good
+- **❌ FAIL — do not trade until fixed** → something is broken
+
+---
+
+## 19) Automated Stop Pushing and Pyramid Adds
+
+When `ENABLE_AUTO_TRADING=true` is set:
+
+**Auto Stop Push (nightly Step 3g):**
+- After the nightly updates stops in the database, it automatically pushes them to Trading 212
+- Only changed stops are pushed (not all positions)
+- Failures are logged and reported via Telegram
+
+**Auto Pyramid Adds (nightly Step 6-auto):**
+- When a position qualifies for a pyramid add, the system:
+  1. Checks your T212 cash balance
+  2. If sufficient funds → places a market buy order
+  3. Updates the stop to cover the full position (original + added shares)
+  4. Logs to execution audit and trade log
+  5. Sends a Telegram alert
+- Only executes Tuesday-Friday in BULLISH regime
+- All existing safety gates apply
+
+---
+
+## 20) Where to Read More
 
 - `SETUP-README.md` for concise installation help
 - `DASHBOARD-GUIDE.md` for deep technical/feature reference

@@ -10,6 +10,8 @@ import PreTradeChecklist from '@/components/plan/PreTradeChecklist';
 import PositionSizerWidget from '@/components/plan/PositionSizerWidget';
 import SwapSuggestionsWidget from '@/components/plan/SwapSuggestionsWidget';
 import LaggardAlertsWidget from '@/components/plan/LaggardAlertsWidget';
+import AcceleratorWidget from '@/components/dashboard/AcceleratorWidget';
+import ExitIntelligenceCard from '@/components/portfolio/ExitIntelligenceCard';
 import EarlyBirdWidget from '@/components/plan/EarlyBirdWidget';
 import TodayPanel from '@/components/plan/TodayPanel';
 import { useStore } from '@/store/useStore';
@@ -560,6 +562,8 @@ export default function PlanPage() {
                 <EarlyBirdWidget />
                 <SwapSuggestionsWidget />
                 <LaggardAlertsWidget />
+                <AcceleratorWidget />
+                <ExitIntelligenceCard />
               </div>
             </div>
           )}

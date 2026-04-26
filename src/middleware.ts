@@ -23,8 +23,9 @@ function isPublicPath(pathname: string): boolean {
 }
 
 export async function middleware(request: NextRequest) {
-  // Development-only escape hatch for isolated local troubleshooting.
-  if (process.env.NODE_ENV !== 'production' && process.env.DISABLE_API_AUTH === 'true') {
+  // Local single-user mode: skip API auth when explicitly opted out via env var.
+  // This is the default for HybridTurtle desktop deployments (start.bat).
+  if (process.env.DISABLE_API_AUTH === 'true') {
     return NextResponse.next();
   }
 

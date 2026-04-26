@@ -125,8 +125,10 @@ export interface ScoredTicker extends SnapshotRow, BQSComponents, FWSComponents,
 // ── BQS Components (0–100 total across 6 sub-scores + bonuses) ─────
 
 function trendStrength(row: SnapshotRow): number {
+  // Capped at 15 (was 25): ADX ≥ 20 is already a hard gate in scan-engine.
+  // Additional ADX-based ranking bonus was double-counting trend strength.
   const adx = safeNum(row.adx_14);
-  return 25 * clamp((adx - 15) / 20, 0, 1);
+  return 15 * clamp((adx - 15) / 20, 0, 1);
 }
 
 function directionDominance(row: SnapshotRow): number {
@@ -145,6 +147,7 @@ function volatilityHealth(row: SnapshotRow): number {
 function proximity(row: SnapshotRow): number {
   const d20 = row.distance_to_20d_high_pct;
   const d55 = row.distance_to_55d_high_pct;
+  if (d20 == null && d55 == null) return 0; // Unknown distance — no proximity bonus
   const dist = safeNum(d20 != null ? d20 : d55);
   return 15 * clamp(1 - dist / 3.0, 0, 1);
 }
@@ -244,15 +247,18 @@ export function computeBQS(row: SnapshotRow): BQSComponents {
 // ── FWS Components (0–100, higher = worse) ───────────────────
 
 function volumeRisk(row: SnapshotRow): number {
+  // Penalise volume contraction (vol_ratio < 0.8), not expansion.
+  // Breakout strategies want volume surges; low volume is the risk.
   const vr = safeNum(row.vol_ratio, 1.0);
-  return 30 * clamp(1 - (vr - 0.6) / 0.6, 0, 1);
+  return 15 * clamp(1 - vr / 0.8, 0, 1);
 }
 
 function extensionRisk(row: SnapshotRow): number {
+  // Reduced penalty: breakout targets ARE near highs — flag, don't block.
   const c20 = safeBool(row.chasing_20_last5);
   const c55 = safeBool(row.chasing_55_last5);
-  if (c20 && c55) return 25;
-  if (c20 || c55) return 15;
+  if (c20 && c55) return 10;
+  if (c20 || c55) return 5;
   return 0;
 }
 
@@ -301,16 +307,21 @@ export function computeFWS(row: SnapshotRow): FWSComponents {
 // ── Penalties & NCS ─────────────────────────────────────────
 
 function earningsPenalty(row: SnapshotRow): number {
+  let byDays = 0;
+  let byFlag = 0;
+
   const d = row.days_to_earnings;
   if (d != null && Number.isFinite(Number(d))) {
     const days = Number(d);
-    if (days <= 1) return 20;
-    if (days <= 3) return 15;
-    if (days <= 5) return 10;
-    return 0;
+    if (days <= 1) byDays = 20;
+    else if (days <= 3) byDays = 15;
+    else if (days <= 5) byDays = 10;
   }
-  if (safeBool(row.earnings_in_next_5d)) return 12;
-  return 0;
+
+  if (safeBool(row.earnings_in_next_5d)) byFlag = 12;
+
+  // Use whichever source gives the stronger warning
+  return Math.max(byDays, byFlag);
 }
 
 function clusterPenalty(row: SnapshotRow): number {

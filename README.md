@@ -5,7 +5,7 @@
 ![Version](https://img.shields.io/badge/version-6.0.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6)
 ![Node](https://img.shields.io/badge/node-20%20or%2022%20LTS-339933)
-![Next.js](https://img.shields.io/badge/Next.js-14-black)
+![Next.js](https://img.shields.io/badge/Next.js-15-black)
 ![Prisma](https://img.shields.io/badge/Prisma-ORM-2D3748)
 ![License](https://img.shields.io/badge/license-Private-informational)
 
@@ -79,6 +79,11 @@ Current constraint: the checked-in Prisma schema is still SQLite-backed, so the 
 | `nightly-task.bat` | Run nightly automation checks (schedulable via Task Scheduler) |
 | `package-for-distribution.bat` | Package the app for offline distribution |
 | `register-nightly-task.bat` | Register the nightly cron as a Windows Task Scheduler entry |
+| `midday-sync-task.bat` | Intra-day T212 position sync (detect stop-outs) |
+| `register-midday-sync.bat` | Register midday sync as a Windows Task Scheduler entry |
+| `auto-trade-task.bat` | Automated scan + trade execution (requires ENABLE_AUTO_TRADING) |
+| `register-auto-trade.bat` | Register auto-trade scheduled tasks (scan, UK, US, US-close, hourly) |
+| `hourly-status-task.bat` | Send hourly Telegram portfolio status during market hours |
 | `watchdog-task.bat` | Check for missed nightly/midday heartbeats, send Telegram alert |
 | `register-watchdog-task.bat` | Register watchdog as a Windows Task Scheduler entry (10:00 AM daily) |
 
@@ -94,6 +99,8 @@ To start from the template instead, copy `.env.example` to `.env` before running
 | `NEXTAUTH_SECRET` | ★ | — | Random secret for session signing (change in production) |
 | `CRON_SECRET` | ★ | — | Secret protecting the `/api/nightly` endpoint |
 | `NEXTAUTH_URL` | | `http://localhost:3000` | Base URL for NextAuth callbacks |
+| `DISABLE_API_AUTH` | | `true` | Skip NextAuth JWT checks — required for local single-user desktop mode |
+| `ENABLE_AUTO_TRADING` | | `false` | Enable automated trading (scan + buy + stops via scheduled tasks) |
 | `TELEGRAM_BOT_TOKEN` | | — | Telegram bot token for nightly alerts (see below) |
 | `TELEGRAM_CHAT_ID` | | — | Telegram chat ID for alert delivery |
 | `BROKER_ADAPTER` | | `disabled` | Broker adapter mode — `disabled` (safe no-op), `mock` (demo data), or `trading212` (live) |

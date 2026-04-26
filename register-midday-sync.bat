@@ -19,7 +19,7 @@ echo.
 schtasks /delete /tn "HybridTurtle Midday Sync" /f >nul 2>&1
 
 :: Use PowerShell Register-ScheduledTask for full control (already elevated)
-powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Turtle-Hybrid\Hybrid-Turtle\Hybrid-Turtle\register-midday-sync.ps1" -FromBat
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0register-midday-sync.ps1" -FromBat
 
 echo.
 pause

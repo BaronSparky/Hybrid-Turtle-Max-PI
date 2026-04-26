@@ -53,6 +53,61 @@ export const RISK_PROFILES: Record<RiskProfileType, RiskProfileConfig> = {
   },
 };
 
+// ---- Operating Mode ----
+// Operating mode is independent of risk profile. It controls behaviour, selectivity,
+// and what the dashboard shows — not position sizing or risk caps.
+// Operating mode can make the system stricter but cannot bypass hard safety gates.
+
+export type OperatingMode =
+  | 'NORMAL'
+  | 'AGGRESSIVE_QUALITY'
+  | 'CAPITAL_PRESERVATION'
+  | 'RESEARCH';
+
+export interface OperatingModeConfig {
+  name: string;
+  canBuy: boolean;
+  canPyramid: boolean;
+  requiresAGrade: boolean;
+  stricterEntry: boolean;
+  description: string;
+}
+
+export const OPERATING_MODES: Record<OperatingMode, OperatingModeConfig> = {
+  NORMAL: {
+    name: 'Normal',
+    canBuy: true,
+    canPyramid: true,
+    requiresAGrade: false,
+    stricterEntry: false,
+    description: 'Standard operation — all candidates visible, normal entry rules.',
+  },
+  AGGRESSIVE_QUALITY: {
+    name: 'Aggressive Quality',
+    canBuy: true,
+    canPyramid: true,
+    requiresAGrade: true,
+    stricterEntry: true,
+    description: 'Fewer but stronger trades — only A-grade candidates, tighter entries.',
+  },
+  CAPITAL_PRESERVATION: {
+    name: 'Capital Preservation',
+    canBuy: false,
+    canPyramid: false,
+    requiresAGrade: false,
+    stricterEntry: false,
+    description: 'Protect capital — no new entries, manage and exit only.',
+  },
+  RESEARCH: {
+    name: 'Research',
+    canBuy: false,
+    canPyramid: false,
+    requiresAGrade: false,
+    stricterEntry: false,
+    description: 'Read-only — scan and review candidates with no execution.',
+  },
+};
+
 // ---- Equity Review Thresholds ----
 // Advisory only — never auto-changes risk profile
 export const EQUITY_REVIEW_THRESHOLDS = [
@@ -114,6 +169,8 @@ export const ATR_VOLATILITY_CAP_HIGH_RISK = 7; // Stricter cap for HIGH_RISK
 
 // Initial stop distance: entry minus ATR × this multiplier
 export const ATR_STOP_MULTIPLIER = 1.5;
+// Trailing stop distance: highestClose minus ATR × this multiplier (used by stop-manager)
+export const ATR_TRAILING_MULTIPLIER = 1.5;
 
 // ---- Snapshot Early-Warning Thresholds ----
 // Looser thresholds used in snapshot rows to flag exposure *before*
@@ -215,7 +272,7 @@ export const OPPORTUNISTIC_GATES: OpportunisticGates = {
   maxFWS: 30,
   requireAutoYes: true,
   requireBullish: true,
-  maxNewPositions: 1,
+  maxNewPositions: 2,
 };
 
 // ---- Weekly Phase Helpers ----
@@ -377,6 +434,33 @@ export interface TechnicalData {
   bis?: number;                   // Breakout Integrity Score (0–15) from latest candle OHLCV
 }
 
+// ---- Entry Quality ----
+export type EntryWindowStatus =
+  | 'BUY_ALLOWED'
+  | 'WAIT_PULLBACK'
+  | 'WAIT_SPREAD'
+  | 'MISSED_DO_NOT_CHASE'
+  | 'WATCH'
+  | 'READY';
+
+export type EntryDecision = 'BUY_NOW' | 'WAIT' | 'MISSED';
+
+export type EntryQualityColor = 'GREEN' | 'YELLOW' | 'RED';
+
+export interface EntryQuality {
+  idealEntry: number;
+  maxAllowedEntry: number;
+  noChasePrice: number;
+  entryWindowStatus: EntryWindowStatus;
+  triggerDistancePct: number;
+  extensionATR: number;
+  slippageAdjustedLimit: number;
+  suggestedOrderType: 'LIMIT' | 'MARKET' | 'STOP';
+  decision: EntryDecision;
+  reason: string;
+  quality: EntryQualityColor;
+}
+
 // ---- Scan Candidate ----
 export interface ScanCandidate {
   id: string;
@@ -448,6 +532,8 @@ export interface ScanCandidate {
     hurstExponent?: number | null;  // Hurst Exponent (0–1), null if insufficient data
     hurstWarn?: boolean;            // true when H < 0.5 (mean-reverting — trend signal may be noise)
   };
+  // Entry Quality assessment (from entry-quality-engine)
+  entryQuality?: EntryQuality;
 }
 
 // ---- Position Sizing ----
@@ -459,6 +545,125 @@ export interface PositionSizingResult {
   entryPrice: number;
   stopPrice: number;
   rPerShare: number;
+}
+
+// ---- Profit Acceleration ----
+
+export type AcceleratorAction =
+  | 'BUY_NEW_A_GRADE'
+  | 'PYRAMID_WINNER'
+  | 'HOLD'
+  | 'TIGHTEN_STOP'
+  | 'EXIT_LAGGARD'
+  | 'SWAP_WEAK_FOR_STRONG'
+  | 'NO_ACTION';
+
+export type AcceleratorUrgency = 'HIGH' | 'MEDIUM' | 'LOW';
+
+export interface AcceleratorRecommendation {
+  action: AcceleratorAction;
+  ticker: string;
+  /** Second ticker for swaps (the stronger replacement) */
+  replacementTicker?: string;
+  urgency: AcceleratorUrgency;
+  expectedBenefit: string;
+  riskImpact: string;
+  reason: string;
+  requiresApproval: boolean;
+  /** Score 0-100 for ranking actions */
+  priority: number;
+}
+
+export interface OpportunityCostResult {
+  blockedTicker: string;
+  blockedNCS: number;
+  holdingTicker: string;
+  holdingNCS: number;
+  holdingRMultiple: number;
+  holdingDaysHeld: number;
+  ncsGap: number;
+  reason: string;
+  swapRecommended: boolean;
+}
+
+export interface WinnerExpansionResult {
+  ticker: string;
+  allowed: boolean;
+  rMultiple: number;
+  addNumber: number;
+  triggerPrice: number | null;
+  riskScalar: number;
+  reason: string;
+  /** Risk gates that would fail if pyramid attempted */
+  gateFailures: string[];
+}
+
+export interface DeadMoneyReviewResult {
+  ticker: string;
+  positionId: string;
+  daysHeld: number;
+  rMultiple: number;
+  lossPct: number;
+  /** Existing flag from laggard-detector */
+  flag: 'TRIM_LAGGARD' | 'DEAD_MONEY' | 'NONE';
+  /** New enrichments */
+  opportunityCostScore: number;
+  rsDecay: boolean;
+  ncsDeterioration: boolean;
+  trendDeteriorating: boolean;
+  reason: string;
+  exitUrgency: AcceleratorUrgency;
+}
+
+// ---- Exit Intelligence ----
+
+export type ExitAction =
+  | 'HOLD'
+  | 'HOLD_AND_TRAIL'
+  | 'TIGHTEN_STOP'
+  | 'REVIEW_EXIT'
+  | 'TRIM_REVIEW'
+  | 'EXIT_REVIEW'
+  | 'DO_NOT_TOUCH';
+
+export interface ExitScoreBreakdown {
+  /** 0-100: ADX strength + DI spread + MA20 position + NCS */
+  trendHealth: number;
+  /** 0-100: R-multiple + protection level + days held + momentum */
+  winnerHold: number;
+  /** 0-100: ADX decline + RS decay + NCS drop + MA20 loss */
+  weakeningTrend: number;
+  /** 0-100: composite of all factors — higher = stronger exit signal */
+  exitReview: number;
+  /** 0-100: A-grade candidates blocked × capital tied up */
+  opportunityCost: number;
+  /** 0-100: price above MA20 + volume spike */
+  climaxRisk: number;
+  /** 0-100: overnight gap magnitude vs ATR */
+  gapRisk: number;
+  /** 0-100: RS decay rate vs prior sessions */
+  rsDecay: number;
+}
+
+export interface ExitIntelligenceResult {
+  ticker: string;
+  positionId: string;
+  action: ExitAction;
+  scores: ExitScoreBreakdown;
+  /** Current R-multiple */
+  rMultiple: number;
+  /** Distance from current price to stop as % */
+  stopDistancePct: number;
+  /** Estimated giveback from current level to stop in R */
+  givebackRiskR: number;
+  /** Current protection level */
+  protectionLevel: string;
+  /** Plain English explanation */
+  explanation: string;
+  /** Detailed reasons for each active signal */
+  signals: string[];
+  /** Advisory-only flag */
+  requiresApproval: boolean;
 }
 
 // ---- Market Index ----
