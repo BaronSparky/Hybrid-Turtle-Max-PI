@@ -11,6 +11,7 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import Navbar from '@/components/shared/Navbar';
+import AnalyticsExplainCard from '@/components/analytics/AnalyticsExplainCard';
 import { cn } from '@/lib/utils';
 import { apiRequest } from '@/lib/api-client';
 import {
@@ -198,6 +199,55 @@ export default function EvidencePage() {
     return () => { cancelled = true; };
   }, [sleeve, regime]);
 
+  // Build context for AI explain based on active tab
+  const evidenceContext = useMemo(() => {
+    if (!data) return '';
+    const samples = `Evidence Data (${data.sampleSize.totalCandidates} candidates, ${data.sampleSize.enrichedCandidates} enriched, ${data.sampleSize.totalTrades} trades, ${data.sampleSize.closedTrades} closed)`;
+
+    if (tab === 'rules') {
+      const lines = data.ruleContribution.slice(0, 10).map(r =>
+        `${r.rule}: passed fwd20d=${r.passed.avgFwd20d?.toFixed(2) ?? 'N/A'}%, blocked fwd20d=${r.blocked.avgFwd20d?.toFixed(2) ?? 'N/A'}%, edge=${r.edgeFwd20d?.toFixed(2) ?? '?'}%, passed 1R=${r.passed.hit1RRate?.toFixed(0) ?? '?'}%`
+      ).join('\n');
+      return `${samples}\n\nRule Contribution:\n${lines}`;
+    }
+    if (tab === 'classification') {
+      const lines = data.classificationPerformance.map(c =>
+        `${c.dimension}/${c.band}: n=${c.stats.count}, avgR=${c.stats.avgR?.toFixed(2) ?? '?'}, 1R=${c.stats.hit1RRate?.toFixed(0) ?? '?'}%, stop=${c.stats.stopHitRate?.toFixed(0) ?? '?'}%`
+      ).join('\n');
+      return `${samples}\n\nClassification Performance:\n${lines}`;
+    }
+    if (tab === 'entry') {
+      const lines = data.entryQuality.map(e =>
+        `${e.entryType}: n=${e.stats.count}, avgR=${e.stats.avgR?.toFixed(2) ?? '?'}, 1R=${e.stats.hit1RRate?.toFixed(0) ?? '?'}%, fwd20d=${e.stats.avgFwd20d?.toFixed(2) ?? '?'}%`
+      ).join('\n');
+      return `${samples}\n\nEntry Quality:\n${lines}`;
+    }
+    if (tab === 'exit') {
+      const lines = data.exitPerformance.map(e =>
+        `${e.exitCategory}: n=${e.count}, avgR=${e.avgR?.toFixed(2) ?? '?'}, winRate=${e.winRate?.toFixed(0) ?? '?'}%, avgDays=${e.avgDaysHeld?.toFixed(0) ?? '?'}`
+      ).join('\n');
+      return `${samples}\n\nExit Performance:\n${lines}`;
+    }
+    if (tab === 'simulation') {
+      const lines = data.simulations.map(s =>
+        `${s.name}: totalR=${s.totalR?.toFixed(1) ?? '?'}, winRate=${s.winRate?.toFixed(0) ?? '?'}%, avgR=${s.avgR?.toFixed(2) ?? '?'}R, return=${s.returnPct?.toFixed(1) ?? '?'}%`
+      ).join('\n');
+      return `${samples}\n\nSimulation Scenarios:\n${lines}`;
+    }
+    return samples;
+  }, [data, tab]);
+
+  const evidenceQuestion = useMemo(() => {
+    switch (tab) {
+      case 'rules': return 'Which rules add the most edge? Are any rules blocking candidates that would have performed well?';
+      case 'classification': return 'Do A-grade candidates genuinely outperform B and C grades? Is the grading system working?';
+      case 'entry': return 'How good are the entry decisions? Are entries well-timed or is there room for improvement?';
+      case 'exit': return 'How effective are the exit decisions? Are stops being hit too early, or are exits well-managed?';
+      case 'simulation': return 'Which simulation scenario produces the best risk-adjusted returns? What does this tell us about the strategy?';
+      default: return 'Explain these evidence metrics for a beginner.';
+    }
+  }, [tab]);
+
   const tabs: { key: TabKey; label: string; icon: typeof Filter }[] = [
     { key: 'rules', label: 'Rule Contribution', icon: Filter },
     { key: 'classification', label: 'Classification', icon: Layers },
@@ -300,6 +350,15 @@ export default function EvidencePage() {
             {tab === 'entry' && <EntryTab data={data.entryQuality} />}
             {tab === 'exit' && <ExitTab data={data.exitPerformance} />}
             {tab === 'simulation' && <SimulationTab data={data.simulations} />}
+
+            {/* ── AI Explain ── */}
+            <div className="mt-6">
+              <AnalyticsExplainCard
+                title={`AI Evidence Analysis — ${tabs.find(t => t.key === tab)?.label ?? tab}`}
+                contextSummary={evidenceContext}
+                question={evidenceQuestion}
+              />
+            </div>
           </>
         )}
       </main>

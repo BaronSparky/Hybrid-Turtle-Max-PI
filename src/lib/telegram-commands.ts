@@ -28,6 +28,7 @@ export type TelegramCommand =
   | '/ask'
   | '/news'
   | '/scorecard'
+  | '/earnings'
   | '/help'
   | 'unknown';
 
@@ -89,6 +90,7 @@ export function parseCommand(text: string): TelegramCommand {
     case '/ask': return '/ask';
     case '/news': return '/news';
     case '/scorecard': return '/scorecard';
+    case '/earnings': return '/earnings';
     case '/help': case '/start': return '/help';
     default: return 'unknown';
   }
@@ -109,6 +111,7 @@ export async function handleCommand(command: TelegramCommand, rawText?: string):
       case '/ask': return await cmdAsk(rawText || '');
       case '/news': return await cmdNews(rawText || '');
       case '/scorecard': return await cmdScorecard();
+      case '/earnings': return await cmdEarnings();
       case '/help': return cmdHelp();
       case 'unknown':
       default:
@@ -443,6 +446,7 @@ function cmdHelp(): CommandResponse {
 /ask &lt;question&gt; — ask the AI analyst
 /news &lt;ticker&gt; — news &amp; earnings check
 /scorecard — filter performance summary
+/earnings — earnings calendar for holdings
 /help — this message`,
     parseMode: 'HTML',
   };
@@ -708,6 +712,64 @@ async function cmdScorecard(): Promise<CommandResponse> {
     console.error('[telegram-commands] /scorecard error:', err);
     return {
       text: '📊 <b>Filter Scorecard</b>\n\n⚠️ Error loading scorecard. Check dashboard.',
+      parseMode: 'HTML',
+    };
+  }
+}
+
+// ── /earnings — earnings calendar for all open positions ──
+
+async function cmdEarnings(): Promise<CommandResponse> {
+  try {
+    const positions = await prisma.position.findMany({
+      where: { userId: DEFAULT_USER_ID, status: 'OPEN' },
+      select: { stock: { select: { ticker: true } } },
+    });
+
+    if (positions.length === 0) {
+      return {
+        text: '📅 <b>Earnings Calendar</b>\n\nNo open positions to check.',
+        parseMode: 'HTML',
+      };
+    }
+
+    const tickers = positions.map(p => p.stock.ticker);
+    const { fetchBatchNewsContext } = await import('@/lib/analyst/news-fetcher');
+    const results = await fetchBatchNewsContext(tickers, 0); // 0 headlines — only earnings
+
+    const lines: string[] = [];
+    const alerts: string[] = [];
+
+    for (const r of results) {
+      if (r.earnings.nextEarningsDate) {
+        const dateStr = new Date(r.earnings.nextEarningsDate).toLocaleDateString('en-GB', {
+          day: 'numeric', month: 'short',
+        });
+        const days = r.earnings.daysUntil ?? 99;
+        const warn = days <= 5 ? ' ⚠️' : days <= 10 ? ' ⏰' : '';
+        const est = r.earnings.isEstimate ? ' (est)' : '';
+        lines.push(`${warn ? warn + ' ' : ''}  <b>${escapeHtml(r.ticker)}</b>: ${dateStr} (${days}d)${est}`);
+        if (days <= 5) alerts.push(r.ticker);
+      } else {
+        lines.push(`  <b>${escapeHtml(r.ticker)}</b>: no date announced`);
+      }
+    }
+
+    // Sort by days-until (soonest first)
+    lines.sort();
+
+    const alertLine = alerts.length > 0
+      ? `\n\n🔴 <b>Event Risk:</b> ${alerts.join(', ')} — earnings within 5 days`
+      : '';
+
+    return {
+      text: `📅 <b>Earnings Calendar</b> (${tickers.length} positions)\n\n${lines.join('\n')}${alertLine}`,
+      parseMode: 'HTML',
+    };
+  } catch (err) {
+    console.error('[telegram-commands] /earnings error:', err);
+    return {
+      text: '📅 <b>Earnings Calendar</b>\n\n⚠️ Error checking earnings. Yahoo may be unreachable.',
       parseMode: 'HTML',
     };
   }

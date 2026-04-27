@@ -259,6 +259,13 @@ export default function AnalystCard() {
     .filter(p => (p.earnings.daysUntil ?? 99) <= 5)
     .map(p => ({ ticker: p.ticker, daysUntil: p.earnings.daysUntil! })) ?? [];
 
+  // Auto-expand news section when earnings alerts are found
+  useEffect(() => {
+    if (earningsAlerts.length > 0 && !showNews) {
+      setShowNews(true);
+    }
+  }, [earningsAlerts.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleRefresh = async () => {
     const isUp = await checkHealth();
     if (isUp) {

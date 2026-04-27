@@ -40,6 +40,48 @@ const GENERATION_OPTIONS = {
   num_ctx: 4096,
 };
 
+// ── LLM response cache (30-minute TTL, keyed by prompt hash) ──
+
+const LLM_CACHE_TTL_MS = 30 * 60 * 1000;
+
+interface LlmCacheEntry {
+  result: AnalystResult;
+  expiresAt: number;
+}
+
+const llmCache = new Map<string, LlmCacheEntry>();
+
+function hashPrompt(system: string, prompt: string, model: string): string {
+  // Simple hash — djb2 variant. Good enough for cache keys.
+  let hash = 5381;
+  const input = `${model}:${system}:${prompt}`;
+  for (let i = 0; i < input.length; i++) {
+    hash = ((hash << 5) + hash + input.charCodeAt(i)) | 0;
+  }
+  return hash.toString(36);
+}
+
+function getLlmCached(key: string): AnalystResult | null {
+  const entry = llmCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    llmCache.delete(key);
+    return null;
+  }
+  return entry.result;
+}
+
+function setLlmCache(key: string, result: AnalystResult): void {
+  llmCache.set(key, { result, expiresAt: Date.now() + LLM_CACHE_TTL_MS });
+  // Bounded eviction
+  if (llmCache.size > 50) {
+    const now = Date.now();
+    for (const [k, v] of llmCache) {
+      if (now > v.expiresAt) llmCache.delete(k);
+    }
+  }
+}
+
 /**
  * Generate a system summary using Ollama.
  */
@@ -120,7 +162,7 @@ export async function generateTradePulseExplanation(
 }
 
 /**
- * Core pipeline: check health → build prompt → generate → safety check.
+ * Core pipeline: check health → build prompt → check cache → generate → safety check → cache result.
  */
 async function runAnalystPipeline(
   buildPrompt: () => { system: string; prompt: string; contextNumbers: number[] },
@@ -143,6 +185,13 @@ async function runAnalystPipeline(
 
   // Build prompt
   const { system, prompt, contextNumbers } = buildPrompt();
+
+  // Check LLM cache
+  const cacheKey = hashPrompt(system, prompt, health.selectedModel);
+  const cached = getLlmCached(cacheKey);
+  if (cached) {
+    return { ...cached, durationMs: Date.now() - start };
+  }
 
   // Call Ollama
   const result = await ollamaGenerate({
@@ -174,7 +223,7 @@ async function runAnalystPipeline(
     console.warn('[Analyst] Possible fabricated numbers:', fabricationWarnings);
   }
 
-  return {
+  const analystResult: AnalystResult = {
     available: true,
     response: safety.cleaned,
     model: health.selectedModel,
@@ -182,6 +231,13 @@ async function runAnalystPipeline(
     safetyWarnings: safety.warnings,
     fabricationWarnings,
   };
+
+  // Cache successful results
+  if (analystResult.response) {
+    setLlmCache(cacheKey, analystResult);
+  }
+
+  return analystResult;
 }
 
 export interface StreamingAnalystResult {

@@ -12,8 +12,9 @@
  *        ⛔ Analysis only — no changes to NCS or signal weights.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import Navbar from '@/components/shared/Navbar';
+import AnalyticsExplainCard from '@/components/analytics/AnalyticsExplainCard';
 import { cn } from '@/lib/utils';
 import { apiRequest } from '@/lib/api-client';
 import { Loader2, PlayCircle, BarChart3, AlertTriangle, CheckCircle2, Download } from 'lucide-react';
@@ -192,6 +193,18 @@ export default function SignalAuditPage() {
 
   const signals = ['trend', 'direction', 'volatility', 'proximity', 'tailwind', 'rs', 'weeklyAdx', 'bis', 'hurst', 'volBonus'];
 
+  // Build context summary for AI explain
+  const signalAuditContext = useMemo(() => {
+    if (!result) return '';
+    const cmiLines = result.conditionalMI.map(e =>
+      `${LABELS[e.signal] ?? e.signal}: conditionalMI=${e.conditionalMI.toFixed(4)}, recommendation=${e.recommendation}`
+    ).join('\n');
+    const corrLines = result.highCorrPairs.map(p =>
+      `${LABELS[p.signalA] ?? p.signalA} ↔ ${LABELS[p.signalB] ?? p.signalB}: MI=${p.mi}`
+    ).join('\n');
+    return `Signal Audit (${result.sampleSize} samples, ${result.hasOutcomes ? 'with outcomes' : 'no outcomes'}):\n\nConditional MI (unique information per signal):\n${cmiLines}\n\nHigh Correlation Pairs (MI > 0.7):\n${corrLines || '(none)'}\n\nSummary: ${result.summary}`;
+  }, [result]);
+
   const exportCSV = () => {
     if (!result) return;
     const rows: string[] = ['Signal,Conditional MI,Recommendation'];
@@ -329,6 +342,17 @@ export default function SignalAuditPage() {
               </div>
             )}
           </>
+        )}
+
+        {/* ── AI Explain ── */}
+        {result && (
+          <div className="mt-6">
+            <AnalyticsExplainCard
+              title="AI Signal Analysis"
+              contextSummary={signalAuditContext}
+              question="Which signals are redundant and could be merged? Which add genuinely independent information? Is the BQS formula well-constructed or does it need rebalancing?"
+            />
+          </div>
         )}
       </main>
     </div>
