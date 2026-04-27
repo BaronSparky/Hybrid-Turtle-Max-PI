@@ -14,11 +14,13 @@ import {
   buildStopExplainPrompt,
   buildJournalDraftPrompt,
   buildNewsContextPrompt,
+  buildTradePulseExplainPrompt,
   type SystemSummaryData,
   type CandidateExplainData,
   type StopExplainData,
   type JournalDraftData,
   type NewsContextData,
+  type TradePulseExplainData,
 } from './prompt-builder';
 import { checkResponseSafety, checkForFabricatedNumbers } from './safety-filter';
 
@@ -100,6 +102,19 @@ export async function generateNewsContextSummary(
 ): Promise<AnalystResult> {
   return runAnalystPipeline(
     () => buildNewsContextPrompt(data),
+    preferredModel
+  );
+}
+
+/**
+ * Generate a plain-English Trade Pulse explanation using Ollama.
+ */
+export async function generateTradePulseExplanation(
+  data: TradePulseExplainData,
+  preferredModel?: string
+): Promise<AnalystResult> {
+  return runAnalystPipeline(
+    () => buildTradePulseExplainPrompt(data),
     preferredModel
   );
 }

@@ -17,7 +17,7 @@ import { useParams } from 'next/navigation';
 import Navbar from '@/components/shared/Navbar';
 import { cn } from '@/lib/utils';
 import { apiRequest } from '@/lib/api-client';
-import { Loader2, ArrowLeft, AlertTriangle, CheckCircle2, BarChart3 } from 'lucide-react';
+import { Loader2, ArrowLeft, AlertTriangle, CheckCircle2, BarChart3, BrainCircuit } from 'lucide-react';
 import { TradePulseDial } from '@/components/TradePulseGrade';
 import { GRADE_STYLES, type TradePulseGrade } from '@/lib/prediction/trade-pulse';
 import KellySizePanel, { useKellySize } from '@/components/KellySizePanel';
@@ -232,6 +232,9 @@ export default function TradePulsePage() {
               </div>
             </div>
 
+            {/* ── AI Explain ── */}
+            <AiExplainCard data={data} />
+
             {/* ── Kelly Advisor Row ── */}
             {kellyData.hasResult && (
               <KellySizePanel data={kellyData} />
@@ -249,6 +252,120 @@ export default function TradePulsePage() {
           </>
         )}
       </main>
+    </div>
+  );
+}
+
+// ── AI Explain Card ──────────────────────────────────────────
+
+function AiExplainCard({ data }: { data: TradePulseData }) {
+  const [explanation, setExplanation] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [modelUsed, setModelUsed] = useState<string | null>(null);
+  const [durationSec, setDurationSec] = useState<number | null>(null);
+  const [earnings, setEarnings] = useState<{ nextEarningsDate: string | null; daysUntil: number | null } | null>(null);
+
+  const handleExplain = async () => {
+    setLoading(true);
+    setError(null);
+    setExplanation(null);
+    try {
+      const res = await fetch('/api/analyst/trade-pulse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ticker: data.ticker,
+          score: data.score,
+          grade: data.grade,
+          decision: data.decision,
+          signals: data.signals,
+          concerns: data.concerns,
+          opportunities: data.opportunities,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setError(body?.error?.message || `Error ${res.status}`);
+        return;
+      }
+      const result = await res.json();
+      if (!result.available) {
+        setError('Ollama is offline. Start it with: ollama serve');
+        return;
+      }
+      setExplanation(result.response);
+      setModelUsed(result.model);
+      setDurationSec(result.durationMs ? Math.round(result.durationMs / 1000) : null);
+      if (result.earnings) setEarnings(result.earnings);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to get explanation');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="card-surface border-l-4 border-l-violet-500/60 p-4">
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+          <BrainCircuit className="w-4 h-4 text-violet-400" />
+          AI Explain
+          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-400 border border-violet-500/30">
+            ADVISORY
+          </span>
+        </h2>
+        {modelUsed && (
+          <span className="text-[10px] text-muted-foreground">{modelUsed}{durationSec ? ` · ${durationSec}s` : ''}</span>
+        )}
+      </div>
+
+      {!explanation && !loading && !error && (
+        <div className="flex flex-col items-center py-4 gap-2">
+          <p className="text-xs text-muted-foreground text-center">
+            Get a plain-English explanation of this analysis — what the grade means, which signals matter, and any news context.
+          </p>
+          <button
+            onClick={handleExplain}
+            className="px-4 py-2 rounded-lg bg-violet-500/20 border border-violet-500/30 text-violet-400 text-sm font-medium hover:bg-violet-500/30 transition-colors flex items-center gap-2"
+          >
+            <BrainCircuit className="w-4 h-4" />
+            Explain This Analysis
+          </button>
+        </div>
+      )}
+
+      {loading && (
+        <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
+          <Loader2 className="w-4 h-4 animate-spin text-violet-400" />
+          Generating explanation (this may take a minute on CPU)…
+        </div>
+      )}
+
+      {error && (
+        <div className="py-2">
+          <p className="text-xs text-loss">{error}</p>
+          <button onClick={handleExplain} className="mt-1 text-xs text-loss/80 hover:text-loss underline">Try again</button>
+        </div>
+      )}
+
+      {explanation && (
+        <div className="space-y-2">
+          {earnings?.nextEarningsDate && (earnings.daysUntil ?? 99) <= 10 && (
+            <div className="px-2.5 py-1.5 rounded bg-amber-500/10 border border-amber-500/30 text-xs text-amber-400">
+              ⚠️ Earnings in {earnings.daysUntil} days — elevated event risk
+            </div>
+          )}
+          <div className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">{explanation}</div>
+          <div className="text-[10px] text-amber-400/70">⚠️ Advisory only — verify against dashboard data before acting.</div>
+          <button
+            onClick={handleExplain}
+            className="text-[10px] text-violet-400/60 hover:text-violet-400 transition-colors"
+          >
+            Regenerate
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -130,6 +130,25 @@ export interface NewsContextData {
   };
 }
 
+export interface TradePulseExplainData {
+  ticker: string;
+  score: number;
+  grade: string;
+  decision: string;
+  signals: Array<{
+    name: string;
+    shortName: string;
+    score: number;
+    weight: number;
+    status: string;
+    detail?: string;
+  }>;
+  concerns: string[];
+  opportunities: string[];
+  headlines?: Array<{ title: string; publisher: string; ageHours: number }>;
+  earnings?: { nextEarningsDate: string | null; daysUntil: number | null; isEstimate: boolean };
+}
+
 export interface JournalDraftData {
   ticker: string;
   name: string;
@@ -359,6 +378,71 @@ Write the journal in first person. Use the data provided — do not invent facts
 2. Entry — how the entry was executed (price, sizing, grade)
 3. Management — how the position was managed (stop moves, R progression)
 4. ${data.type === 'lesson' ? 'Lessons — what to do differently next time' : 'Result — outcome and key takeaway'}`);
+
+  return { system: ANALYST_SYSTEM_PROMPT, prompt, contextNumbers };
+}
+
+export function buildTradePulseExplainPrompt(data: TradePulseExplainData): {
+  system: string;
+  prompt: string;
+  contextNumbers: number[];
+} {
+  const contextNumbers = [
+    data.score,
+    ...data.signals.map(s => s.score),
+    ...data.signals.map(s => Math.round(s.weight * 100)),
+    data.earnings?.daysUntil ?? 0,
+  ].filter(n => n != null);
+
+  const signalLines = data.signals
+    .sort((a, b) => b.weight - a.weight)
+    .map(s => `- ${s.shortName} (${s.name}): score ${Math.round(s.score)}/100, weight ${Math.round(s.weight * 100)}%, status ${s.status}${s.detail ? ` — ${s.detail}` : ''}`)
+    .join('\n');
+
+  const concernLines = data.concerns.length > 0
+    ? data.concerns.map(c => `- ⚠ ${c}`).join('\n')
+    : '(none)';
+
+  const oppLines = data.opportunities.length > 0
+    ? data.opportunities.map(o => `- ✓ ${o}`).join('\n')
+    : '(none)';
+
+  const earningsLine = data.earnings?.nextEarningsDate
+    ? `Next earnings: ${data.earnings.nextEarningsDate.slice(0, 10)} (${data.earnings.daysUntil} days)${data.earnings.isEstimate ? ' [estimated]' : ''}`
+    : 'Earnings: not announced / unknown';
+
+  const headlinesBlock = data.headlines?.length
+    ? data.headlines.map((h, i) => `${i + 1}. [${h.publisher}, ${Math.round(h.ageHours)}h ago] ${h.title}`).join('\n')
+    : '(no recent headlines)';
+
+  const prompt = stripSensitiveData(`Explain this TradePulse analysis for ${data.ticker} in plain English for a beginner.
+
+Overall Score: ${Math.round(data.score)}/100
+Grade: ${data.grade}
+Decision: ${data.decision}
+
+Signal Breakdown (sorted by weight):
+${signalLines}
+
+Concerns:
+${concernLines}
+
+Confirming Signals:
+${oppLines}
+
+Calendar:
+${earningsLine}
+
+Recent Headlines:
+${headlinesBlock}
+
+Produce a clear, beginner-friendly explanation:
+1. **Overall verdict** (1-2 sentences): What does this grade mean? Is this a strong or weak candidate?
+2. **Key drivers** (2-3 sentences): Which signals matter most and why? What's pulling the score up or down?
+3. **Risk factors** (1-2 sentences): Summarise the concerns. Is there earnings event risk?
+4. **News context** (1 sentence): Does the news flow support or contradict the setup?
+
+Keep it conversational. Reference specific signal names and numbers from the data. Do NOT recommend buy or sell.`);
 
   return { system: ANALYST_SYSTEM_PROMPT, prompt, contextNumbers };
 }
