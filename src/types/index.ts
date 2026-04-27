@@ -739,6 +739,7 @@ export const MAIN_NAV_ITEMS: NavEntry[] = [
       { label: 'Score Lab', href: '/score-validation' },
       { label: 'Breakout Evidence', href: '/breakout-evidence' },
       { label: 'Prediction', href: '/prediction-status' },
+      { label: 'Watchlist News', href: '/watchlist-news' },
     ],
   },
   {

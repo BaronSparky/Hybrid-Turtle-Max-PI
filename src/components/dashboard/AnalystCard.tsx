@@ -249,6 +249,18 @@ export default function AnalystCard() {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Auto-refresh summary every 30 minutes during market hours
+  useEffect(() => {
+    const REFRESH_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
+    const interval = setInterval(async () => {
+      // Only refresh if already in ready state (don't interrupt streaming)
+      if (state !== 'ready') return;
+      const isUp = await checkHealth();
+      if (isUp) fetchStreamingSummary();
+    }, REFRESH_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [state]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Auto-fetch batch news on mount to check for earnings proximity warnings
   useEffect(() => {
     fetchBatchNews();

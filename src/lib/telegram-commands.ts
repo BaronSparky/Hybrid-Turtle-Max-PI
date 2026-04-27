@@ -29,6 +29,7 @@ export type TelegramCommand =
   | '/news'
   | '/scorecard'
   | '/earnings'
+  | '/explain'
   | '/help'
   | 'unknown';
 
@@ -91,6 +92,7 @@ export function parseCommand(text: string): TelegramCommand {
     case '/news': return '/news';
     case '/scorecard': return '/scorecard';
     case '/earnings': return '/earnings';
+    case '/explain': return '/explain';
     case '/help': case '/start': return '/help';
     default: return 'unknown';
   }
@@ -112,6 +114,7 @@ export async function handleCommand(command: TelegramCommand, rawText?: string):
       case '/news': return await cmdNews(rawText || '');
       case '/scorecard': return await cmdScorecard();
       case '/earnings': return await cmdEarnings();
+      case '/explain': return await cmdExplain(rawText || '');
       case '/help': return cmdHelp();
       case 'unknown':
       default:
@@ -461,6 +464,7 @@ function cmdHelp(): CommandResponse {
 /news &lt;ticker&gt; — news &amp; earnings check
 /scorecard — filter performance summary
 /earnings — earnings calendar for holdings
+/explain &lt;ticker&gt; — AI Trade Pulse explanation
 /help — this message`,
     parseMode: 'HTML',
   };
@@ -784,6 +788,74 @@ async function cmdEarnings(): Promise<CommandResponse> {
     console.error('[telegram-commands] /earnings error:', err);
     return {
       text: '📅 <b>Earnings Calendar</b>\n\n⚠️ Error checking earnings. Yahoo may be unreachable.',
+      parseMode: 'HTML',
+    };
+  }
+}
+
+// ── /explain <ticker> — AI Trade Pulse explanation via Telegram ──
+
+async function cmdExplain(rawText: string): Promise<CommandResponse> {
+  const ticker = rawText.replace(/^\/explain\s*/i, '').trim().toUpperCase();
+  if (!ticker || !/^[A-Z0-9.\-]{1,10}$/.test(ticker)) {
+    return {
+      text: '🧠 <b>AI Explain</b>\n\nUsage: <code>/explain AAPL</code>\n\nGenerates a plain-English explanation of the Trade Pulse analysis for a ticker.',
+      parseMode: 'HTML',
+    };
+  }
+
+  try {
+    const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+    const res = await fetch(`${baseUrl}/api/analyst/trade-pulse`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticker }),
+    });
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      return {
+        text: `🧠 <b>AI Explain: ${escapeHtml(ticker)}</b>\n\n⚠️ ${escapeHtml(body?.error?.message || `Error ${res.status}`)}`,
+        parseMode: 'HTML',
+      };
+    }
+
+    const result = await res.json();
+    if (!result.available) {
+      return {
+        text: `🧠 <b>AI Explain: ${escapeHtml(ticker)}</b>\n\n⚠️ Ollama is offline. Start with <code>ollama serve</code>.`,
+        parseMode: 'HTML',
+      };
+    }
+
+    if (!result.response) {
+      return {
+        text: `🧠 <b>AI Explain: ${escapeHtml(ticker)}</b>\n\n⚠️ No Trade Pulse data found. Run a scan first or check the ticker.`,
+        parseMode: 'HTML',
+      };
+    }
+
+    const cleaned = escapeHtml(
+      result.response.replace(/^⚠️ \*\*Advisory only\*\*.*\n\n/m, '')
+    )
+      .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+      .replace(/\*(.+?)\*/g, '<i>$1</i>');
+
+    // Earnings warning
+    const earningsWarn = result.earnings?.daysUntil != null && result.earnings.daysUntil <= 10
+      ? `\n\n📅 Earnings in ${result.earnings.daysUntil} days${result.earnings.daysUntil <= 5 ? ' ⚠️ EVENT RISK' : ''}`
+      : '';
+
+    const header = `🧠 <b>AI Explain: ${escapeHtml(ticker)}</b> (${escapeHtml(result.grade || '?')})${earningsWarn}\n<i>${escapeHtml(result.model || 'unknown')}</i>\n\n`;
+
+    return {
+      text: `${header}${cleaned}\n\n<i>Advisory only — verify against dashboard</i>`,
+      parseMode: 'HTML',
+    };
+  } catch (err) {
+    console.error(`[telegram-commands] /explain error for ${ticker}:`, err);
+    return {
+      text: `🧠 <b>AI Explain: ${escapeHtml(ticker)}</b>\n\n⚠️ Error generating explanation.`,
       parseMode: 'HTML',
     };
   }
