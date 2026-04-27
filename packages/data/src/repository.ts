@@ -1,5 +1,5 @@
 import { DataFetchStatus, JobRunStatus, Prisma } from '@prisma/client';
-import { prisma } from './prisma';
+import { prisma, toInputJson } from './prisma';
 import type { HistoricalBar, HistoricalBarsResult, SymbolRefreshResult } from './types';
 
 type UpsertDailyBarsInput = {
@@ -7,10 +7,6 @@ type UpsertDailyBarsInput = {
   bars: HistoricalBar[];
   metadata: HistoricalBarsResult;
 };
-
-function toInputJson(value: unknown): Prisma.InputJsonValue {
-  return value as Prisma.InputJsonValue;
-}
 
 export async function ensureInstrument(symbol: string, metadata?: HistoricalBarsResult) {
   const exchange = typeof metadata?.meta.exchangeName === 'string' ? metadata.meta.exchangeName : 'UNKNOWN';

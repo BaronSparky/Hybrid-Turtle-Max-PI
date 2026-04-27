@@ -9,9 +9,15 @@ export default function PyramidAlertsWidget() {
   const { data: modulesData, loading } = useModulesData();
   const pyramidAlerts = modulesData?.pyramidAlerts ?? [];
 
-  // Split into actionable (allowed) and upcoming (not yet triggered)
+  // Split into actionable (allowed) and upcoming (within 5% of trigger)
   const actionable = pyramidAlerts.filter(a => a.allowed);
-  const upcoming = pyramidAlerts.filter(a => !a.allowed && a.triggerPrice !== null && a.rMultiple > 0);
+  const upcoming = pyramidAlerts.filter(a => {
+    if (a.allowed) return false;
+    if (!a.triggerPrice || a.triggerPrice <= 0 || a.rMultiple <= 0) return false;
+    // Only show if price is within 5% of the trigger — far-away positions are noise
+    const distancePct = ((a.triggerPrice - a.currentPrice) / a.currentPrice) * 100;
+    return distancePct <= 5 && distancePct > 0;
+  });
 
   if (loading) {
     return (
@@ -27,6 +33,11 @@ export default function PyramidAlertsWidget() {
 
   if (pyramidAlerts.length === 0) {
     return null; // Don't render if no open positions to check
+  }
+
+  // Don't show the widget if nothing is actionable or approaching — reduces noise
+  if (actionable.length === 0 && upcoming.length === 0) {
+    return null;
   }
 
   return (

@@ -8,9 +8,9 @@
  */
 export const dynamic = 'force-dynamic';
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getTonightWorkflowCardData, runTonightWorkflow } from '../../../../../packages/workflow/src';
-import { apiError } from '@/lib/api-response';
+import { apiError, verifyCronSecret } from '@/lib/api-response';
 
 export async function GET() {
   try {
@@ -22,7 +22,10 @@ export async function GET() {
   }
 }
 
-export async function POST() {
+export async function POST(request: NextRequest) {
+  const cronAuthError = verifyCronSecret(request);
+  if (cronAuthError) return cronAuthError;
+
   try {
     const result = await runTonightWorkflow();
     return NextResponse.json({ result });

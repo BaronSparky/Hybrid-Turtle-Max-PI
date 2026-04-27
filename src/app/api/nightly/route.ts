@@ -34,13 +34,16 @@ import { canPyramid, calculatePyramidAddSize } from '@/lib/risk-gates';
 import { calculateRMultiple } from '@/lib/position-sizer';
 import { RISK_PROFILES, type RiskProfileType, type Sleeve } from '@/types';
 import { z } from 'zod';
-import { apiError } from '@/lib/api-response';
+import { apiError, verifyCronSecret } from '@/lib/api-response';
 
 const nightlyBodySchema = z.object({
   userId: z.string().trim().min(1).optional(),
 });
 
 export async function POST(request: NextRequest) {
+  const cronAuthError = verifyCronSecret(request);
+  if (cronAuthError) return cronAuthError;
+
   try {
     let hadFailure = false;
     // Track data source health across the pipeline

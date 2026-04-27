@@ -80,6 +80,18 @@ export async function GET(request: NextRequest) {
         allNews.map(n => ({ ticker: n.ticker, headlines: n.headlines }))
       );
       for (const s of sentimentResults) sentimentMap.set(s.ticker, s);
+
+      // Record sentiment trends for historical tracking (best-effort)
+      try {
+        const { recordBatchSentiment } = await import('@/lib/analyst/sentiment-tracker');
+        await recordBatchSentiment(
+          sentimentResults.map(s => ({
+            ticker: s.ticker,
+            sentiment: s.sentiment,
+            confidence: s.confidence,
+          }))
+        );
+      } catch { /* trend recording is best-effort */ }
     } catch {
       // Best-effort — skip sentiment if Ollama is offline
     }

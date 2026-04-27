@@ -17,7 +17,7 @@ import { useParams } from 'next/navigation';
 import Navbar from '@/components/shared/Navbar';
 import { cn } from '@/lib/utils';
 import { apiRequest } from '@/lib/api-client';
-import { Loader2, ArrowLeft, AlertTriangle, CheckCircle2, BarChart3, BrainCircuit } from 'lucide-react';
+import { Loader2, ArrowLeft, AlertTriangle, CheckCircle2, BarChart3, BrainCircuit, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { TradePulseDial } from '@/components/TradePulseGrade';
 import { GRADE_STYLES, type TradePulseGrade } from '@/lib/prediction/trade-pulse';
 import KellySizePanel, { useKellySize } from '@/components/KellySizePanel';
@@ -266,6 +266,7 @@ function AiExplainCard({ data }: { data: TradePulseData }) {
   const [modelUsed, setModelUsed] = useState<string | null>(null);
   const [startTime, setStartTime] = useState<number | null>(null);
   const [earnings, setEarnings] = useState<{ nextEarningsDate: string | null; daysUntil: number | null } | null>(null);
+  const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const handleExplain = async () => {
@@ -414,9 +415,35 @@ function AiExplainCard({ data }: { data: TradePulseData }) {
             </div>
           )}
           <div className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">{streamedText}</div>
-          <div className="text-[10px] text-amber-400/70">⚠️ Advisory only — verify against dashboard data before acting.</div>
+          <div className="flex items-center justify-between">
+            <div className="text-[10px] text-amber-400/70">⚠️ Advisory only — verify against dashboard data before acting.</div>
+            <div className="flex items-center gap-1">
+              {feedback ? (
+                <span className="text-[10px] text-muted-foreground">
+                  {feedback === 'up' ? '👍 Helpful' : '👎 Not helpful'}
+                </span>
+              ) : (
+                <>
+                  <button
+                    onClick={() => { setFeedback('up'); fetch('/api/analyst/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ context: `trade-pulse:${data.ticker}`, rating: 'up', model: modelUsed }) }).catch(() => {}); }}
+                    className="p-1 rounded hover:bg-emerald-500/15 text-muted-foreground/50 hover:text-emerald-400 transition-colors"
+                    title="Helpful"
+                  >
+                    <ThumbsUp className="w-3 h-3" />
+                  </button>
+                  <button
+                    onClick={() => { setFeedback('down'); fetch('/api/analyst/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ context: `trade-pulse:${data.ticker}`, rating: 'down', model: modelUsed }) }).catch(() => {}); }}
+                    className="p-1 rounded hover:bg-red-500/15 text-muted-foreground/50 hover:text-red-400 transition-colors"
+                    title="Not helpful"
+                  >
+                    <ThumbsDown className="w-3 h-3" />
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
           <button
-            onClick={handleExplain}
+            onClick={() => { setFeedback(null); handleExplain(); }}
             className="text-[10px] text-violet-400/60 hover:text-violet-400 transition-colors"
           >
             Regenerate

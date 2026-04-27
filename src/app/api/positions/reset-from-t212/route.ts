@@ -16,6 +16,7 @@ import type { T212AccountType } from '@/lib/trading212-dual';
 import { apiError } from '@/lib/api-response';
 import { z } from 'zod';
 import { parseJsonBody } from '@/lib/request-validation';
+import { decryptField } from '@/lib/crypto';
 
 const resetSchema = z.object({
   positionId: z.string().trim().min(1),
@@ -72,12 +73,12 @@ export async function POST(request: NextRequest) {
       if (!user.t212IsaApiKey || !user.t212IsaApiSecret || !user.t212IsaConnected) {
         return apiError(400, 'T212_NOT_CONNECTED', 'T212 ISA not connected');
       }
-      client = new Trading212Client(user.t212IsaApiKey, user.t212IsaApiSecret, user.t212Environment as 'demo' | 'live');
+      client = new Trading212Client(decryptField(user.t212IsaApiKey), decryptField(user.t212IsaApiSecret), user.t212Environment as 'demo' | 'live');
     } else {
       if (!user.t212ApiKey || !user.t212ApiSecret || !user.t212Connected) {
         return apiError(400, 'T212_NOT_CONNECTED', 'T212 Invest not connected');
       }
-      client = new Trading212Client(user.t212ApiKey, user.t212ApiSecret, user.t212Environment as 'demo' | 'live');
+      client = new Trading212Client(decryptField(user.t212ApiKey), decryptField(user.t212ApiSecret), user.t212Environment as 'demo' | 'live');
     }
 
     // Fetch all T212 positions and find the matching one

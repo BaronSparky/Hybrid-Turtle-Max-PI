@@ -276,6 +276,7 @@ export default function EvidencePage() {
               value={sleeve}
               onChange={(e) => setSleeve(e.target.value)}
               className="text-xs bg-navy-800 border border-border rounded px-2 py-1.5 text-foreground"
+              aria-label="Filter by sleeve"
             >
               <option value="">All Sleeves</option>
               <option value="CORE">CORE</option>
@@ -286,6 +287,7 @@ export default function EvidencePage() {
               value={regime}
               onChange={(e) => setRegime(e.target.value)}
               className="text-xs bg-navy-800 border border-border rounded px-2 py-1.5 text-foreground"
+              aria-label="Filter by regime"
             >
               <option value="">All Regimes</option>
               <option value="BULLISH">BULLISH</option>

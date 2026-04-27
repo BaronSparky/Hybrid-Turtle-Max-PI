@@ -1,4 +1,5 @@
 import type { SignalBar } from './types';
+import { round } from '../../data/src/prisma';
 
 export function average(values: number[]) {
   if (values.length === 0) {
@@ -51,8 +52,4 @@ export function computeAtr(bars: SignalBar[], period: number) {
   }
 
   return average(trueRanges.slice(-period));
-}
-
-export function round(value: number, precision = 4) {
-  return Number(value.toFixed(precision));
-}
+}\n

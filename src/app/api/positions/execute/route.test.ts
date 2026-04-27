@@ -33,6 +33,9 @@ const { prismaMock, mockClient, mockEnsureDefaultUser, mockAssertSubmissionAllow
       executionLog: { create: vi.fn() },
       stock: { findUnique: vi.fn() },
       user: { findUnique: vi.fn() },
+      heartbeat: { findFirst: vi.fn() },
+      healthCheck: { findFirst: vi.fn() },
+      position: { findMany: vi.fn() },
     },
     mockClient,
     mockEnsureDefaultUser: vi.fn().mockResolvedValue('default-user'),
@@ -75,6 +78,23 @@ vi.mock('@/lib/trading212', async (importOriginal) => {
     Trading212Client: MockTrading212Client,
   };
 });
+
+// Mock pre-execution dry run to always pass (individual tests can override)
+vi.mock('@/lib/pre-execution-dry-run', () => ({
+  runPreExecutionDryRun: vi.fn().mockResolvedValue({
+    passed: true,
+    decision: 'DRY_RUN_PASS',
+    checks: [],
+    hardFailures: [],
+    softWarnings: [],
+    summary: 'All checks passed',
+  }),
+}));
+
+// Mock market data to avoid DB calls
+vi.mock('@/lib/market-data', () => ({
+  getMarketRegime: vi.fn().mockResolvedValue('BULLISH'),
+}));
 
 import { POST } from './route';
 
@@ -170,6 +190,7 @@ function setupUserMock() {
 
 function setupStockMock(t212Ticker = 'AAPL_US_EQ', isaEligible: boolean | null = null) {
   prismaMock.stock.findUnique.mockResolvedValue({
+    id: 'stock-abc-123',
     t212Ticker,
     isaEligible,
     ticker: 'AAPL',
@@ -322,18 +343,23 @@ describe('POST /api/positions/execute', () => {
       expect(errorEvent!.data.error).toContain('No T212 ticker mapped');
     });
 
-    it('aborts if T212 ticker does not match request', async () => {
+    it('uses DB authoritative T212 ticker even when request ticker differs', async () => {
       prismaMock.stock.findUnique.mockResolvedValue({
-        t212Ticker: 'DIFFERENT_TICKER', isaEligible: null, ticker: 'AAPL',
+        id: 'stock-abc-123', t212Ticker: 'DIFFERENT_TICKER', isaEligible: null, ticker: 'AAPL',
       });
+
+      setupFullExecution();
+      mockFetchForPositionCreation();
 
       const req = makeRequest();
       const response = await POST(req);
       const events = await parseSSEResponse(response);
 
-      const errorEvent = events.find(e => e.event === 'error');
-      expect(errorEvent!.data.error).toContain('T212 ticker mismatch');
-    });
+      // Route should use the DB ticker (DIFFERENT_TICKER), not the request ticker
+      expect(mockClient.placeMarketOrder).toHaveBeenCalledWith(
+        expect.objectContaining({ ticker: 'DIFFERENT_TICKER' })
+      );
+    }, 30_000);
 
     it('aborts ISA buy if stock is explicitly not ISA eligible', async () => {
       setupStockMock('AAPL_US_EQ', false);

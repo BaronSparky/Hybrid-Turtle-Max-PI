@@ -375,4 +375,19 @@ describe('buildTradePulseExplainPrompt', () => {
     const result = buildTradePulseExplainPrompt(MOCK_TRADE_PULSE_DATA);
     expect(result.prompt).toContain('18 days');
   });
+
+  it('includes sentiment when provided', () => {
+    const dataWithSentiment: TradePulseExplainData = {
+      ...MOCK_TRADE_PULSE_DATA,
+      sentiment: { overall: 'POSITIVE', confidence: 'HIGH' },
+    };
+    const result = buildTradePulseExplainPrompt(dataWithSentiment);
+    expect(result.prompt).toContain('POSITIVE');
+    expect(result.prompt).toContain('confidence: HIGH');
+  });
+
+  it('shows not assessed when sentiment is omitted', () => {
+    const result = buildTradePulseExplainPrompt(MOCK_TRADE_PULSE_DATA);
+    expect(result.prompt).toContain('not assessed');
+  });
 });

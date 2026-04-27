@@ -147,6 +147,7 @@ export interface TradePulseExplainData {
   opportunities: string[];
   headlines?: Array<{ title: string; publisher: string; ageHours: number }>;
   earnings?: { nextEarningsDate: string | null; daysUntil: number | null; isEstimate: boolean };
+  sentiment?: { overall: string; confidence: string };
 }
 
 export interface JournalDraftData {
@@ -415,6 +416,10 @@ export function buildTradePulseExplainPrompt(data: TradePulseExplainData): {
     ? data.headlines.map((h, i) => `${i + 1}. [${h.publisher}, ${Math.round(h.ageHours)}h ago] ${h.title}`).join('\n')
     : '(no recent headlines)';
 
+  const sentimentLine = data.sentiment
+    ? `News Sentiment: ${data.sentiment.overall} (confidence: ${data.sentiment.confidence})`
+    : 'News Sentiment: not assessed';
+
   const prompt = stripSensitiveData(`Explain this TradePulse analysis for ${data.ticker} in plain English for a beginner.
 
 Overall Score: ${Math.round(data.score)}/100
@@ -433,6 +438,8 @@ ${oppLines}
 Calendar:
 ${earningsLine}
 
+${sentimentLine}
+
 Recent Headlines:
 ${headlinesBlock}
 
@@ -440,7 +447,7 @@ Produce a clear, beginner-friendly explanation:
 1. **Overall verdict** (1-2 sentences): What does this grade mean? Is this a strong or weak candidate?
 2. **Key drivers** (2-3 sentences): Which signals matter most and why? What's pulling the score up or down?
 3. **Risk factors** (1-2 sentences): Summarise the concerns. Is there earnings event risk?
-4. **News context** (1 sentence): Does the news flow support or contradict the setup?
+4. **News context** (1-2 sentences): Does the news sentiment and flow support or contradict the setup?
 
 Keep it conversational. Reference specific signal names and numbers from the data. Do NOT recommend buy or sell.`);
 

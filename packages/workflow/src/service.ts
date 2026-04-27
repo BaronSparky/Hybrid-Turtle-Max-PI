@@ -1,6 +1,7 @@
 import { JobRunStatus, Prisma } from '@prisma/client';
 import { runBrokerSync } from '../../broker/src';
 import { refreshUniverseDailyBars } from '../../data/src';
+import { toInputJson } from '../../data/src/prisma';
 import {
   completeWorkflowStep,
   createEveningWorkflowRun,
@@ -24,11 +25,9 @@ type StepDefinition = {
   key: TonightWorkflowActionKey;
   label: string;
   run: (workflowRunId: string) => Promise<object>;
+  /** If true, this step runs even if a previous step failed. */
+  critical?: boolean;
 };
-
-function toInputJson(value: unknown): Prisma.InputJsonValue {
-  return value as Prisma.InputJsonValue;
-}
 
 export async function runEveningRefresh(): Promise<EveningRefreshResult> {
   const result = await refreshUniverseDailyBars({ force: true });
@@ -70,6 +69,7 @@ const workflowSteps: StepDefinition[] = [
   {
     key: 'sync-broker',
     label: 'Sync Broker',
+    critical: true,
     run: async () => {
       const result = await runBrokerSync();
       return {
@@ -83,6 +83,7 @@ const workflowSteps: StepDefinition[] = [
   {
     key: 'verify-stops',
     label: 'Verify Stops',
+    critical: true,
     run: async (workflowRunId) => verifyProtectiveStops(workflowRunId),
   },
 ];
@@ -114,6 +115,19 @@ export async function runTonightWorkflow(): Promise<TonightWorkflowRunResult> {
 
   try {
     for (const definition of workflowSteps) {
+      // Skip non-critical steps after a failure, but always run critical steps
+      if (overallStatus === JobRunStatus.FAILED && !definition.critical) {
+        stepResults.push({
+          key: definition.key,
+          label: definition.label,
+          status: JobRunStatus.FAILED,
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          details: { skipped: true, reason: 'Previous step failed' },
+        });
+        continue;
+      }
+
       const step = await startWorkflowStep(workflowRun.id, definition.key, definition.label);
       try {
         const details = (await definition.run(workflowRun.id)) as Record<string, unknown>;
@@ -139,7 +153,15 @@ export async function runTonightWorkflow(): Promise<TonightWorkflowRunResult> {
           label: definition.label,
           errorMessage: message,
         } as Prisma.InputJsonValue);
-        throw error;
+        stepResults.push({
+          key: definition.key,
+          label: definition.label,
+          status: JobRunStatus.FAILED,
+          startedAt: step.startedAt.toISOString(),
+          finishedAt: new Date().toISOString(),
+          details: { error: message },
+        });
+        // Continue to next step instead of aborting — critical steps must run
       }
     }
 

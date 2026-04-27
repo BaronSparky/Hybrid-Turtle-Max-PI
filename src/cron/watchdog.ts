@@ -11,11 +11,13 @@
 
 import prisma from '@/lib/prisma';
 import { sendTelegramMessage } from '@/lib/telegram';
+import { createCronLogger } from '@/lib/cron-logger';
 
+const log = createCronLogger('watchdog');
 const NIGHTLY_STALE_HOURS = 26;
 
 async function runWatchdog(): Promise<void> {
-  console.log('🐕 Watchdog check starting...');
+  log.info('Watchdog check starting');
 
   const alerts: string[] = [];
 
@@ -75,13 +77,13 @@ async function runWatchdog(): Promise<void> {
   }
 
   if (alerts.length === 0) {
-    console.log('✅ All heartbeats within expected window. No alerts needed.');
+    log.info('All heartbeats within expected window', { alertCount: 0 });
     return;
   }
 
   // Send Telegram alert
   const message = alerts.join('\n\n');
-  console.log('Sending watchdog alert:', message);
+  log.warn('Sending watchdog alert', { alertCount: alerts.length });
 
   const sent = await sendTelegramMessage({
     text: message,
@@ -89,15 +91,15 @@ async function runWatchdog(): Promise<void> {
   });
 
   if (sent) {
-    console.log('✅ Watchdog alert sent via Telegram.');
+    log.info('Watchdog alert sent via Telegram');
   } else {
-    console.error('❌ Failed to send watchdog Telegram alert.');
+    log.error('Failed to send watchdog Telegram alert');
   }
 }
 
 runWatchdog()
   .catch((err) => {
-    console.error('Watchdog error:', err);
+    log.error('Watchdog error', { error: (err as Error).message });
     process.exit(1);
   })
   .finally(async () => {

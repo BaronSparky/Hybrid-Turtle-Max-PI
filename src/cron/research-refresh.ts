@@ -33,6 +33,7 @@ import { enrichCandidateOutcomes } from '@/lib/candidate-outcome-enrichment';
 import { backfillScoresOnOutcomes } from '@/lib/score-backfill';
 import { backfillFilterOutcomes } from '@/lib/filter-attribution';
 import { backfillScoreOutcomes } from '@/lib/score-tracker';
+import { createCronLogger } from '@/lib/cron-logger';
 
 // ── Configuration ───────────────────────────────────────────────────
 
@@ -47,12 +48,14 @@ const ENRICHMENT_MIN_DAYS = 8;
 const QUIET = process.argv.includes('--quiet');
 const RUN_NOW = process.argv.includes('--run-now');
 
+const cronLog = createCronLogger('research-refresh');
+
 function log(msg: string): void {
-  if (!QUIET) console.log(`  [research-refresh] ${msg}`);
+  if (!QUIET) cronLog.info(msg);
 }
 
 function logError(msg: string): void {
-  console.error(`  [research-refresh] !! ${msg}`);
+  cronLog.error(msg);
 }
 
 // ── Step runner ─────────────────────────────────────────────────────

@@ -7,12 +7,8 @@
  * Notes: Provides persistence helpers for Phase 4 workflow orchestration, snapshots, and signal candidate storage.
  */
 import { JobRunStatus, Prisma, ProtectiveStopSource as StopSource, ProtectiveStopStatus } from '@prisma/client';
-import { prisma, toInputJson } from '../../data/src/prisma';
+import { prisma, toInputJson, toDecimal } from '../../data/src/prisma';
 import type { EveningScanCandidate, TonightWorkflowActionKey } from './types';
-
-function toDecimal(value: number): Prisma.Decimal {
-  return new Prisma.Decimal(value);
-}
 
 export function getCurrentSessionDate() {
   const now = new Date();

@@ -1,13 +1,10 @@
 import { createRiskSnapshot, getLatestPortfolioState } from './repository';
+import { round } from '../../data/src/prisma';
 import type { RiskReviewResult } from './types';
 
 /** Open risk thresholds as percentage of account equity. */
 const OPEN_RISK_HIGH_PCT = 8;
 const OPEN_RISK_MEDIUM_PCT = 5;
-
-function round(value: number) {
-  return Number(value.toFixed(4));
-}
 
 export async function reviewEveningRisk(): Promise<RiskReviewResult> {
   const { snapshot, positions } = await getLatestPortfolioState();

@@ -134,7 +134,18 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    return NextResponse.json(Array.from(merged.values()));
+    // Filter out no-op recommendations where newStop equals currentStop after rounding.
+    // Both R-based and trailing ATR paths now round to 2dp before emitting recs,
+    // so this is a final safety net for any edge cases.
+    const filtered = Array.from(merged.values()).filter(
+      (rec) => {
+        const roundedNew = Math.round(rec.newStop * 100) / 100;
+        const roundedCurrent = Math.round(rec.currentStop * 100) / 100;
+        return roundedNew > roundedCurrent;
+      }
+    );
+
+    return NextResponse.json(filtered);
   } catch (error) {
     console.error('Stop recommendations error:', error);
     return apiError(500, 'STOP_RECOMMENDATIONS_FAILED', 'Failed to generate stop recommendations', (error as Error).message, true);

@@ -51,7 +51,11 @@ import { sendAlert } from '@/lib/alert-service';
 import { assertSubmissionAllowed, SafetyControlError, isAutoTradingEnabled } from '../../packages/workflow/src';
 import { getBatchPrices, normalizeBatchPricesToGBP, getFXRate, getMarketRegime } from '@/lib/market-data';
 import { classifyCandidate, type GradingContext, type CandidateGrade } from '@/lib/candidate-grade';
-import { RISK_PROFILES, type RiskProfileType, type Sleeve, type MarketRegime } from '@/types';
+import { RISK_PROFILES, type RiskProfileType, type Sleeve, type MarketRegime, OPERATING_MODES, type OperatingMode } from '@/types';
+import { decryptField } from '@/lib/crypto';
+import { isTodayMarketHoliday, isEarlyCloseDay } from '@/lib/market-holidays';
+import { createCronLogger } from '@/lib/cron-logger';
+import { getUKDayOfWeek, getUKTimeString } from '@/lib/uk-time';
 
 // ── Configuration ────────────────────────────────────────────
 
@@ -76,16 +80,6 @@ const SESSION_CONFIGS: Record<Session, SessionConfig> = {
 };
 
 // ── Helpers ──────────────────────────────────────────────────
-
-function getUKDayOfWeek(): number {
-  const now = new Date();
-  const ukTime = new Date(now.toLocaleString('en-GB', { timeZone: 'Europe/London' }));
-  return ukTime.getDay();
-}
-
-function getUKTimeString(): string {
-  return new Date().toLocaleString('en-GB', { timeZone: 'Europe/London', hour12: false });
-}
 
 function isStockForSession(ticker: string, sleeve: string, session: Session): boolean {
   if (session === 'scan') return false; // Scan session never trades
@@ -154,13 +148,13 @@ async function getT212Client(userId: string, accountType: T212AccountType): Prom
     if (!user.t212IsaApiKey || !user.t212IsaApiSecret || !user.t212IsaConnected) {
       throw new Error('Trading 212 ISA account not connected.');
     }
-    return new Trading212Client(user.t212IsaApiKey, user.t212IsaApiSecret, user.t212Environment as 'demo' | 'live');
+    return new Trading212Client(decryptField(user.t212IsaApiKey), decryptField(user.t212IsaApiSecret), user.t212Environment as 'demo' | 'live');
   }
 
   if (!user.t212ApiKey || !user.t212ApiSecret || !user.t212Connected) {
     throw new Error('Trading 212 Invest account not connected.');
   }
-  return new Trading212Client(user.t212ApiKey, user.t212ApiSecret, user.t212Environment as 'demo' | 'live');
+  return new Trading212Client(decryptField(user.t212ApiKey), decryptField(user.t212ApiSecret), user.t212Environment as 'demo' | 'live');
 }
 
 // ── Determine account type for a stock ───────────────────────
@@ -555,7 +549,9 @@ async function sendSessionSummary(
 
 async function runAutoTrade(session: Session) {
   const userId = 'default-user';
+  const log = createCronLogger('auto-trade', { session });
 
+  log.info('Auto-trade started', { sessionName: SESSION_CONFIGS[session].name, ukTime: getUKTimeString() });
   console.log('========================================');
   console.log(`[HybridTurtle] Auto-Trade — ${SESSION_CONFIGS[session].name}`);
   console.log(`  Time (UK): ${getUKTimeString()}`);
@@ -564,6 +560,7 @@ async function runAutoTrade(session: Session) {
   // ── Gate 0: Master enable check (DB setting or env var) ──
   const autoEnabled = await isAutoTradingEnabled();
   if (!autoEnabled) {
+    log.info('Gate 0 BLOCKED: auto-trading not enabled');
     console.log('  ✗ Auto-trading is not enabled — exiting.');
     console.log('  Enable via Settings > Safety Controls, or set ENABLE_AUTO_TRADING=true in .env');
     await prisma.$disconnect();
@@ -573,9 +570,37 @@ async function runAutoTrade(session: Session) {
   // ── Gate 1: Weekend check ──
   const ukDay = getUKDayOfWeek();
   if (ukDay === 0 || ukDay === 6) {
+    log.info('Gate 1 BLOCKED: weekend', { ukDay });
     console.log('  Weekend — skipping.');
     await prisma.heartbeat.create({
       data: { status: 'SKIPPED', details: JSON.stringify({ type: 'auto-trade', session, reason: 'weekend' }) },
+    });
+    await prisma.$disconnect();
+    return;
+  }
+
+  // ── Gate 1a: Market holiday check ──
+  const { isHoliday, holiday } = isTodayMarketHoliday();
+  if (isHoliday && session !== 'scan') {
+    log.info('Gate 1a BLOCKED: market holiday', { holiday: holiday?.label });
+    console.log(`  Market holiday: ${holiday?.label} — skipping trades (scan-only allowed).`);
+    await prisma.heartbeat.create({
+      data: { status: 'SKIPPED', details: JSON.stringify({ type: 'auto-trade', session, reason: 'market-holiday', holiday: holiday?.label }) },
+    });
+    await prisma.$disconnect();
+    return;
+  }
+
+  // ── Gate 1b: Early-close half-day check (US sessions only) ──
+  // On early-close days (Black Friday, Christmas Eve) the US market closes at 1pm ET (~6pm UK).
+  // The us-close session at 20:00 UK would trade after market close — skip it.
+  const earlyClose = isEarlyCloseDay();
+  if (earlyClose && session === 'us-close') {
+    log.info('Early-close day — us-close session skipped', { closeTime: earlyClose });
+    console.log(`  Early-close day (${earlyClose} ET) — us-close session skipped.`);
+    await sendTelegramMessage({ text: `📅 Early-close day today (market closes ${earlyClose} ET). The us-close session is skipped — only UK and early US sessions will trade.` });
+    await prisma.heartbeat.create({
+      data: { status: 'SKIPPED', details: JSON.stringify({ type: 'auto-trade', session, reason: 'early-close', closeTime: earlyClose }) },
     });
     await prisma.$disconnect();
     return;
@@ -586,6 +611,7 @@ async function runAutoTrade(session: Session) {
     await assertSubmissionAllowed({ automated: true });
   } catch (err) {
     const msg = err instanceof SafetyControlError ? err.message : 'Safety control blocked';
+    log.info('Gate 2 BLOCKED: kill switch', { message: msg });
     console.log(`  ✗ Kill switch active: ${msg}`);
     await sendTelegramMessage({ text: `🚫 Auto-Trade blocked by kill switch: ${msg}` });
     await prisma.heartbeat.create({
@@ -598,14 +624,30 @@ async function runAutoTrade(session: Session) {
   // ── Gate 3: Broker configured check ──
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { riskProfile: true, equity: true, t212Connected: true, t212IsaConnected: true },
+    select: { riskProfile: true, equity: true, t212Connected: true, t212IsaConnected: true, operatingMode: true },
   });
   if (!user) {
     console.error('  ✗ User not found');
     await prisma.$disconnect();
     return;
   }
+
+  // ── Gate 3a: Operating mode check ──
+  const modeKey = (user.operatingMode || 'NORMAL') as OperatingMode;
+  const modeConfig = OPERATING_MODES[modeKey];
+  if (session !== 'scan' && modeConfig && !modeConfig.canBuy) {
+    log.info('Gate 3a BLOCKED: operating mode', { mode: modeKey });
+    console.log(`  ✗ Operating mode ${modeKey} does not allow buying — exiting.`);
+    await sendTelegramMessage({ text: `🚫 Auto-Trade blocked: operating mode ${modeKey} — ${modeConfig.description}` });
+    await prisma.heartbeat.create({
+      data: { status: 'SKIPPED', details: JSON.stringify({ type: 'auto-trade', session, reason: `operating-mode-${modeKey}` }) },
+    });
+    await prisma.$disconnect();
+    return;
+  }
+
   if (!user.t212Connected && !user.t212IsaConnected) {
+    log.info('Gate 3 BLOCKED: no T212 accounts connected');
     console.log('  ✗ No Trading 212 accounts connected — exiting.');
     await sendTelegramMessage({ text: '🚫 Auto-Trade: No T212 account connected. Configure in Settings.' });
     await prisma.$disconnect();

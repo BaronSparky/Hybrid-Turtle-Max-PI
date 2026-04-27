@@ -8,7 +8,7 @@
  */
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
-import { prisma } from '../../data/src/prisma';
+import { prisma, round } from '../../data/src/prisma';
 import { scoreRow, type SnapshotRow } from '../../../src/lib/dual-score';
 import { calcBPSFromSnapshot, computeRsPercentiles } from '../../../src/lib/breakout-probability';
 import type {
@@ -25,11 +25,6 @@ const DEFAULT_INITIAL_CAPITAL = 10_000;
 const DEFAULT_RISK_PER_TRADE_PCT = 2;
 const LOOKBACK_BUFFER_DAYS = 10;
 const LOOKAHEAD_BUFFER_DAYS = 45;
-
-function round(value: number, decimals = 2): number {
-  const factor = 10 ** decimals;
-  return Math.round(value * factor) / factor;
-}
 
 function addDays(date: Date, days: number): Date {
   return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);

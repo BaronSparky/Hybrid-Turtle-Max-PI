@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { getToken } from 'next-auth/jwt';
+import { checkRateLimit, getRateLimitCategory, RATE_LIMITS } from '@/lib/rate-limit';
 
 /**
  * Lightweight API auth middleware.
@@ -14,7 +15,6 @@ import { getToken } from 'next-auth/jwt';
 const PUBLIC_PATHS = [
   '/api/auth',        // NextAuth routes (login, callback, csrf, etc.)
   '/api/health',      // Health check endpoint
-  '/api/db-status',   // Migration status (needed by dashboard before login)
   '/api/heartbeat',   // Heartbeat (needed by LiveDataBootstrap on mount)
 ];
 
@@ -25,7 +25,8 @@ function isPublicPath(pathname: string): boolean {
 export async function middleware(request: NextRequest) {
   // Local single-user mode: skip API auth when explicitly opted out via env var.
   // This is the default for HybridTurtle desktop deployments (start.bat).
-  if (process.env.DISABLE_API_AUTH === 'true') {
+  // SAFETY: blocked in production to prevent accidental exposure.
+  if (process.env.DISABLE_API_AUTH === 'true' && process.env.NODE_ENV !== 'production') {
     return NextResponse.next();
   }
 
@@ -49,6 +50,20 @@ export async function middleware(request: NextRequest) {
       { error: 'Unauthorised' },
       { status: 401 }
     );
+  }
+
+  // Rate limiting for expensive endpoints
+  const category = getRateLimitCategory(pathname);
+  if (category) {
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+    const rateLimitKey = `${category}:${ip}`;
+    const limit = RATE_LIMITS[category];
+    if (!checkRateLimit(rateLimitKey, limit.maxTokens, limit.refillPerSecond)) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429 }
+      );
+    }
   }
 
   return NextResponse.next();

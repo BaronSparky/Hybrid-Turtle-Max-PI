@@ -21,6 +21,14 @@ interface NewsHeadline {
   ageHours: number;
 }
 
+interface SentimentTrend {
+  ticker: string;
+  current: string;
+  direction: 'IMPROVING' | 'STABLE' | 'DETERIORATING';
+  daysCovered: number;
+  entries: Array<{ sentiment: string; date: string }>;
+}
+
 interface TickerNewsItem {
   ticker: string;
   headlines: NewsHeadline[];
@@ -41,6 +49,7 @@ export default function WatchlistNewsPage() {
   const [data, setData] = useState<BatchData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [trends, setTrends] = useState<Record<string, SentimentTrend>>({});
   const refreshTimer = useRef<NodeJS.Timeout | null>(null);
 
   const fetchData = useCallback(async () => {
@@ -53,7 +62,23 @@ export default function WatchlistNewsPage() {
         setError(body?.error?.message || `Error ${res.status}`);
         return;
       }
-      setData(await res.json());
+      const result = await res.json();
+      setData(result);
+
+      // Fetch sentiment trends (best-effort)
+      const allTickers = [
+        ...(result.portfolio?.map((p: TickerNewsItem) => p.ticker) ?? []),
+        ...(result.candidates?.map((c: TickerNewsItem) => c.ticker) ?? []),
+      ];
+      if (allTickers.length > 0) {
+        try {
+          const trendRes = await fetch(`/api/analyst/sentiment-trend?tickers=${allTickers.join(',')}`);
+          if (trendRes.ok) {
+            const trendData = await trendRes.json();
+            setTrends(trendData.tickers ?? {});
+          }
+        } catch { /* best-effort */ }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch news');
     } finally {
@@ -205,6 +230,35 @@ export default function WatchlistNewsPage() {
           </div>
         )}
 
+        {/* Sentiment Trend Summary */}
+        {data && Object.keys(trends).length > 0 && (
+          <div className="card-surface p-4">
+            <h2 className="text-sm font-semibold text-foreground mb-3">Sentiment Trends</h2>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+              {allItems.map(item => {
+                const trend = trends[item.ticker];
+                if (!trend) return null;
+                const dirIcon = trend.direction === 'IMPROVING' ? '📈'
+                  : trend.direction === 'DETERIORATING' ? '📉' : '➡️';
+                const sentColor = trend.current === 'POSITIVE' ? 'text-emerald-400'
+                  : trend.current === 'NEGATIVE' ? 'text-red-400' : 'text-muted-foreground';
+                return (
+                  <div key={`trend-${item.ticker}`} className="px-3 py-2 rounded-md border bg-navy-600 border-border text-xs">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-semibold text-foreground">{item.ticker}</span>
+                      <span className={sentColor}>{trend.current} {dirIcon}</span>
+                    </div>
+                    {trend.entries && trend.entries.length >= 2 && (
+                      <SentimentSparkline entries={trend.entries.slice(-14)} />
+                    )}
+                    <div className="text-[9px] text-muted-foreground/50 mt-0.5">{trend.daysCovered}d tracked</div>
+                  </div>
+                );
+              }).filter(Boolean)}
+            </div>
+          </div>
+        )}
+
         {/* Per-ticker earnings summary */}
         {data && (
           <div className="card-surface p-4">
@@ -235,5 +289,61 @@ export default function WatchlistNewsPage() {
         )}
       </main>
     </div>
+  );
+}
+
+// ── Sentiment Sparkline ──
+
+function SentimentSparkline({ entries }: { entries: Array<{ sentiment: string; date: string }> }) {
+  const W = 80;
+  const H = 20;
+  const PAD = 2;
+
+  const scores = entries.map(e =>
+    e.sentiment === 'POSITIVE' ? 1 : e.sentiment === 'NEGATIVE' ? -1 : 0
+  );
+
+  const stepX = scores.length > 1 ? (W - PAD * 2) / (scores.length - 1) : 0;
+
+  const points = scores.map((s, i) => {
+    const x = PAD + i * stepX;
+    const y = H / 2 - s * (H / 2 - PAD);
+    return `${x},${y}`;
+  }).join(' ');
+
+  // Color based on last score
+  const lastScore = scores[scores.length - 1];
+  const strokeColor = lastScore > 0 ? '#34d399' : lastScore < 0 ? '#f87171' : '#6b7280';
+
+  // Dot colors for each point
+  const dotColors = scores.map(s =>
+    s > 0 ? '#34d399' : s < 0 ? '#f87171' : '#6b7280'
+  );
+
+  return (
+    <svg width={W} height={H} className="block" viewBox={`0 0 ${W} ${H}`}>
+      {/* Zero line */}
+      <line x1={PAD} y1={H / 2} x2={W - PAD} y2={H / 2} stroke="#374151" strokeWidth="0.5" />
+      {/* Trend line */}
+      <polyline
+        fill="none"
+        stroke={strokeColor}
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        points={points}
+        opacity="0.8"
+      />
+      {/* Data points */}
+      {scores.map((_, i) => (
+        <circle
+          key={i}
+          cx={PAD + i * stepX}
+          cy={H / 2 - scores[i] * (H / 2 - PAD)}
+          r="1.5"
+          fill={dotColors[i]}
+        />
+      ))}
+    </svg>
   );
 }

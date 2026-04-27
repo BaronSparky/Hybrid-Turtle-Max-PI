@@ -26,12 +26,9 @@ import type {
   RefreshUniverseResult,
   SymbolRefreshResult,
 } from './types';
+import { toInputJson } from './prisma';
 
 const provider = new YahooMarketDataProvider();
-
-function toInputJson(value: unknown): Prisma.InputJsonValue {
-  return value as Prisma.InputJsonValue;
-}
 
 async function withRetries<T>(operation: (attempt: number) => Promise<T>, retries: number) {
   let attempt = 0;

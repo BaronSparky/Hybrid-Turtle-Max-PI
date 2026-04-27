@@ -278,7 +278,7 @@ export default function ScoreValidationPage() {
         <div className="card-surface p-4 rounded-lg mb-6 flex flex-wrap gap-4 items-end">
           <div>
             <label className="block text-xs text-muted-foreground mb-1">Sleeve</label>
-            <select className="bg-background border border-border rounded px-3 py-1.5 text-sm" value={sleeve} onChange={(e) => setSleeve(e.target.value)}>
+            <select className="bg-background border border-border rounded px-3 py-1.5 text-sm" value={sleeve} onChange={(e) => setSleeve(e.target.value)} aria-label="Filter by sleeve">
               <option value="">All</option>
               <option value="CORE">CORE</option>
               <option value="HIGH_RISK">HIGH_RISK</option>
@@ -288,11 +288,11 @@ export default function ScoreValidationPage() {
           </div>
           <div>
             <label className="block text-xs text-muted-foreground mb-1">From</label>
-            <input type="date" className="bg-background border border-border rounded px-3 py-1.5 text-sm" value={from} onChange={(e) => setFrom(e.target.value)} />
+            <input type="date" className="bg-background border border-border rounded px-3 py-1.5 text-sm" value={from} onChange={(e) => setFrom(e.target.value)} aria-label="From date" />
           </div>
           <div>
             <label className="block text-xs text-muted-foreground mb-1">To</label>
-            <input type="date" className="bg-background border border-border rounded px-3 py-1.5 text-sm" value={to} onChange={(e) => setTo(e.target.value)} />
+            <input type="date" className="bg-background border border-border rounded px-3 py-1.5 text-sm" value={to} onChange={(e) => setTo(e.target.value)} aria-label="To date" />
           </div>
           <div className="ml-auto flex items-center gap-2">
             <button

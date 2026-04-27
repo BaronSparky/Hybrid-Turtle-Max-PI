@@ -1,4 +1,5 @@
 export { registerNightlyIngestionJob } from './scheduler';
+export { toInputJson, toDecimal, round } from './prisma';
 export {
   fetchHistoricalBars,
   normalizeYahooBar,

@@ -42,6 +42,7 @@ export async function POST(request: NextRequest) {
     // Best-effort news + earnings enrichment
     let headlines: TradePulseExplainData['headlines'] = [];
     let earnings: TradePulseExplainData['earnings'] = undefined;
+    let sentiment: TradePulseExplainData['sentiment'] = undefined;
     try {
       const news = await fetchNewsContext(ticker, 3);
       headlines = news.headlines.map(h => ({
@@ -50,6 +51,22 @@ export async function POST(request: NextRequest) {
         ageHours: h.ageHours,
       }));
       earnings = news.earnings;
+      // Best-effort sentiment classification
+      try {
+        const { classifyBatchSentiment } = await import('@/lib/analyst/sentiment');
+        const sentimentResults = await classifyBatchSentiment([{
+          ticker,
+          headlines: news.headlines.map(h => ({ title: h.title })),
+        }]);
+        if (sentimentResults.length > 0) {
+          sentiment = {
+            overall: sentimentResults[0].sentiment,
+            confidence: sentimentResults[0].confidence,
+          };
+        }
+      } catch {
+        // Sentiment is best-effort — proceed without it
+      }
     } catch {
       // Non-critical — proceed without news context
     }
@@ -64,6 +81,7 @@ export async function POST(request: NextRequest) {
       opportunities: opportunities ?? [],
       headlines,
       earnings,
+      sentiment,
     };
 
     // Streaming mode: return SSE stream

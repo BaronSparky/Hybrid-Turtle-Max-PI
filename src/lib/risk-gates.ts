@@ -358,7 +358,10 @@ export function getRiskBudget(
   }, 0);
 
   const usedRiskPercent = equity > 0 ? (totalRisk / equity) * 100 : 0;
-  const totalValue = positions.reduce((sum, p) => sum + p.value, 0);
+  const nonHedgeValue = positions
+    .filter((p) => p.sleeve !== 'HEDGE')
+    .reduce((sum, p) => sum + p.value, 0);
+  const totalValue = Math.max(equity, nonHedgeValue);
 
   const sleeveUtilization: Record<Sleeve, { used: number; max: number }> = {
     CORE: { used: 0, max: SLEEVE_CAPS.CORE * 100 },

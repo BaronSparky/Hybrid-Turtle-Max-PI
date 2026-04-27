@@ -7,7 +7,7 @@
  *        NEVER imports sacred files. NEVER writes to the database. NEVER calls execution endpoints.
  */
 
-import { ollamaGenerate, ollamaGenerateStream, checkOllamaHealth, pickModel, pickModelForContext, type OllamaModel, type AnalystContext } from './ollama-client';
+import { ollamaGenerate, ollamaGenerateStream, checkOllamaHealth, pickModel, pickModelForContext, pickModelWithFeedback, type OllamaModel, type AnalystContext } from './ollama-client';
 import {
   buildSystemSummaryPrompt,
   buildCandidateExplainPrompt,
@@ -15,6 +15,7 @@ import {
   buildJournalDraftPrompt,
   buildNewsContextPrompt,
   buildTradePulseExplainPrompt,
+  ANALYST_SYSTEM_PROMPT,
   type SystemSummaryData,
   type CandidateExplainData,
   type StopExplainData,
@@ -187,7 +188,7 @@ async function runAnalystPipeline(
     };
   }
 
-  const selectedModel = pickModelForContext(health.models, contextHint, preferredModel);
+  const selectedModel = await pickModelWithFeedback(health.models, contextHint, preferredModel);
   if (!selectedModel) {
     return {
       available: false,
@@ -330,8 +331,10 @@ export async function streamTradePulseExplanation(
 }
 
 /**
- * Core streaming pipeline: check health → build prompt → stream from Ollama.
+ * Core streaming pipeline: check health → build prompt → check cache → stream from Ollama.
  * Returns a ReadableStream that emits SSE-formatted chunks.
+ * If a cached response exists, returns a synthetic SSE stream from cache.
+ * Streamed responses are collected and cached for future non-streaming requests.
  */
 async function runStreamingPipeline(
   buildPrompt: () => { system: string; prompt: string; contextNumbers: number[] },
@@ -342,7 +345,23 @@ async function runStreamingPipeline(
     return { available: false, stream: null, model: null, error: health.error };
   }
 
-  const { system, prompt } = buildPrompt();
+  const { system, prompt, contextNumbers } = buildPrompt();
+
+  // Check LLM cache — return synthetic SSE stream if hit
+  const cacheKey = hashPrompt(system, prompt, health.selectedModel);
+  const cached = getLlmCached(cacheKey);
+  if (cached?.response) {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'start', model: cached.model })}\n\n`));
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'token', text: cached.response })}\n\n`));
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`));
+        controller.close();
+      },
+    });
+    return { available: true, stream, model: cached.model };
+  }
 
   const ollamaResult = await ollamaGenerateStream({
     model: health.selectedModel,
@@ -356,11 +375,14 @@ async function runStreamingPipeline(
   }
 
   // Transform Ollama's NDJSON body into SSE for the browser.
-  // Use a TransformStream to pipe chunks through.
+  // Collect tokens to populate the LLM cache after streaming completes.
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
 
   let buffer = '';
+  let collectedResponse = '';
+  const selectedModel = health.selectedModel;
+
   const transform = new TransformStream<Uint8Array, Uint8Array>({
     start(controller) {
       controller.enqueue(
@@ -377,11 +399,25 @@ async function runStreamingPipeline(
         try {
           const parsed = JSON.parse(line) as { response?: string; done?: boolean };
           if (parsed.response) {
+            collectedResponse += parsed.response;
             controller.enqueue(
               encoder.encode(`data: ${JSON.stringify({ type: 'token', text: parsed.response })}\n\n`)
             );
           }
           if (parsed.done) {
+            // Cache the complete response for future requests
+            if (collectedResponse) {
+              const safety = checkResponseSafety(collectedResponse);
+              const fabricationWarnings = checkForFabricatedNumbers(safety.cleaned, contextNumbers);
+              setLlmCache(cacheKey, {
+                available: true,
+                response: safety.cleaned,
+                model: selectedModel,
+                durationMs: null,
+                safetyWarnings: safety.warnings,
+                fabricationWarnings,
+              });
+            }
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`));
           }
         } catch {
@@ -394,6 +430,7 @@ async function runStreamingPipeline(
         try {
           const parsed = JSON.parse(buffer) as { response?: string };
           if (parsed.response) {
+            collectedResponse += parsed.response;
             controller.enqueue(
               encoder.encode(`data: ${JSON.stringify({ type: 'token', text: parsed.response })}\n\n`)
             );
@@ -407,4 +444,28 @@ async function runStreamingPipeline(
   const sseStream = ollamaResult.body.pipeThrough(transform);
 
   return { available: true, stream: sseStream, model: health.selectedModel };
+}
+
+/**
+ * Streaming version of the generic analytics explain pipeline.
+ * Used by AnalyticsExplainCard for Score Lab and Filter Scorecard pages.
+ */
+export async function streamAnalyticsExplanation(
+  contextSummary: string,
+  question: string,
+  preferredModel?: string
+): Promise<StreamingAnalystResult> {
+  const truncatedContext = contextSummary.slice(0, 4000);
+  const truncatedQuestion = question.slice(0, 500);
+
+  const prompt = `${truncatedContext}\n\nQuestion: ${truncatedQuestion}\n\nExplain in plain English for a beginner. Reference specific numbers from the data. Do NOT recommend buy or sell.`;
+
+  return runStreamingPipeline(
+    () => ({
+      system: ANALYST_SYSTEM_PROMPT,
+      prompt,
+      contextNumbers: [],
+    }),
+    preferredModel
+  );
 }

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import {
   DualT212Client,
   validateDualCredentials,
@@ -398,5 +398,63 @@ describe('getCredentialsForAccount', () => {
 
     expect(creds).not.toBeNull();
     expect(creds!.environment).toBe('live');
+  });
+});
+
+// ── getCredentialsForAccount — encryption integration ────────
+
+describe('getCredentialsForAccount with encrypted keys', () => {
+  const originalSecret = process.env.NEXTAUTH_SECRET;
+
+  beforeEach(() => {
+    process.env.NEXTAUTH_SECRET = 'test-secret-for-integration-tests!';
+  });
+
+  // Use a dynamic import so encryptField picks up the test secret
+  async function encrypt(value: string): Promise<string> {
+    const { encryptField } = await import('./crypto');
+    return encryptField(value);
+  }
+
+  it('decrypts encrypted invest credentials', async () => {
+    const encKey = await encrypt('my-invest-key');
+    const encSecret = await encrypt('my-invest-secret');
+
+    const creds = getCredentialsForAccount(
+      { t212ApiKey: encKey, t212ApiSecret: encSecret, t212Environment: 'live', t212Connected: true },
+      'invest'
+    );
+
+    expect(creds).not.toBeNull();
+    expect(creds!.apiKey).toBe('my-invest-key');
+    expect(creds!.apiSecret).toBe('my-invest-secret');
+  });
+
+  it('decrypts encrypted ISA credentials', async () => {
+    const encKey = await encrypt('my-isa-key');
+    const encSecret = await encrypt('my-isa-secret');
+
+    const creds = getCredentialsForAccount(
+      { t212IsaApiKey: encKey, t212IsaApiSecret: encSecret, t212Environment: 'demo', t212IsaConnected: true },
+      'isa'
+    );
+
+    expect(creds).not.toBeNull();
+    expect(creds!.apiKey).toBe('my-isa-key');
+    expect(creds!.apiSecret).toBe('my-isa-secret');
+  });
+
+  it('passes through plaintext credentials (backward compat)', () => {
+    const creds = getCredentialsForAccount(
+      { t212ApiKey: 'plain', t212ApiSecret: 'text', t212Environment: 'live', t212Connected: true },
+      'invest'
+    );
+
+    expect(creds!.apiKey).toBe('plain');
+    expect(creds!.apiSecret).toBe('text');
+  });
+
+  afterEach(() => {
+    process.env.NEXTAUTH_SECRET = originalSecret;
   });
 });

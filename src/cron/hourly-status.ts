@@ -31,24 +31,13 @@ import { sendTelegramMessage } from '@/lib/telegram';
 import { getBatchPrices, normalizeBatchPricesToGBP, getMarketRegime } from '@/lib/market-data';
 import { getKillSwitchSettings, isAutoTradingEnabled, getMarketDataSafetyStatus } from '../../packages/workflow/src';
 import { RISK_PROFILES, type RiskProfileType, type Sleeve } from '@/types';
+import { getUKDayOfWeek, getUKHour, getUKTimeString } from '@/lib/uk-time';
+import { createCronLogger } from '@/lib/cron-logger';
+import { isEarlyCloseDay } from '@/lib/market-holidays';
+
+const log = createCronLogger('hourly-status');
 
 // ── Helpers ──────────────────────────────────────────────────
-
-function getUKDayOfWeek(): number {
-  const now = new Date();
-  const ukTime = new Date(now.toLocaleString('en-GB', { timeZone: 'Europe/London' }));
-  return ukTime.getDay();
-}
-
-function getUKHour(): number {
-  const now = new Date();
-  const ukTime = new Date(now.toLocaleString('en-GB', { timeZone: 'Europe/London' }));
-  return ukTime.getHours();
-}
-
-function getUKTimeString(): string {
-  return new Date().toLocaleString('en-GB', { timeZone: 'Europe/London', hour12: false });
-}
 
 function formatCurrency(value: number, symbol = '£'): string {
   return `${symbol}${Math.abs(value).toFixed(2)}`;
@@ -146,6 +135,12 @@ async function runHourlyStatus() {
       `⏰ <b>HybridTurtle Status — ${getUKTimeString()}</b>`,
       '',
     ];
+
+    // Note early-close half-days
+    const earlyClose = isEarlyCloseDay();
+    if (earlyClose) {
+      lines.push(`📅 <i>Early-close day — US market closes at ${earlyClose} ET</i>`, '');
+    }
 
     // ── Portfolio snapshot ──
     let totalUnrealisedPnl = 0;

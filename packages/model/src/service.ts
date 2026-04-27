@@ -15,7 +15,7 @@ import type {
   RegimePrediction,
 } from './types';
 
-const DEFAULT_BLEND_WEIGHT = 0.35;
+import { round } from '../../data/src/prisma';\n\nconst DEFAULT_BLEND_WEIGHT = 0.35;
 
 export const MODEL_VERSIONS: ModelVersionManifest = {
   candidateModelVersion: 'boosted-candidate-v1',
@@ -26,11 +26,6 @@ export const MODEL_VERSIONS: ModelVersionManifest = {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
-}
-
-function round(value: number, decimals = 2): number {
-  const factor = 10 ** decimals;
-  return Math.round(value * factor) / factor;
 }
 
 function sigmoid(value: number): number {
@@ -73,8 +68,8 @@ export function predictRegime(candidate: ScanCandidate, marketRegime?: MarketReg
 
   return {
     regime,
-    confidence: round(confidence),
-    uncertainty: round(100 - confidence),
+    confidence: round(confidence, 2),
+    uncertainty: round(100 - confidence, 2),
   };
 }
 
@@ -104,7 +99,7 @@ export function predictBreakoutProbability(candidate: ScanCandidate, marketRegim
 export function predictCandidateScore(candidate: ScanCandidate, marketRegime?: MarketRegime): CandidateModelPrediction {
   const breakoutProbability = predictBreakoutProbability(candidate, marketRegime);
   const regimePrediction = predictRegime(candidate, marketRegime);
-  const baseSystemScore = round(candidate.rankScore);
+  const baseSystemScore = round(candidate.rankScore, 2);
 
   let modelScore = breakoutProbability * 70;
   modelScore += clamp(candidate.technicals.adx, 0, 40) * 0.35;
@@ -113,7 +108,7 @@ export function predictCandidateScore(candidate: ScanCandidate, marketRegime?: M
   modelScore += candidate.filterResults.dataQuality ? 4 : -8;
   modelScore += candidate.earningsInfo?.action === 'AUTO_NO' ? -18 : 0;
   modelScore += regimePrediction.regime === 'BULLISH' ? 4 : regimePrediction.regime === 'BEARISH' ? -6 : 0;
-  modelScore = round(clamp(modelScore, 0, 100));
+  modelScore = round(clamp(modelScore, 0, 100), 2);
 
   const confidence = round(clamp(
     Math.abs(breakoutProbability - 0.5) * 120
@@ -124,7 +119,7 @@ export function predictCandidateScore(candidate: ScanCandidate, marketRegime?: M
     20,
     95,
   ));
-  const uncertainty = round(100 - confidence);
+  const uncertainty = round(100 - confidence, 2);
 
   return {
     baseSystemScore,
@@ -170,7 +165,7 @@ export function applyModelLayerToCandidates(
       modelOverlay: {
         ...overlay,
         enabled: resolved.enabled,
-        blendedScore: round(clamp(blendedScore, 0, 100)),
+        blendedScore: round(clamp(blendedScore, 0, 100), 2),
       },
     };
   });

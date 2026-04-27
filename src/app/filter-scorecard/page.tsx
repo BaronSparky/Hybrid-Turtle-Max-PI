@@ -200,6 +200,7 @@ export default function FilterScorecardPage() {
               className="bg-background border border-border rounded px-3 py-1.5 text-sm"
               value={sleeve}
               onChange={(e) => setSleeve(e.target.value)}
+              aria-label="Filter by sleeve"
             >
               <option value="">All</option>
               <option value="CORE">CORE</option>
@@ -215,6 +216,7 @@ export default function FilterScorecardPage() {
               className="bg-background border border-border rounded px-3 py-1.5 text-sm"
               value={from}
               onChange={(e) => setFrom(e.target.value)}
+              aria-label="From date"
             />
           </div>
           <div>
@@ -224,6 +226,7 @@ export default function FilterScorecardPage() {
               className="bg-background border border-border rounded px-3 py-1.5 text-sm"
               value={to}
               onChange={(e) => setTo(e.target.value)}
+              aria-label="To date"
             />
           </div>
         </div>

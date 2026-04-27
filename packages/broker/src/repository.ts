@@ -5,17 +5,13 @@ import {
   PlannedTradeStatus,
   Prisma,
 } from '@prisma/client';
-import { prisma, toInputJson } from '../../data/src/prisma';
+import { prisma, toInputJson, toDecimal } from '../../data/src/prisma';
 import type {
   BrokerInstrumentMeta,
   BrokerOrderSnapshot,
   BrokerPortfolioSnapshot,
   BrokerPositionSnapshot,
 } from './types';
-
-function toDecimal(value: number): Prisma.Decimal {
-  return new Prisma.Decimal(value);
-}
 
 export async function createBrokerSyncRun(adapter: string) {
   const startedAt = new Date();

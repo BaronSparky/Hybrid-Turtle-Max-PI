@@ -19,6 +19,7 @@ import {
   upsertBrokerPosition,
 } from './repository';
 import type { BrokerInstrumentMeta, BrokerOrderSnapshot, BrokerSyncResult } from './types';
+import { toInputJson } from '../../data/src/prisma';
 
 type DiscrepancyRecord = {
   type: string;
@@ -28,10 +29,6 @@ type DiscrepancyRecord = {
   protectiveStopId?: string;
   payload: Record<string, unknown>;
 };
-
-function toInputJson(value: unknown): Prisma.InputJsonValue {
-  return value as Prisma.InputJsonValue;
-}
 
 async function resolveInstrumentId(symbol: string, instrumentMetaCache: Map<string, BrokerInstrumentMeta | null>) {
   let meta = instrumentMetaCache.get(symbol);

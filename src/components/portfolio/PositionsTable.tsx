@@ -755,11 +755,15 @@ export default function PositionsTable({ positions, onUpdateStop, onExitPosition
                 );
               })()}
 
-              {/* Pyramid Add Triggers */}
+              {/* Pyramid Add Triggers — only shown when position is above +1R */}
               {(() => {
                 const R = stopModal.initialRisk;
                 const entry = stopModal.entryPrice;
                 const rMul = stopModal.rMultiple;
+
+                // Don't show pyramid info for positions below +1R — too early, creates noise
+                if (rMul < 1.0) return null;
+
                 const pc = canPyramid(stopModal.currentPrice, entry, R, undefined, stopModal.pyramidAdds ?? 0);
                 const triggers = PYRAMID_CONFIG.addTriggers.map((mult, idx) => {
                   // Without ATR, use R-based approximation: entry + mult * R (roughly)

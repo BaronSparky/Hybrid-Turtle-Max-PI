@@ -17,6 +17,7 @@ import {
   mapT212Position,
   mapT212AccountSummary,
 } from './trading212';
+import { decryptField } from './crypto';
 
 // ---- Types ----
 
@@ -290,8 +291,8 @@ export function getCredentialsForAccount(
   if (accountType === 'invest') {
     if (!user.t212ApiKey || !user.t212ApiSecret || !user.t212Connected) return null;
     return {
-      apiKey: user.t212ApiKey,
-      apiSecret: user.t212ApiSecret,
+      apiKey: decryptField(user.t212ApiKey),
+      apiSecret: decryptField(user.t212ApiSecret),
       environment: (user.t212Environment as Trading212Environment) || 'live',
     };
   }
@@ -299,8 +300,8 @@ export function getCredentialsForAccount(
   // ISA — shares t212Environment with the invest account (same demo/live setting)
   if (!user.t212IsaApiKey || !user.t212IsaApiSecret || !user.t212IsaConnected) return null;
   return {
-    apiKey: user.t212IsaApiKey,
-    apiSecret: user.t212IsaApiSecret,
+    apiKey: decryptField(user.t212IsaApiKey),
+    apiSecret: decryptField(user.t212IsaApiSecret),
     environment: (user.t212Environment as Trading212Environment) || 'live',
   };
 }

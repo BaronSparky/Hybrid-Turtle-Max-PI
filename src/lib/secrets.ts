@@ -9,6 +9,7 @@
  */
 
 import prisma from './prisma';
+import { decryptField } from './crypto';
 
 interface T212Credentials {
   apiKey: string;
@@ -93,8 +94,8 @@ export async function getT212Credentials(
     if (accountType === 'INVEST') {
       if (!user.t212ApiKey || !user.t212Connected) return null;
       return {
-        apiKey: user.t212ApiKey,
-        apiSecret: user.t212ApiSecret || '',
+        apiKey: decryptField(user.t212ApiKey),
+        apiSecret: decryptField(user.t212ApiSecret || ''),
         environment: user.t212Environment || 'live',
         accountId: user.t212AccountId || undefined,
         connected: user.t212Connected,
@@ -102,8 +103,8 @@ export async function getT212Credentials(
     } else {
       if (!user.t212IsaApiKey || !user.t212IsaConnected) return null;
       return {
-        apiKey: user.t212IsaApiKey,
-        apiSecret: user.t212IsaApiSecret || '',
+        apiKey: decryptField(user.t212IsaApiKey),
+        apiSecret: decryptField(user.t212IsaApiSecret || ''),
         environment: 'live',
         accountId: user.t212IsaAccountId || undefined,
         connected: user.t212IsaConnected,

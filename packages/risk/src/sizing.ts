@@ -9,6 +9,7 @@
  *        is replicated here intentionally — never round up, never use Math.ceil.
  */
 import { env } from '../../config/src/env';
+import { round } from '../../data/src/prisma';
 import type { AccountRiskState, TradeSizingResult } from './types';
 
 /**
@@ -52,8 +53,4 @@ export function calculateTradeSize(
     openRiskAfterTrade: round(openRiskAfterTrade),
     openRiskPctAfterTrade: round(openRiskPctAfterTrade),
   };
-}
-
-export function round(value: number, precision = 4) {
-  return Number(value.toFixed(precision));
 }

@@ -9,6 +9,7 @@ import { updateStopLoss, StopLossError } from '@/lib/stop-manager';
 import { apiError } from '@/lib/api-response';
 import { z } from 'zod';
 import { parseJsonBody } from '@/lib/request-validation';
+import { decryptField } from '@/lib/crypto';
 
 const setStopSchema = z.object({
   positionId: z.string().trim().min(1),
@@ -54,8 +55,8 @@ async function getT212Client(userId: string, accountType?: T212AccountType | str
       throw new Error('Trading 212 ISA account not connected. Go to Settings to add your ISA API credentials.');
     }
     return new Trading212Client(
-      user.t212IsaApiKey,
-      user.t212IsaApiSecret,
+      decryptField(user.t212IsaApiKey),
+      decryptField(user.t212IsaApiSecret),
       user.t212Environment as 'demo' | 'live'
     );
   }
@@ -65,8 +66,8 @@ async function getT212Client(userId: string, accountType?: T212AccountType | str
     throw new Error('Trading 212 Invest account not connected. Go to Settings to add your API credentials.');
   }
   return new Trading212Client(
-    user.t212ApiKey,
-    user.t212ApiSecret,
+    decryptField(user.t212ApiKey),
+    decryptField(user.t212ApiSecret),
     user.t212Environment as 'demo' | 'live'
   );
 }

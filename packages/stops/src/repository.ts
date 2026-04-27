@@ -7,12 +7,8 @@
  * Notes: Centralized persistence helpers for Phase 8 stop management.
  */
 import { PlannedTradeStatus, Prisma, ProtectiveStopSource, ProtectiveStopStatus, StopAlertState } from '@prisma/client';
-import { prisma } from '../../data/src/prisma';
+import { prisma, toDecimal } from '../../data/src/prisma';
 import { ACTIVE_STOP_STATUSES } from './types';
-
-function toDecimal(value: number): Prisma.Decimal {
-  return new Prisma.Decimal(value);
-}
 
 export async function getOpenPositionsForStopManagement() {
   return prisma.brokerPosition.findMany({

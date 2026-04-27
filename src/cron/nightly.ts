@@ -58,7 +58,10 @@ import { backupDatabase } from '@/lib/db-backup';
 import { isAutoTradingEnabled } from '../../packages/workflow/src';
 import { Trading212Client } from '@/lib/trading212';
 import type { T212AccountType } from '@/lib/trading212-dual';
-import { isEnabled } from '@/lib/feature-flags';
+import { decryptField } from '@/lib/crypto';
+import { isEnabled } from '@/lib/feature-flags';\nimport { isEarlyCloseDay, checkHolidayCoverage } from '@/lib/market-holidays';
+import { createCronLogger } from '@/lib/cron-logger';
+import { getUKDayOfWeek } from '@/lib/uk-time';
 import { saveScoreBreakdowns } from '@/lib/score-tracker';
 import { scoreRow, normaliseRow } from '@/lib/dual-score';
 import { runFullCalibration } from '@/lib/prediction/bootstrap-calibration';
@@ -66,19 +69,6 @@ import { runTraining as runMetaModelTraining } from '@/lib/prediction/meta-model
 import { recomputeLeadLagGraph } from '@/lib/prediction/lead-lag-graph';
 import { runGNNTraining } from '@/lib/prediction/gnn/gnn-trainer';
 import { RISK_PROFILES, EQUITY_REVIEW_THRESHOLDS, type RiskProfileType, type Sleeve } from '@/types';
-
-/**
- * Return the current day-of-week (0=Sun … 6=Sat) in UK local time.
- * Uses IANA 'Europe/London' so it handles GMT ↔ BST automatically
- * and does not depend on the machine's system timezone.
- */
-function getUKDayOfWeek(): number {
-  const now = new Date();
-  const ukTime = new Date(
-    now.toLocaleString('en-GB', { timeZone: 'Europe/London' })
-  );
-  return ukTime.getDay();
-}
 
 async function getNightlyT212Client(userId: string, accountType: T212AccountType): Promise<Trading212Client | null> {
   try {
@@ -92,10 +82,10 @@ async function getNightlyT212Client(userId: string, accountType: T212AccountType
     if (!user) return null;
     if (accountType === 'isa') {
       if (!user.t212IsaApiKey || !user.t212IsaApiSecret || !user.t212IsaConnected) return null;
-      return new Trading212Client(user.t212IsaApiKey, user.t212IsaApiSecret, user.t212Environment as 'demo' | 'live');
+      return new Trading212Client(decryptField(user.t212IsaApiKey), decryptField(user.t212IsaApiSecret), user.t212Environment as 'demo' | 'live');
     }
     if (!user.t212ApiKey || !user.t212ApiSecret || !user.t212Connected) return null;
-    return new Trading212Client(user.t212ApiKey, user.t212ApiSecret, user.t212Environment as 'demo' | 'live');
+    return new Trading212Client(decryptField(user.t212ApiKey), decryptField(user.t212ApiSecret), user.t212Environment as 'demo' | 'live');
   } catch {
     return null;
   }
@@ -152,6 +142,8 @@ async function runNightlyProcess() {
   let dataSourceMaxStalenessHours = 0;
   let dataSourceSummary = '';
 
+  const log = createCronLogger('nightly');
+  log.info('Nightly process started');
   console.log('========================================');
   console.log(`[HybridTurtle] Nightly process started at ${new Date().toISOString()}`);
   console.log('========================================');
@@ -163,9 +155,30 @@ async function runNightlyProcess() {
     });
     console.log('  [---] RUNNING heartbeat written');
 
+    // Check for tomorrow's early-close or holiday so the nightly summary can note it
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().split('T')[0];
+    const tomorrowEarlyClose = isEarlyCloseDay(tomorrowStr);
+    if (tomorrowEarlyClose) {
+      log.info('Tomorrow is an early-close day', { date: tomorrowStr, closeTime: tomorrowEarlyClose });
+    }
+
+    // Holiday calendar coverage check — warn in January if next year is missing
+    const currentMonth = new Date().getMonth(); // 0 = January
+    if (currentMonth === 0) {
+      const nextYear = new Date().getFullYear() + 1;
+      const coverageWarning = checkHolidayCoverage(nextYear);
+      if (coverageWarning) {
+        log.warn('Holiday calendar gap detected', { year: nextYear });
+        console.warn(`  [!!!] ${coverageWarning}`);
+      }
+    }
+
     // Step 0: Pre-cache historical data for all active tickers
     console.log('  [0/9] Pre-caching historical data for all active tickers...');
     startStep('0', 'Pre-cache historical data');
+    log.info('Step 0: Pre-cache historical data');
     try {
       const preCacheResult = await preCacheHistoricalData();
       console.log(`        ${preCacheResult.success}/${preCacheResult.total} tickers cached in ${(preCacheResult.durationMs / 1000).toFixed(1)}s`);
@@ -174,6 +187,7 @@ async function runNightlyProcess() {
       }
     } catch (error) {
       hadFailure = true;
+      log.error('Step 0 failed', { error: (error as Error).message });
       console.error('  [0] Pre-cache failed:', (error as Error).message);
     }
 
@@ -196,6 +210,7 @@ async function runNightlyProcess() {
     // Step 1: Run health check (isolated — failure doesn't block other steps)
     console.log('  [1/9] Running health check...');
     startStep('1', 'Health check');
+    log.info('Step 1: Health check');
     let healthReport: { overall: string; checks: Record<string, string>; results: unknown[]; timestamp: Date } = {
       overall: 'YELLOW', checks: {}, results: [], timestamp: new Date(),
     };
@@ -211,8 +226,13 @@ async function runNightlyProcess() {
     // Collect alert summary strings for the Telegram nightly report.
     // Declared early so data source alerts (Step 2) and stop-hit detection (Step 3d) can push to it.
     const alerts: string[] = [];
+    // Surface tomorrow's early-close as an alert in the nightly summary
+    if (tomorrowEarlyClose) {
+      alerts.push(`📅 Tomorrow is an early-close day — US market closes at ${tomorrowEarlyClose} ET. The us-close auto-trade session will be skipped.`);
+    }
     console.log('  [2/9] Fetching positions and live prices...');
     startStep('2', 'Live prices');
+    log.info('Step 2: Live prices', { positionCount: positions.length });
     let positions: Awaited<ReturnType<typeof prisma.position.findMany<{ include: { stock: true } }>>> = [];
     try {
       positions = await prisma.position.findMany({
@@ -304,6 +324,7 @@ async function runNightlyProcess() {
     // Step 3: Generate stop recommendations (isolated)
     console.log('  [3/9] Generating stop recommendations...');
     startStep('3', 'Stop management');
+    log.info('Step 3: Stop management', { openPositions: positions.length });
     const livePriceMap = new Map(Object.entries(livePrices));
     const stopChanges: NightlyStopChange[] = [];
     const atrMap = new Map<string, number>();
@@ -663,6 +684,7 @@ async function runNightlyProcess() {
     // Step 4: Detect laggards + collect alerts
     console.log('  [4/9] Detecting laggards...');
     startStep('4', 'Laggard detection');
+    log.info('Step 4: Laggard detection');
     const user = await prisma.user.findUnique({ where: { id: userId } });
     const equity = user?.equity || 0;
 
@@ -743,6 +765,7 @@ async function runNightlyProcess() {
     // Step 5: Risk-signal modules
     console.log('  [5/9] Running risk-signal modules...');
     startStep('5', 'Risk modules');
+    log.info('Step 5: Risk modules');
     let climaxAlerts: NightlyClimaxAlert[] = [];
     let swapAlerts: NightlySwapAlert[] = [];
     let whipsawAlerts: NightlyWhipsawAlert[] = [];
@@ -925,6 +948,7 @@ async function runNightlyProcess() {
     // Step 6: Record equity snapshot + check pyramids
     console.log('  [6/9] Recording equity snapshot...');
     startStep('6', 'Equity snapshot');
+    log.info('Step 6: Equity snapshot');
     let openRiskPercent = 0;
     try {
       const openRisk = positions
@@ -1302,6 +1326,7 @@ async function runNightlyProcess() {
     // Step 7: Sync snapshot + query READY candidates
     console.log('  [7/9] Syncing snapshot data...');
     startStep('7', 'Snapshot sync');
+    log.info('Step 7: Snapshot sync');
     const positionDetails: NightlyPositionDetail[] = positions.map((p) => {
       const currentPrice = livePrices[p.stock.ticker] || p.entryPrice;
       const gbpPrice = gbpPrices[p.stock.ticker] ?? currentPrice;
@@ -1624,6 +1649,7 @@ async function runNightlyProcess() {
     // Step 8: Send Telegram summary (isolated — failure doesn't block heartbeat)
     console.log('  [8/9] Sending Telegram summary...');
     startStep('8', 'Telegram alert');
+    log.info('Step 8: Telegram summary');
     let telegramSent = false;
     try {
       telegramSent = await sendNightlySummary({
@@ -1710,6 +1736,30 @@ async function runNightlyProcess() {
 
     console.log('========================================');
     console.log('[HybridTurtle] Nightly process completed successfully');
+
+    // Step self-test: warn if any step took >5 minutes (300s)
+    finalizeSteps();
+    const STEP_SLOW_THRESHOLD_MS = 5 * 60 * 1000;
+    const slowSteps = stepResults.filter(s => s.durationMs > STEP_SLOW_THRESHOLD_MS);
+    if (slowSteps.length > 0) {
+      const slowList = slowSteps.map(s => `${s.name}: ${(s.durationMs / 1000).toFixed(0)}s`).join(', ');
+      log.warn('Slow steps detected', { slowSteps: slowList, thresholdMs: STEP_SLOW_THRESHOLD_MS });
+      alerts.push(`⏱ ${slowSteps.length} step(s) took >5 min: ${slowList}`);
+    }
+    const failedSteps = stepResults.filter(s => s.status === 'FAILED');
+    if (failedSteps.length > 0) {
+      const failList = failedSteps.map(s => `${s.name}: ${s.error ?? 'unknown'}`).join('; ');
+      log.warn('Failed steps in nightly', { failedSteps: failList });
+    }
+
+    log.info('Nightly process completed', {
+      status: hadFailure ? 'PARTIAL' : 'SUCCESS',
+      health: healthReport.overall,
+      positions: positions.length,
+      alerts: alerts.length,
+      telegramSent,
+      steps: stepResults.map(s => ({ step: s.step, name: s.name, status: s.status, durationMs: s.durationMs })),
+    });
     console.log(`  Health: ${healthReport.overall}`);
     console.log(`  Positions: ${positions.length}`);
     console.log(`  Alerts: ${alerts.length}`);

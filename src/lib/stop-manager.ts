@@ -74,7 +74,7 @@ export function calculateProtectionStop(
     case 'LOCK_1R_TRAIL': {
       const lockFloor = entryPrice + 1.0 * initialRisk; // Lock +1R above entry
       if (currentPrice != null && currentATR != null && currentATR > 0) {
-        const trailingStop = currentPrice - 2 * currentATR;
+        const trailingStop = currentPrice - ATR_TRAILING_MULTIPLIER * currentATR;
         return Math.max(lockFloor, trailingStop);
       }
       return lockFloor;
@@ -113,10 +113,16 @@ export function calculateStopRecommendation(
 
   if (recommendedIdx <= currentIdx) return null;
 
-  const newStop = calculateProtectionStop(entryPrice, initialRisk, recommendedLevel, currentPrice, currentATR);
+  const newStopRaw = calculateProtectionStop(entryPrice, initialRisk, recommendedLevel, currentPrice, currentATR);
 
-  // MONOTONIC ENFORCEMENT: Never lower a stop
-  if (newStop <= currentStop) return null;
+  // Round to 2dp to eliminate floating-point noise before comparison.
+  // Without this, values like 40.820000001 pass the > check against 40.82
+  // and produce no-op recommendations that display "Move To: $40.82".
+  const newStop = Math.round(newStopRaw * 100) / 100;
+
+  // MONOTONIC ENFORCEMENT: Never lower a stop. Use rounded currentStop too.
+  const roundedCurrentStop = Math.round(currentStop * 100) / 100;
+  if (newStop <= roundedCurrentStop) return null;
 
   const levelConfig = PROTECTION_LEVELS[recommendedLevel];
   const reason = `R-multiple reached ${rMultiple.toFixed(1)}R → ${levelConfig.label} (${levelConfig.stopFormula})`;
@@ -269,6 +275,11 @@ export async function calculateTrailingATRStop(
   currentATR: number;
   shouldUpdate: boolean;
 } | null> {
+  // Validate atrMultiplier — must be a positive finite number
+  if (!Number.isFinite(atrMultiplier) || atrMultiplier <= 0) {
+    throw new StopLossError(`atrMultiplier must be a positive number, got ${atrMultiplier}`);
+  }
+
   try {
     const bars = await getDailyPrices(ticker, 'full');
     if (bars.length < 20) return null;
@@ -337,10 +348,14 @@ export async function calculateTrailingATRStop(
     // Current ATR (most recent 14 bars)
     const currentATR = calculateATR(bars, 14);
 
-    const shouldUpdate = trailingStop > currentStop;
+    // Round BEFORE comparing to avoid recommending same-value moves.
+    // Require at least 1 cent improvement to suppress floating-point noise.
+    const roundedStop = Math.round(trailingStop * 100) / 100;
+    const roundedCurrent = Math.round(currentStop * 100) / 100;
+    const shouldUpdate = roundedStop > roundedCurrent + 0.004;
 
     return {
-      trailingStop: Math.round(trailingStop * 100) / 100,
+      trailingStop: roundedStop,
       highestClose,
       currentATR,
       shouldUpdate,
@@ -403,7 +418,7 @@ export async function generateTrailingStopRecommendations(
         trailingStop: result.trailingStop,
         highestClose: result.highestClose,
         currentATR: result.currentATR,
-        reason: `Trailing ATR stop: High ${result.highestClose.toFixed(2)} − 2×ATR(${result.currentATR.toFixed(2)}) = ${result.trailingStop.toFixed(2)}`,
+        reason: `Trailing ATR stop: High ${result.highestClose.toFixed(2)} − ${ATR_TRAILING_MULTIPLIER}×ATR(${result.currentATR.toFixed(2)}) = ${result.trailingStop.toFixed(2)}`,
         priceCurrency,
       });
     }

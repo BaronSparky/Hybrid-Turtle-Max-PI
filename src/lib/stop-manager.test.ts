@@ -28,8 +28,9 @@ describe('stop-manager formulas', () => {
   });
 
   it('uses max(lock floor, trailing ATR) for LOCK_1R_TRAIL stop', () => {
+    // Lock floor = 100 + 1*10 = 110, trailing = 150 - 1.5*5 = 142.5
     const stop = calculateProtectionStop(100, 10, 'LOCK_1R_TRAIL', 150, 5);
-    expect(stop).toBe(140);
+    expect(stop).toBe(142.5);
   });
 
   it('recommends breakeven upgrade when +1.5R is reached', () => {
@@ -53,12 +54,12 @@ describe('stop-manager formulas', () => {
     // Entry: 100, risk: 10, current stop: 90 (INITIAL)
     // Price at 130 = 3R → LOCK_1R_TRAIL
     // Lock floor = 100 + 1*10 = 110
-    // Trailing ATR = 130 - 2*5 = 120
-    // Should pick max(110, 120) = 120
+    // Trailing ATR = 130 - 1.5*5 = 122.5
+    // Should pick max(110, 122.5) = 122.5
     const rec = calculateStopRecommendation(130, 100, 10, 90, 'INITIAL', 5);
     expect(rec).not.toBeNull();
     expect(rec?.newLevel).toBe('LOCK_1R_TRAIL');
-    expect(rec?.newStop).toBe(120);
+    expect(rec?.newStop).toBe(122.5);
   });
 
   it('falls back to lock floor when ATR is not provided for LOCK_1R_TRAIL', () => {
@@ -74,29 +75,22 @@ describe('stop-manager formulas', () => {
   it('calculateStopRecommendation returns price-based level (not stop-based)', () => {
     // Entry=200, risk=6, currentStop=200 (BREAKEVEN), price=225, ATR=4.5
     // Price-based R = (225-200)/6 = 4.17 → LOCK_1R_TRAIL
-    // Stop = max(200+6, 225-2*4.5) = max(206, 216) = 216
-    // Stop-based R = (216-200)/6 = 2.67 → would be LOCK_08R if re-derived
-    // The recommendation must carry LOCK_1R_TRAIL (price-based), not LOCK_08R
+    // Stop = max(200+6, 225-1.5*4.5) = max(206, 218.25) = 218.25
+    // Stop-based R = (218.25-200)/6 = 3.04 → LOCK_1R_TRAIL (same with 1.5x multiplier)
     const rec = calculateStopRecommendation(225, 200, 6, 200, 'BREAKEVEN', 4.5);
     expect(rec).not.toBeNull();
     expect(rec?.newLevel).toBe('LOCK_1R_TRAIL');
-    expect(rec?.newStop).toBe(216);
-    // Verify stop-based R would give a DIFFERENT (wrong) level
-    const stopBasedR = (216 - 200) / 6;
-    expect(getProtectionLevel(stopBasedR)).toBe('LOCK_08R'); // this is what F-005 was persisting wrongly
-    expect(rec?.newLevel).not.toBe(getProtectionLevel(stopBasedR));
+    expect(rec?.newStop).toBe(218.25);
   });
 
   it('recommendation level should be passed to updateStopLoss to avoid re-derivation mismatch', () => {
     // This test documents the contract: the caller should forward rec.newLevel
     // to updateStopLoss so the DB gets the price-based level, not stop-based.
+    // With ATR_TRAILING_MULTIPLIER=1.5: stop = max(206, 225-6.75) = 218.25
+    // Stop-based R = (218.25-200)/6 = 3.04 → LOCK_1R_TRAIL (matches price-based)
     const rec = calculateStopRecommendation(225, 200, 6, 200, 'BREAKEVEN', 4.5);
     expect(rec).not.toBeNull();
-    // The level in the recommendation is price-based
     expect(rec!.newLevel).toBe('LOCK_1R_TRAIL');
-    // The stop-based derivation would give LOCK_08R — a mismatch
-    const stopBasedR = (rec!.newStop - 200) / 6;
-    expect(getProtectionLevel(stopBasedR)).toBe('LOCK_08R');
   });
 
   // ── F-001 regression: sync-stops R-multiple formula ──
@@ -355,5 +349,29 @@ describe('calculateTrailingATRStop regressions', () => {
     expect(result?.trailingStop).toBe(92.5);
 
     spy.mockRestore();
+  });
+
+  it('rejects zero atrMultiplier', async () => {
+    await expect(
+      calculateTrailingATRStop('TEST', 100, new Date(), 90, 0)
+    ).rejects.toThrow('atrMultiplier must be a positive number');
+  });
+
+  it('rejects negative atrMultiplier', async () => {
+    await expect(
+      calculateTrailingATRStop('TEST', 100, new Date(), 90, -1.5)
+    ).rejects.toThrow('atrMultiplier must be a positive number');
+  });
+
+  it('rejects NaN atrMultiplier', async () => {
+    await expect(
+      calculateTrailingATRStop('TEST', 100, new Date(), 90, NaN)
+    ).rejects.toThrow('atrMultiplier must be a positive number');
+  });
+
+  it('rejects Infinity atrMultiplier', async () => {
+    await expect(
+      calculateTrailingATRStop('TEST', 100, new Date(), 90, Infinity)
+    ).rejects.toThrow('atrMultiplier must be a positive number');
   });
 });

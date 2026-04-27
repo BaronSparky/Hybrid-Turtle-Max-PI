@@ -14,6 +14,7 @@ import { predictBreakoutProbability, predictCandidateScore, predictRegime } from
 import type { ScanCandidate } from '@/types';
 import { apiError } from '@/lib/api-response';
 import { parseJsonBody } from '@/lib/request-validation';
+import { round } from '../../../../../packages/data/src/prisma';
 
 const requestSchema = z.object({
   candidate: z.object({
@@ -74,8 +75,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      breakoutProbability: round(probability * 100),
-      failureRisk: round((1 - probability) * 100),
+      breakoutProbability: round(probability * 100, 2),
+      failureRisk: round((1 - probability) * 100, 2),
       confidence: score.confidence,
       uncertainty: score.uncertainty,
       predictedRegime: regime,
@@ -84,8 +85,4 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     return apiError(500, 'MODEL_RISK_FAILED', 'Failed to predict model risk.', (error as Error).message, true);
   }
-}
-
-function round(value: number): number {
-  return Math.round(value * 100) / 100;
 }

@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 export interface ApiErrorPayload {
   ok: false;
@@ -29,4 +29,23 @@ export function apiError(
     },
     { status }
   );
+}
+
+/**
+ * Verify the CRON_SECRET header on scheduled/cron endpoints.
+ * Returns null if valid, or a 401 NextResponse if invalid.
+ * Skips validation when DISABLE_API_AUTH is true in non-production.
+ */
+export function verifyCronSecret(request: NextRequest): NextResponse | null {
+  if (process.env.DISABLE_API_AUTH === 'true' && process.env.NODE_ENV !== 'production') {
+    return null;
+  }
+  const secret = request.headers.get('x-cron-secret') || request.headers.get('authorization')?.replace('Bearer ', '');
+  if (!secret || secret !== process.env.CRON_SECRET) {
+    return NextResponse.json(
+      { ok: false, error: { code: 'UNAUTHORIZED', message: 'Invalid or missing cron secret' } },
+      { status: 401 }
+    );
+  }
+  return null;
 }

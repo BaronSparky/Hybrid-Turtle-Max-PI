@@ -94,7 +94,13 @@ export default function StopUpdateQueue({ userId, onApplied, refreshTrigger = 0 
     setFetchError(null);
     try {
       const data = await apiRequest<StopRecommendation[]>(`/api/stops?userId=${userId}`);
-      setRecs(data);
+      // Client-side safety: filter out same-value recommendations (floating-point edge cases)
+      const filtered = data.filter(r => {
+        const roundedNew = Math.round(r.newStop * 100) / 100;
+        const roundedCurrent = Math.round(r.currentStop * 100) / 100;
+        return roundedNew > roundedCurrent;
+      });
+      setRecs(filtered);
       setRowStates({});
       setHiddenTickers(new Set());
     } catch (err) {

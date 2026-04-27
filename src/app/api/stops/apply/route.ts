@@ -19,6 +19,7 @@ import type { T212AccountType } from '@/lib/trading212-dual';
 import { ensureDefaultUser } from '@/lib/default-user';
 import { parseJsonBody } from '@/lib/request-validation';
 import { apiError } from '@/lib/api-response';
+import { decryptField } from '@/lib/crypto';
 
 const applyStopSchema = z.object({
   positionId: z.string().trim().min(1, 'positionId is required'),
@@ -53,8 +54,8 @@ async function getT212Client(userId: string, accountType?: T212AccountType | str
       throw new Error('Trading 212 ISA account not connected.');
     }
     return new Trading212Client(
-      user.t212IsaApiKey,
-      user.t212IsaApiSecret,
+      decryptField(user.t212IsaApiKey),
+      decryptField(user.t212IsaApiSecret),
       user.t212Environment as 'demo' | 'live'
     );
   }
@@ -63,8 +64,8 @@ async function getT212Client(userId: string, accountType?: T212AccountType | str
     throw new Error('Trading 212 Invest account not connected.');
   }
   return new Trading212Client(
-    user.t212ApiKey,
-    user.t212ApiSecret,
+    decryptField(user.t212ApiKey),
+    decryptField(user.t212ApiSecret),
     user.t212Environment as 'demo' | 'live'
   );
 }

@@ -7,6 +7,7 @@ import { ensureDefaultUser } from '@/lib/default-user';
 import { apiError } from '@/lib/api-response';
 import { z } from 'zod';
 import { parseJsonBody } from '@/lib/request-validation';
+import { encryptField } from '@/lib/crypto';
 
 const connectSchema = z.object({
   apiKey: z.string().trim().min(1),
@@ -45,8 +46,8 @@ export async function POST(request: NextRequest) {
       await prisma.user.update({
         where: { id: userId },
         data: {
-          t212IsaApiKey: apiKey,
-          t212IsaApiSecret: apiSecret,
+          t212IsaApiKey: encryptField(apiKey),
+          t212IsaApiSecret: encryptField(apiSecret),
           t212IsaConnected: true,
           t212IsaAccountId: result.accountId?.toString(),
           t212IsaCurrency: result.currency,
@@ -59,8 +60,8 @@ export async function POST(request: NextRequest) {
       await prisma.user.update({
         where: { id: userId },
         data: {
-          t212ApiKey: apiKey,
-          t212ApiSecret: apiSecret,
+          t212ApiKey: encryptField(apiKey),
+          t212ApiSecret: encryptField(apiSecret),
           t212Environment: environment,
           t212Connected: true,
           t212AccountId: result.accountId?.toString(),

@@ -135,11 +135,18 @@ export async function assertSubmissionAllowed(options: { automated: boolean }) {
 }
 
 /**
- * Check if auto-trading is enabled (DB setting takes priority, env var as fallback).
+ * Check if auto-trading is enabled.
+ * DB kill switch is the sole authority. The env var is only used as an initial
+ * default when no DB setting has been saved yet (first run in headless mode).
+ * Once the dashboard sets the DB value, env var is ignored.
  */
 export async function isAutoTradingEnabled(): Promise<boolean> {
   const settings = await getKillSwitchSettings();
-  // DB setting is the source of truth; env var is a fallback for headless-only setups
+  // If the DB setting has been explicitly saved (updatedAt is set), use DB only.
+  // Otherwise fall back to env var for first-run headless setups.
+  if (settings.updatedAt) {
+    return settings.enableAutoTrading;
+  }
   return settings.enableAutoTrading || process.env.ENABLE_AUTO_TRADING === 'true';
 }
 

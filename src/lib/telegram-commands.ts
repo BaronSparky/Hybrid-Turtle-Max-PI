@@ -30,6 +30,8 @@ export type TelegramCommand =
   | '/scorecard'
   | '/earnings'
   | '/explain'
+  | '/watchlist'
+  | '/feedback'
   | '/help'
   | 'unknown';
 
@@ -93,6 +95,8 @@ export function parseCommand(text: string): TelegramCommand {
     case '/scorecard': return '/scorecard';
     case '/earnings': return '/earnings';
     case '/explain': return '/explain';
+    case '/watchlist': return '/watchlist';
+    case '/feedback': return '/feedback';
     case '/help': case '/start': return '/help';
     default: return 'unknown';
   }
@@ -115,6 +119,8 @@ export async function handleCommand(command: TelegramCommand, rawText?: string):
       case '/scorecard': return await cmdScorecard();
       case '/earnings': return await cmdEarnings();
       case '/explain': return await cmdExplain(rawText || '');
+      case '/watchlist': return await cmdWatchlist();
+      case '/feedback': return await cmdFeedback();
       case '/help': return cmdHelp();
       case 'unknown':
       default:
@@ -459,6 +465,8 @@ function cmdHelp(): CommandResponse {
 /regime — market regime detail
 /risk — risk budget
 /candidates — ready candidates
+/watchlist — watchlist news + sentiment + earnings
+/feedback — AI analyst feedback stats
 /analyst — AI system summary (Ollama)
 /ask &lt;question&gt; — ask the AI analyst
 /news &lt;ticker&gt; — news &amp; earnings check
@@ -636,6 +644,29 @@ async function cmdNews(rawText: string): Promise<CommandResponse> {
       headlinesBlock = '<i>No recent headlines</i>';
     }
 
+    // Best-effort sentiment classification
+    let sentimentLine = '';
+    try {
+      if (news.headlines.length > 0) {
+        const { classifyBatchSentiment } = await import('@/lib/analyst/sentiment');
+        const sentimentResults = await classifyBatchSentiment([{
+          ticker,
+          headlines: news.headlines.map(h => ({ title: h.title })),
+        }]);
+        if (sentimentResults.length > 0 && sentimentResults[0].confidence === 'HIGH') {
+          const s = sentimentResults[0].sentiment;
+          const sentEmoji = s === 'POSITIVE' ? '🟢' : s === 'NEGATIVE' ? '🔴' : '⚪';
+          sentimentLine = `\n${sentEmoji} Sentiment: <b>${s}</b>`;
+
+          // Record trend (best-effort)
+          try {
+            const { recordSentiment } = await import('@/lib/analyst/sentiment-tracker');
+            await recordSentiment(ticker, s, sentimentResults[0].confidence);
+          } catch { /* best-effort */ }
+        }
+      }
+    } catch { /* best-effort */ }
+
     // Optional LLM summary
     let summaryBlock = '';
     try {
@@ -671,7 +702,7 @@ async function cmdNews(rawText: string): Promise<CommandResponse> {
       : '';
 
     return {
-      text: `📰 <b>News: ${escapeHtml(ticker)}</b>\n\n${earningsLine}\n\n<b>Headlines</b>\n${headlinesBlock}${summaryBlock}${warningsLine}\n\n<i>Advisory only — verify before acting</i>`,
+      text: `📰 <b>News: ${escapeHtml(ticker)}</b>\n\n${earningsLine}${sentimentLine}\n\n<b>Headlines</b>\n${headlinesBlock}${summaryBlock}${warningsLine}\n\n<i>Advisory only — verify before acting</i>`,
       parseMode: 'HTML',
     };
   } catch (err) {
@@ -856,6 +887,170 @@ async function cmdExplain(rawText: string): Promise<CommandResponse> {
     console.error(`[telegram-commands] /explain error for ${ticker}:`, err);
     return {
       text: `🧠 <b>AI Explain: ${escapeHtml(ticker)}</b>\n\n⚠️ Error generating explanation.`,
+      parseMode: 'HTML',
+    };
+  }
+}
+
+// ── /watchlist — watchlist news + sentiment + earnings summary ──
+
+async function cmdWatchlist(): Promise<CommandResponse> {
+  try {
+    // Get READY/WATCH candidates from latest snapshot
+    const latestSnapshot = await prisma.snapshot.findFirst({
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, createdAt: true },
+    });
+
+    if (!latestSnapshot) {
+      return {
+        text: '📋 <b>Watchlist Summary</b>\n\nNo snapshot data. Run the nightly pipeline first.',
+        parseMode: 'HTML',
+      };
+    }
+
+    const candidates = await prisma.snapshotTicker.findMany({
+      where: {
+        snapshotId: latestSnapshot.id,
+        status: { in: ['READY', 'WATCH'] },
+      },
+      orderBy: { distanceTo20dHighPct: 'asc' },
+      take: 10,
+    });
+
+    // Also include open positions
+    const positions = await prisma.position.findMany({
+      where: { userId: DEFAULT_USER_ID, status: 'OPEN' },
+      select: { stock: { select: { ticker: true } } },
+    });
+
+    const positionTickers = new Set(positions.map(p => p.stock.ticker));
+    const candidateTickers = candidates.map(c => c.ticker).filter(t => !positionTickers.has(t));
+    const allTickers = [...new Set([...positionTickers, ...candidateTickers])].slice(0, 15);
+
+    if (allTickers.length === 0) {
+      return {
+        text: '📋 <b>Watchlist Summary</b>\n\nNo open positions or candidates to watch.',
+        parseMode: 'HTML',
+      };
+    }
+
+    // Fetch news + earnings for all tickers
+    const { fetchBatchNewsContext } = await import('@/lib/analyst/news-fetcher');
+    const newsResults = await fetchBatchNewsContext(allTickers, 2);
+
+    // Best-effort sentiment classification
+    const sentimentMap = new Map<string, { sentiment: string; confidence: string }>();
+    try {
+      const { classifyBatchSentiment } = await import('@/lib/analyst/sentiment');
+      const sentimentItems = newsResults
+        .filter(n => n.headlines.length > 0)
+        .map(n => ({ ticker: n.ticker, headlines: n.headlines.map(h => ({ title: h.title })) }));
+      if (sentimentItems.length > 0) {
+        const sentimentResults = await classifyBatchSentiment(sentimentItems);
+        for (const s of sentimentResults) {
+          sentimentMap.set(s.ticker, { sentiment: s.sentiment, confidence: s.confidence });
+        }
+      }
+    } catch { /* best-effort */ }
+
+    // Build output lines
+    const lines: string[] = [];
+
+    for (const ticker of allTickers) {
+      const news = newsResults.find(n => n.ticker === ticker);
+      const sent = sentimentMap.get(ticker);
+      const isPosition = positionTickers.has(ticker);
+
+      const typeTag = isPosition ? '📊' : '🎯';
+      const sentEmoji = sent?.sentiment === 'POSITIVE' ? '🟢'
+        : sent?.sentiment === 'NEGATIVE' ? '🔴' : '⚪';
+
+      let earningsTag = '';
+      if (news?.earnings.daysUntil != null && news.earnings.daysUntil <= 10) {
+        earningsTag = ` 📅${news.earnings.daysUntil}d${news.earnings.daysUntil <= 5 ? '⚠️' : ''}`;
+      }
+
+      const headlinePreview = news?.headlines[0]
+        ? `\n  <i>${escapeHtml(news.headlines[0].title.slice(0, 60))}${news.headlines[0].title.length > 60 ? '…' : ''}</i>`
+        : '';
+
+      lines.push(`${typeTag} <b>${escapeHtml(ticker)}</b> ${sentEmoji} ${sent?.sentiment ?? 'N/A'}${earningsTag}${headlinePreview}`);
+    }
+
+    const ageHours = Math.round((Date.now() - latestSnapshot.createdAt.getTime()) / (1000 * 60 * 60));
+
+    // Summary counts
+    const posCount = positionTickers.size;
+    const watchCount = candidateTickers.length;
+    const earningsAlerts = newsResults.filter(n => n.earnings.daysUntil != null && n.earnings.daysUntil <= 5).map(n => n.ticker);
+    const negSentiment = [...sentimentMap.entries()].filter(([, s]) => s.sentiment === 'NEGATIVE').map(([t]) => t);
+
+    let alertBlock = '';
+    if (earningsAlerts.length > 0) {
+      alertBlock += `\n\n🔴 <b>Earnings ≤5d:</b> ${earningsAlerts.join(', ')}`;
+    }
+    if (negSentiment.length > 0) {
+      alertBlock += `\n🔴 <b>Negative sentiment:</b> ${negSentiment.join(', ')}`;
+    }
+
+    return {
+      text: `📋 <b>Watchlist Summary</b> (${posCount} held, ${watchCount} watching)\nSnapshot: ${ageHours}h ago\n\n${lines.join('\n')}${alertBlock}\n\n<i>Advisory only — verify before acting</i>`,
+      parseMode: 'HTML',
+    };
+  } catch (err) {
+    console.error('[telegram-commands] /watchlist error:', err);
+    return {
+      text: '📋 <b>Watchlist Summary</b>\n\n⚠️ Error generating watchlist summary.',
+      parseMode: 'HTML',
+    };
+  }
+}
+
+// ── /feedback — AI analyst feedback stats ──
+
+async function cmdFeedback(): Promise<CommandResponse> {
+  try {
+    const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+    const res = await fetch(`${baseUrl}/api/analyst/feedback`);
+    if (!res.ok) {
+      return {
+        text: '📊 <b>AI Feedback Stats</b>\n\n⚠️ Could not load feedback data.',
+        parseMode: 'HTML',
+      };
+    }
+
+    const data = await res.json() as {
+      total: number;
+      summary: Record<string, { up: number; down: number; lastAt: number }>;
+    };
+
+    if (data.total === 0) {
+      return {
+        text: '📊 <b>AI Feedback Stats</b>\n\nNo feedback recorded yet. Use the 👍/👎 buttons on AI explanations in the dashboard.',
+        parseMode: 'HTML',
+      };
+    }
+
+    const entries = Object.entries(data.summary)
+      .sort(([, a], [, b]) => b.lastAt - a.lastAt)
+      .slice(0, 10);
+
+    const lines = entries.map(([context, stats]) => {
+      const total = stats.up + stats.down;
+      const pct = total > 0 ? Math.round((stats.up / total) * 100) : 0;
+      const bar = pct >= 70 ? '🟢' : pct >= 40 ? '🟡' : '🔴';
+      return `${bar} <b>${escapeHtml(context)}</b>\n  👍 ${stats.up} / 👎 ${stats.down} (${pct}% helpful)`;
+    });
+
+    return {
+      text: `📊 <b>AI Feedback Stats</b> (${data.total} total)\n\n${lines.join('\n\n')}\n\n<i>Feedback from dashboard AI explain cards</i>`,
+      parseMode: 'HTML',
+    };
+  } catch (err) {
+    console.error('[telegram-commands] /feedback error:', err);
+    return {
+      text: '📊 <b>AI Feedback Stats</b>\n\n⚠️ Error loading feedback.',
       parseMode: 'HTML',
     };
   }

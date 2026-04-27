@@ -149,6 +149,7 @@ export type AnalystContext = 'summary' | 'explain' | 'short';
  * - 'summary': prefer larger models for system-wide analysis
  * - 'explain': prefer larger models for detailed explanations
  * - 'short': prefer smaller models for quick inline explanations
+ * When multiple models of similar size exist, uses feedback scores as tiebreaker.
  * Falls back to pickModel if no context-appropriate choice is available.
  */
 export function pickModelForContext(models: OllamaModel[], context: AnalystContext, preferred?: string): string {
@@ -157,8 +158,12 @@ export function pickModelForContext(models: OllamaModel[], context: AnalystConte
 
   // Sort by size
   const sorted = [...models].sort((a, b) => a.size - b.size);
-  const small = sorted[0]; // Smallest available
-  const large = sorted.length > 1 ? sorted[sorted.length - 1] : sorted[0]; // Largest available
+
+  // If only one model, return it
+  if (sorted.length === 1) return sorted[0].name;
+
+  const small = sorted[0];
+  const large = sorted[sorted.length - 1];
 
   switch (context) {
     case 'summary':
@@ -168,6 +173,67 @@ export function pickModelForContext(models: OllamaModel[], context: AnalystConte
       return small.name;
     default:
       return pickModel(models);
+  }
+}
+
+/**
+ * Pick a model with feedback-weighted selection.
+ * Async version that reads feedback scores and uses them as tiebreaker.
+ * Use this when you have time for an async call (not in hot paths).
+ */
+export async function pickModelWithFeedback(
+  models: OllamaModel[],
+  context: AnalystContext,
+  preferred?: string
+): Promise<string> {
+  if (preferred) return pickModel(models, preferred);
+  if (!models.length) return '';
+  if (models.length === 1) return models[0].name;
+
+  try {
+    const { getModelFeedbackScores } = await import('./feedback-reader');
+    const scores = await getModelFeedbackScores();
+
+    if (scores.length === 0) {
+      return pickModelForContext(models, context, preferred);
+    }
+
+    // Build a score map
+    const scoreMap = new Map(scores.map(s => [s.model, s]));
+
+    // Sort by size for context
+    const sorted = [...models].sort((a, b) => a.size - b.size);
+
+    // For each context, pick the appropriate size tier then tiebreak by feedback
+    let candidates: OllamaModel[];
+    switch (context) {
+      case 'summary':
+      case 'explain': {
+        // Top half by size
+        const half = Math.max(1, Math.ceil(sorted.length / 2));
+        candidates = sorted.slice(-half);
+        break;
+      }
+      case 'short': {
+        // Bottom half by size
+        const half = Math.max(1, Math.ceil(sorted.length / 2));
+        candidates = sorted.slice(0, half);
+        break;
+      }
+      default:
+        candidates = sorted;
+    }
+
+    // Sort candidates by feedback score (highest first), default 50
+    candidates.sort((a, b) => {
+      const aScore = scoreMap.get(a.name)?.helpfulPct ?? 50;
+      const bScore = scoreMap.get(b.name)?.helpfulPct ?? 50;
+      return bScore - aScore;
+    });
+
+    return candidates[0].name;
+  } catch {
+    return pickModelForContext(models, context, preferred);
   }
 }
 

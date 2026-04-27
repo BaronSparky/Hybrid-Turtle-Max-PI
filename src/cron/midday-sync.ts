@@ -12,13 +12,15 @@ import prisma from '@/lib/prisma';
 import { syncClosedPositions } from '@/lib/position-sync';
 import type { PositionSyncResult } from '@/lib/position-sync';
 import { sendAlert } from '@/lib/alert-service';
+import { createCronLogger } from '@/lib/cron-logger';
+import { getUKDayOfWeek } from '@/lib/uk-time';
+
+const log = createCronLogger('midday-sync');
 
 async function runMiddaySync() {
   const userId = 'default-user';
 
-  console.log('========================================');
-  console.log(`[HybridTurtle] Midday position sync started at ${new Date().toISOString()}`);
-  console.log('========================================');
+  log.info('Midday position sync started');
 
   // Skip weekends (UK time)
   const ukDay = getUKDayOfWeek();
@@ -83,7 +85,7 @@ async function runMiddaySync() {
 
   } catch (error) {
     const msg = (error as Error).message;
-    console.error(`  FAILED: ${msg}`);
+    log.error('Midday sync failed', { error: msg });
 
     // Send alert on failure so the user knows
     try {
@@ -102,18 +104,9 @@ async function runMiddaySync() {
     await prisma.$disconnect();
   }
 
-  console.log('========================================');
-  console.log(`[HybridTurtle] Midday sync finished at ${new Date().toISOString()}`);
-  console.log('========================================');
+  log.info('Midday sync finished', { checked: result.checked, closed: result.closed, errors: result.errors.length });
 }
 
-function getUKDayOfWeek(): number {
-  const now = new Date();
-  const ukTime = new Date(
-    now.toLocaleString('en-GB', { timeZone: 'Europe/London' })
-  );
-  return ukTime.getDay();
-}
 
 // ── Entry point ──────────────────────────────────────────────────────
 runMiddaySync().catch((err) => {
