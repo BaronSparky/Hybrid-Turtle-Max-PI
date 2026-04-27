@@ -70,6 +70,18 @@ The AI Analyst card appears on the dashboard automatically. If Ollama is offline
 - Endpoint: `GET /api/analyst/health`
 - Returns Ollama connectivity, available models, latency
 
+### News & Catalyst Context (internet-aware, free)
+- Endpoint: `POST /api/analyst/news`
+- Body: `{ "ticker": "AAPL", "model": "gemma3:4b", "includeSummary": true }`
+- Returns: recent public Yahoo Finance headlines, next earnings date + days-until,
+  plus an optional plain-English LLM review flagging earnings-event risk and
+  whether news flow looks routine vs. material (M&A, guidance, regulatory, etc.).
+- Source: `yahoo-finance2` (public, no API key, no cost).
+- Degrades gracefully: if Yahoo is unreachable, returns 200 with empty headlines and
+  a `sourceWarnings` entry. If Ollama is offline, headlines + earnings still return
+  and `summary` is null.
+- Set `"includeSummary": false` to get raw data only (skip the LLM call).
+
 ---
 
 ## Model Selection
@@ -152,12 +164,14 @@ src/lib/analyst/
   prompt-builder.ts      — Assembles system + user prompts from data
   safety-filter.ts       — Strips secrets, validates responses
   analyst-service.ts     — Orchestrates pipeline: health → prompt → generate → filter
+  news-fetcher.ts        — Free public news + earnings via yahoo-finance2
 
 src/app/api/analyst/
   health/route.ts        — GET: Ollama connectivity check
   summary/route.ts       — GET: Today's system summary
   explain/route.ts       — POST: Candidate or stop explanation
   journal/route.ts       — POST: Journal draft generation
+  news/route.ts          — POST: Public news + earnings + LLM review for a ticker
 
 src/components/dashboard/
   AnalystCard.tsx         — Dashboard widget with model picker
@@ -166,4 +180,5 @@ src/lib/analyst/
   safety-filter.test.ts  — 25 safety tests
   prompt-builder.test.ts — 23 prompt structure tests
   ollama-client.test.ts  — 7 model selection tests
+  news-fetcher.test.ts   — 6 news/earnings fetch tests
 ```

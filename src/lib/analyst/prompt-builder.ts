@@ -112,6 +112,24 @@ export interface StopExplainData {
   }>;
 }
 
+export interface NewsContextData {
+  ticker: string;
+  name?: string;
+  sleeve?: string;
+  scanStatus?: string;
+  headlines: Array<{
+    title: string;
+    publisher: string;
+    publishedAt: string;
+    ageHours: number;
+  }>;
+  earnings: {
+    nextEarningsDate: string | null;
+    daysUntil: number | null;
+    isEstimate: boolean;
+  };
+}
+
 export interface JournalDraftData {
   ticker: string;
   name: string;
@@ -341,6 +359,54 @@ Write the journal in first person. Use the data provided — do not invent facts
 2. Entry — how the entry was executed (price, sizing, grade)
 3. Management — how the position was managed (stop moves, R progression)
 4. ${data.type === 'lesson' ? 'Lessons — what to do differently next time' : 'Result — outcome and key takeaway'}`);
+
+  return { system: ANALYST_SYSTEM_PROMPT, prompt, contextNumbers };
+}
+
+export function buildNewsContextPrompt(data: NewsContextData): {
+  system: string;
+  prompt: string;
+  contextNumbers: number[];
+} {
+  const contextNumbers = [
+    data.earnings.daysUntil ?? 0,
+    data.headlines.length,
+  ].filter(n => n != null);
+
+  const earningsLine = data.earnings.nextEarningsDate
+    ? `- Next earnings: ${data.earnings.nextEarningsDate.slice(0, 10)} (in ${data.earnings.daysUntil} days)${data.earnings.isEstimate ? ' [estimated]' : ''}`
+    : '- Next earnings: not announced / unknown';
+
+  const headlinesText = data.headlines.length > 0
+    ? data.headlines.map((h, i) =>
+        `${i + 1}. [${h.publisher}, ${h.ageHours.toFixed(0)}h ago] ${h.title}`
+      ).join('\n')
+    : '(no recent headlines available)';
+
+  const meta = [
+    data.name ? `Name: ${data.name}` : null,
+    data.sleeve ? `Sleeve: ${data.sleeve}` : null,
+    data.scanStatus ? `Current scan status: ${data.scanStatus}` : null,
+  ].filter(Boolean).join(' | ');
+
+  const prompt = stripSensitiveData(`Review the public news + event calendar for this ticker and flag anything a trend-following trader should know BEFORE entering a position.
+
+Ticker: ${data.ticker}
+${meta || ''}
+
+Calendar:
+${earningsLine}
+
+Recent Headlines:
+${headlinesText}
+
+Produce a SHORT review (max 4 short bullets):
+- Earnings event risk: is earnings within the next ~10 trading days? If yes, flag it as material event risk.
+- News tone: is the recent news flow material (M&A, guidance, regulatory, leadership change, lawsuit) or routine noise?
+- Catalyst alignment: do the headlines support or contradict a trend-continuation thesis?
+- Verdict: one sentence — "context appears clean", "elevated event risk near-term", or "material news — verify before acting".
+
+Do NOT recommend buy or sell. Do NOT invent prices or numbers. Stick strictly to the headlines and calendar provided.`);
 
   return { system: ANALYST_SYSTEM_PROMPT, prompt, contextNumbers };
 }

@@ -13,10 +13,12 @@ import {
   buildCandidateExplainPrompt,
   buildStopExplainPrompt,
   buildJournalDraftPrompt,
+  buildNewsContextPrompt,
   type SystemSummaryData,
   type CandidateExplainData,
   type StopExplainData,
   type JournalDraftData,
+  type NewsContextData,
 } from './prompt-builder';
 import { checkResponseSafety, checkForFabricatedNumbers } from './safety-filter';
 
@@ -84,6 +86,20 @@ export async function generateJournalDraft(
 ): Promise<AnalystResult> {
   return runAnalystPipeline(
     () => buildJournalDraftPrompt(data),
+    preferredModel
+  );
+}
+
+/**
+ * Generate a news + earnings context summary using Ollama.
+ * Source data is fetched separately via news-fetcher.ts (Yahoo Finance, free).
+ */
+export async function generateNewsContextSummary(
+  data: NewsContextData,
+  preferredModel?: string
+): Promise<AnalystResult> {
+  return runAnalystPipeline(
+    () => buildNewsContextPrompt(data),
     preferredModel
   );
 }
