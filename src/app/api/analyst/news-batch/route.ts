@@ -13,6 +13,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchBatchNewsContext } from '@/lib/analyst/news-fetcher';
+import { classifyBatchSentiment, type TickerSentiment } from '@/lib/analyst/sentiment';
 import { apiError } from '@/lib/api-response';
 import prisma from '@/lib/prisma';
 
@@ -72,9 +73,26 @@ export async function GET(request: NextRequest) {
 
     const allNews = await fetchBatchNewsContext(allTickers, 3);
 
-    // 5. Split results back into portfolio vs candidate groups
-    const portfolioNews = allNews.slice(0, portfolioTickers.length);
-    const candidateNews = allNews.slice(portfolioTickers.length);
+    // 5. Best-effort sentiment classification (uses smallest Ollama model)
+    let sentimentMap = new Map<string, TickerSentiment>();
+    try {
+      const sentimentResults = await classifyBatchSentiment(
+        allNews.map(n => ({ ticker: n.ticker, headlines: n.headlines }))
+      );
+      for (const s of sentimentResults) sentimentMap.set(s.ticker, s);
+    } catch {
+      // Best-effort — skip sentiment if Ollama is offline
+    }
+
+    // 6. Split results back into portfolio vs candidate groups, attach sentiment
+    const attachSentiment = (news: typeof allNews) =>
+      news.map(n => ({
+        ...n,
+        sentiment: sentimentMap.get(n.ticker) ?? { ticker: n.ticker, sentiment: 'NEUTRAL' as const, confidence: 'LOW' as const },
+      }));
+
+    const portfolioNews = attachSentiment(allNews.slice(0, portfolioTickers.length));
+    const candidateNews = attachSentiment(allNews.slice(portfolioTickers.length));
 
     return NextResponse.json({
       portfolio: portfolioNews,

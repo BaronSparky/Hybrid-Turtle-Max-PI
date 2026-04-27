@@ -30,6 +30,7 @@ interface TickerNewsItem {
   headlines: Array<{ title: string; publisher: string; ageHours: number; link: string; publishedAt: string }>;
   earnings: { nextEarningsDate: string | null; daysUntil: number | null; isEstimate: boolean };
   warnings: string[];
+  sentiment?: { sentiment: string; confidence: string };
 }
 
 export default function AnalystCard() {
@@ -619,14 +620,14 @@ export default function AnalystCard() {
 // ── Compact row showing earnings + top headline for a single ticker ──
 
 function TickerNewsRow({ item }: {
-  item: {
-    ticker: string;
-    headlines: Array<{ title: string; publisher: string; ageHours: number; link: string }>;
-    earnings: { nextEarningsDate: string | null; daysUntil: number | null; isEstimate: boolean };
-    warnings: string[];
-  };
+  item: TickerNewsItem;
 }) {
   const earningsClose = (item.earnings.daysUntil ?? 99) <= 10;
+  const sentimentBadge = item.sentiment?.sentiment === 'POSITIVE'
+    ? { text: '▲', cls: 'text-emerald-400' }
+    : item.sentiment?.sentiment === 'NEGATIVE'
+    ? { text: '▼', cls: 'text-red-400' }
+    : null;
 
   return (
     <div className={`px-2.5 py-2 rounded-md border text-xs ${
@@ -635,7 +636,14 @@ function TickerNewsRow({ item }: {
         : 'bg-navy-600 border-border'
     }`}>
       <div className="flex items-center justify-between mb-1">
-        <span className="font-semibold text-foreground">{item.ticker}</span>
+        <span className="font-semibold text-foreground">
+          {item.ticker}
+          {sentimentBadge && (
+            <span className={`ml-1 ${sentimentBadge.cls}`} title={`Sentiment: ${item.sentiment?.sentiment}`}>
+              {sentimentBadge.text}
+            </span>
+          )}
+        </span>
         {item.earnings.nextEarningsDate ? (
           <span className={`${earningsClose ? 'text-amber-400 font-semibold' : 'text-muted-foreground'}`}>
             📅 {new Date(item.earnings.nextEarningsDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}

@@ -82,6 +82,27 @@ The AI Analyst card appears on the dashboard automatically. If Ollama is offline
   and `summary` is null.
 - Set `"includeSummary": false` to get raw data only (skip the LLM call).
 
+### Batch News + Sentiment (portfolio + candidates)
+- Endpoint: `GET /api/analyst/news-batch?topN=5`
+- Returns news + earnings for all open positions and top-N scan candidates.
+- Includes per-ticker sentiment classification (POSITIVE/NEUTRAL/NEGATIVE) via Ollama.
+- Sentiment uses the smallest available model for speed.
+- Deduplicates: candidates already in portfolio appear under portfolio only.
+- Dashboard auto-loads this on mount and when the News section is expanded.
+
+### Trade Pulse AI Explain
+- Endpoint: `POST /api/analyst/trade-pulse`
+- Body: `{ "ticker": "AAPL", "score": 72, "grade": "B", "decision": "CONDITIONAL", "signals": [...], "concerns": [...], "opportunities": [...] }`
+- Auto-enriches with Yahoo news + earnings.
+- Returns plain-English explanation of grade, key signal drivers, risk factors, and news context.
+- Used by the Trade Pulse detail page and Telegram `/explain` command.
+
+### Analytics Explain (generic)
+- Endpoint: `POST /api/analyst/analytics-explain`
+- Body: `{ "contextSummary": "...", "question": "..." }`
+- Generic explain endpoint used by Score Lab, Filter Scorecard, Prediction Status, Signal Audit, Evidence, and Breakout Evidence pages.
+- Context is truncated to 4000 chars to prevent prompt injection via large payloads.
+
 ---
 
 ## Model Selection
@@ -97,10 +118,15 @@ POST /api/analyst/journal  { "model": "gemma3:4b", ... }
 
 The dashboard card has a built-in model picker (gear icon) showing all installed models with sizes.
 
-If no model is specified, the system picks automatically:
-1. Gemma models (preferred)
-2. Llama models (fallback)
-3. First available model
+If no model is specified, the system picks automatically based on context:
+- **Summary/Explain**: Prefers the largest installed model for detailed analysis.
+- **Short/Inline**: Uses the smallest installed model for fast inline explains.
+- **Fallback order**: Gemma → Llama → first available.
+
+### Caching
+- **News cache**: 1-hour TTL per ticker. Avoids hammering Yahoo across dashboard, Telegram, and manual checks.
+- **LLM response cache**: 30-minute TTL keyed by prompt hash. Identical prompts return cached responses instantly.
+- Both caches are bounded (100 news entries, 50 LLM entries) with automatic eviction.
 
 ---
 
@@ -156,29 +182,97 @@ OLLAMA_URL=http://192.168.1.100:11434
 
 ---
 
+## Telegram Commands
+
+| Command | Description |
+|---------|-------------|
+| `/analyst` | System summary via Ollama |
+| `/ask <question>` | Ask the analyst a question |
+| `/news <ticker>` | News + earnings + optional AI review |
+| `/explain <ticker>` | Trade Pulse AI explanation with grade, signals, news |
+| `/earnings` | Earnings calendar for all open positions |
+| `/scorecard` | Filter performance summary (passed vs blocked returns) |
+
+All Telegram LLM responses are HTML-escaped before markdown-to-HTML conversion to prevent XSS.
+
+---
+
+## Dashboard Features
+
+### Analyst Card
+- Auto-streams system summary on page load (SSE).
+- Auto-refreshes every 30 minutes when in ready state.
+- Earnings proximity alert banner (auto-shows when any position has earnings ≤5 days).
+- News & Catalyst Check section (auto-expands on earnings alert):
+  - Auto-loads portfolio + top 5 candidates with headlines, earnings dates, and sentiment badges.
+  - Manual single-ticker lookup below the auto-loaded results.
+  - Per-ticker sentiment classification (▲ positive, ▼ negative).
+
+### AI Explain Buttons
+Available on 8 analysis pages:
+- **Trade Pulse** (`/trade-pulse/[ticker]`) — grade, signals, concerns, news context
+- **Candidates** (`/candidates`) — inline explain + news per row
+- **Scan** (`/scan`) — explain button next to WhyCard
+- **Score Lab** (`/score-validation`) — NCS/FWS/BQS band interpretation
+- **Filter Scorecard** (`/filter-scorecard`) — filter value analysis
+- **Prediction Status** (`/prediction-status`) — model accuracy + overfit check
+- **Signal Audit** (`/signal-audit`) — signal redundancy analysis
+- **Evidence** (`/evidence`) — tab-aware (rules, classification, entry, exit, simulation)
+- **Breakout Evidence** (`/breakout-evidence`) — breakout vs non-breakout comparison
+
+### Watchlist News Feed
+- Page: `/watchlist-news` (Analysis → Watchlist News)
+- Consolidated live news for portfolio + top 10 candidates.
+- Unified headline timeline sorted by recency.
+- Earnings calendar grid with proximity warnings.
+- Per-ticker sentiment badges (▲/▼).
+- Auto-refreshes every 15 minutes.
+
+### Auto-Trade Earnings Check
+- Pre-trade earnings proximity check for top 5 A-grade candidates.
+- Telegram alert if any have earnings within 5 days.
+- Optional deferral gate: set `EARNINGS_DEFERRAL_DAYS=5` to auto-skip candidates with earnings within N days.
+- Defaults to 0 (advisory only, no deferral).
+- Evening scan summary includes weekly earnings calendar for held positions + top candidates.
+
+---
+
 ## Files
 
 ```
 src/lib/analyst/
-  ollama-client.ts       — HTTP client for Ollama API
+  ollama-client.ts       — HTTP client for Ollama API + model auto-selection
   prompt-builder.ts      — Assembles system + user prompts from data
   safety-filter.ts       — Strips secrets, validates responses
-  analyst-service.ts     — Orchestrates pipeline: health → prompt → generate → filter
-  news-fetcher.ts        — Free public news + earnings via yahoo-finance2
+  analyst-service.ts     — Orchestrates pipeline: health → prompt → cache → generate → filter → cache
+  news-fetcher.ts        — Free public news + earnings via yahoo-finance2 (1h cache)
+  sentiment.ts           — Lightweight headline sentiment classifier (POSITIVE/NEUTRAL/NEGATIVE)
 
 src/app/api/analyst/
   health/route.ts        — GET: Ollama connectivity check
-  summary/route.ts       — GET: Today's system summary
+  summary/route.ts       — GET: Today's system summary (SSE streaming)
   explain/route.ts       — POST: Candidate or stop explanation
   journal/route.ts       — POST: Journal draft generation
   news/route.ts          — POST: Public news + earnings + LLM review for a ticker
+  news-batch/route.ts    — GET: Batch news + earnings + sentiment for portfolio + candidates
+  trade-pulse/route.ts   — POST: Trade Pulse AI explanation
+  analytics-explain/route.ts — POST: Generic analytics explain (Score Lab, Scorecard, etc.)
 
 src/components/dashboard/
-  AnalystCard.tsx         — Dashboard widget with model picker
+  AnalystCard.tsx         — Dashboard widget with model picker, news section, earnings alerts
+
+src/components/analytics/
+  AnalyticsExplainCard.tsx — Reusable AI explain card for analytics pages
+
+src/components/candidates/
+  CandidateExplainButton.tsx — Inline explain button with news + sentiment
+
+src/app/watchlist-news/
+  page.tsx               — Consolidated live news feed page
 
 src/lib/analyst/
   safety-filter.test.ts  — 25 safety tests
-  prompt-builder.test.ts — 23 prompt structure tests
-  ollama-client.test.ts  — 7 model selection tests
+  prompt-builder.test.ts — 32 prompt structure tests (incl. news + trade-pulse)
+  ollama-client.test.ts  — 13 model selection tests (incl. context-aware)
   news-fetcher.test.ts   — 6 news/earnings fetch tests
 ```

@@ -26,6 +26,7 @@ interface TickerNewsItem {
   headlines: NewsHeadline[];
   earnings: { nextEarningsDate: string | null; daysUntil: number | null; isEstimate: boolean };
   warnings: string[];
+  sentiment?: { sentiment: string; confidence: string };
 }
 
 interface BatchData {
@@ -73,7 +74,12 @@ export default function WatchlistNewsPage() {
 
   // Flatten all headlines for a unified feed, sorted by recency
   const allHeadlines = allItems
-    .flatMap(item => item.headlines.map(h => ({ ...h, ticker: item.ticker, group: item.group })))
+    .flatMap(item => item.headlines.map(h => ({
+      ...h,
+      ticker: item.ticker,
+      group: item.group,
+      sentiment: item.sentiment?.sentiment,
+    })))
     .sort((a, b) => a.ageHours - b.ageHours);
 
   const earningsAlerts = allItems.filter(item => (item.earnings.daysUntil ?? 99) <= 10);
@@ -183,6 +189,8 @@ export default function WatchlistNewsPage() {
                     </div>
                   </div>
                   <div className="flex-shrink-0 flex items-center gap-1.5">
+                    {h.sentiment === 'POSITIVE' && <span className="text-emerald-400 text-xs" title="Positive sentiment">▲</span>}
+                    {h.sentiment === 'NEGATIVE' && <span className="text-red-400 text-xs" title="Negative sentiment">▼</span>}
                     <span className={`text-xs font-semibold px-2 py-0.5 rounded ${
                       h.group === 'portfolio'
                         ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
