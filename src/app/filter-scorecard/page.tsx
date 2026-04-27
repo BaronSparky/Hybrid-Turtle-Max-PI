@@ -12,6 +12,7 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import Navbar from '@/components/shared/Navbar';
+import AnalyticsExplainCard from '@/components/analytics/AnalyticsExplainCard';
 import { cn } from '@/lib/utils';
 import { apiRequest } from '@/lib/api-client';
 import {
@@ -152,6 +153,15 @@ export default function FilterScorecardPage() {
     if (!data) return [];
     return data.scoreBands.filter((b) => b.scoreName === activeScore);
   }, [data, activeScore]);
+
+  // Build context summary for AI explain
+  const filterContext = useMemo(() => {
+    if (!data) return '';
+    const rules = data.filters.map(r =>
+      `${r.rule}: pass=${r.passRate.toFixed(0)}%, passed fwd20d=${r.passed.avgFwd20d?.toFixed(2) ?? 'N/A'}%, blocked fwd20d=${r.blocked.avgFwd20d?.toFixed(2) ?? 'N/A'}%, passed 1R=${r.passed.hit1RRate?.toFixed(0) ?? '?'}%, blocked 1R=${r.blocked.hit1RRate?.toFixed(0) ?? '?'}%`
+    ).join('\n');
+    return `Filter Scorecard (${data.totalCandidates} candidates, ${data.totalEnriched} enriched):\n\nPipeline Rules (passed vs blocked forward returns):\n${rules}`;
+  }, [data]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -482,6 +492,15 @@ export default function FilterScorecardPage() {
                 <div><strong>Enriched:</strong> Count of candidates with forward price data available (≥ 8 days old)</div>
                 <div><strong>&ldquo;&mdash;&rdquo;:</strong> Insufficient data — need more scans + enrichment runs</div>
               </div>
+            </section>
+
+            {/* ── AI Explain ── */}
+            <section className="mt-8">
+              <AnalyticsExplainCard
+                title="AI Filter Analysis"
+                contextSummary={filterContext}
+                question="Which pipeline filters are adding value by improving outcomes for passed candidates? Are any filters too aggressive (blocking candidates that would have done well)? What should I focus on?"
+              />
             </section>
           </>
         )}

@@ -26,6 +26,7 @@
 
 import { useCallback, useEffect, useState, useMemo } from 'react';
 import Navbar from '@/components/shared/Navbar';
+import AnalyticsExplainCard from '@/components/analytics/AnalyticsExplainCard';
 import { cn } from '@/lib/utils';
 import { apiRequest } from '@/lib/api-client';
 import {
@@ -239,6 +240,15 @@ export default function ScoreValidationPage() {
   }
 
   const noScores = data && data.totalWithScores === 0;
+
+  // Build context summary for AI explain
+  const scoreLabContext = useMemo(() => {
+    if (!data) return '';
+    const ncsSummary = data.ncsBands.map(b => `NCS ${b.band}: n=${b.stats.count}, fwd20d=${b.stats.avgFwd20d?.toFixed(2) ?? 'N/A'}, 1R=${b.stats.hit1RRate?.toFixed(0) ?? '?'}%, stop=${b.stats.stopHitRate?.toFixed(0) ?? '?'}%`).join('\n');
+    const fwsSummary = data.fwsBands.map(b => `FWS ${b.band}: n=${b.stats.count}, fwd20d=${b.stats.avgFwd20d?.toFixed(2) ?? 'N/A'}, stop=${b.stats.stopHitRate?.toFixed(0) ?? '?'}%`).join('\n');
+    const monoSummary = data.monotonicity.map(m => `${m.score} ${m.metric}: ${m.violations} violations, ${m.interpretation}`).join('\n');
+    return `Score Validation Data (${data.totalCandidates} candidates, ${data.totalWithScores} scored):\n\nNCS Bands:\n${ncsSummary}\n\nFWS Bands:\n${fwsSummary}\n\nMonotonicity Tests:\n${monoSummary}`;
+  }, [data]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -490,6 +500,15 @@ export default function ScoreValidationPage() {
                 <div><strong>Monotonicity:</strong> Whether a metric improves consistently across score bands (0 violations = perfect)</div>
                 <div><strong>Backfill:</strong> Populates BQS/FWS/NCS from nightly snapshot scoring → CandidateOutcome</div>
               </div>
+            </section>
+
+            {/* ── AI Explain ── */}
+            <section className="mb-8">
+              <AnalyticsExplainCard
+                title="AI Score Analysis"
+                contextSummary={scoreLabContext}
+                question="Are the NCS, FWS, and BQS scores actually predicting better outcomes? Is the monotonicity acceptable? What should I focus on?"
+              />
             </section>
           </>
         )}

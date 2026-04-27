@@ -17,6 +17,8 @@ export default function CandidateExplainButton({ ticker }: { ticker: string }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const [earnings, setEarnings] = useState<{ daysUntil: number | null } | null>(null);
+  const [headlines, setHeadlines] = useState<Array<{ title: string; ageHours: number }>>([]);
 
   const handleExplain = async () => {
     if (explanation) {
@@ -26,23 +28,39 @@ export default function CandidateExplainButton({ ticker }: { ticker: string }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/analyst/explain', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'candidate', ticker }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        setError(body?.error?.message || `Error ${res.status}`);
+      // Fetch explain + news in parallel
+      const [explainRes, newsRes] = await Promise.all([
+        fetch('/api/analyst/explain', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'candidate', ticker }),
+        }),
+        fetch('/api/analyst/news', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ticker, includeSummary: false }),
+        }).catch(() => null), // News is best-effort
+      ]);
+
+      if (!explainRes.ok) {
+        const body = await explainRes.json().catch(() => ({}));
+        setError(body?.error?.message || `Error ${explainRes.status}`);
         return;
       }
-      const result = await res.json();
+      const result = await explainRes.json();
       if (!result.available) {
         setError('Ollama offline');
         return;
       }
       setExplanation(result.response);
       setExpanded(true);
+
+      // Best-effort news enrichment
+      if (newsRes?.ok) {
+        const news = await newsRes.json();
+        if (news.earnings) setEarnings(news.earnings);
+        if (news.headlines?.length) setHeadlines(news.headlines.slice(0, 2));
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed');
     } finally {
@@ -70,7 +88,20 @@ export default function CandidateExplainButton({ ticker }: { ticker: string }) {
 
       {expanded && explanation && (
         <div className="mt-1 px-2 py-1.5 rounded bg-violet-500/5 border border-violet-500/20 text-[11px] text-foreground/80 leading-relaxed whitespace-pre-wrap max-w-md">
+          {earnings && (earnings.daysUntil ?? 99) <= 10 && (
+            <p className="text-amber-400 font-semibold mb-1">⚠️ Earnings in {earnings.daysUntil} days — event risk</p>
+          )}
           {explanation}
+          {headlines.length > 0 && (
+            <div className="mt-1.5 pt-1.5 border-t border-violet-500/10">
+              <p className="text-[9px] text-muted-foreground font-semibold mb-0.5">Recent News:</p>
+              {headlines.map((h, i) => (
+                <p key={i} className="text-[9px] text-muted-foreground/70 truncate">
+                  • {h.title} ({Math.round(h.ageHours)}h ago)
+                </p>
+              ))}
+            </div>
+          )}
           <p className="text-[9px] text-amber-400/60 mt-1">Advisory only</p>
         </div>
       )}

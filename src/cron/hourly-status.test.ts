@@ -45,7 +45,7 @@ describe('hourly-status: market hours filtering', () => {
 describe('hourly-status: blocker detection', () => {
   it('identifies regime blocker', () => {
     const blockers: string[] = [];
-    const regime = 'SIDEWAYS';
+    const regime: string = 'SIDEWAYS';
     if (regime !== 'BULLISH') blockers.push(`Regime: ${regime}`);
     expect(blockers).toContain('Regime: SIDEWAYS');
   });
@@ -68,8 +68,8 @@ describe('hourly-status: blocker detection', () => {
 
   it('reports no blockers when all clear', () => {
     const blockers: string[] = [];
-    const regime = 'BULLISH';
-    const health = 'GREEN';
+    const regime: string = 'BULLISH';
+    const health: string = 'GREEN';
     const autoEnabled = true;
     const openPositions = 2;
     const maxPositions = 5;
