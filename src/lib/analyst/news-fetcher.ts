@@ -15,6 +15,44 @@ const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
 const FETCH_TIMEOUT_MS = 6000;
 const DEFAULT_NEWS_COUNT = 5;
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+// ── In-memory TTL cache to avoid hammering Yahoo for repeated lookups ──
+
+interface CacheEntry {
+  data: NewsContext;
+  expiresAt: number;
+}
+
+const newsCache = new Map<string, CacheEntry>();
+
+function getCached(ticker: string, newsCount: number): NewsContext | null {
+  const key = `${ticker}:${newsCount}`;
+  const entry = newsCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    newsCache.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+
+function setCache(ticker: string, newsCount: number, data: NewsContext): void {
+  const key = `${ticker}:${newsCount}`;
+  newsCache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
+  // Evict stale entries periodically (keep cache bounded)
+  if (newsCache.size > 100) {
+    const now = Date.now();
+    for (const [k, v] of newsCache) {
+      if (now > v.expiresAt) newsCache.delete(k);
+    }
+  }
+}
+
+/** Clear the news cache. Exported for test use only. */
+export function clearNewsCache(): void {
+  newsCache.clear();
+}
 
 export interface NewsHeadline {
   title: string;
@@ -107,6 +145,10 @@ async function fetchEarnings(ticker: string): Promise<EarningsInfo> {
  * Always resolves (no throws); failures are reported in `warnings`.
  */
 export async function fetchNewsContext(ticker: string, newsCount: number = DEFAULT_NEWS_COUNT): Promise<NewsContext> {
+  // Check cache first
+  const cached = getCached(ticker, newsCount);
+  if (cached) return cached;
+
   const warnings: string[] = [];
 
   const [headlinesResult, earningsResult] = await Promise.allSettled([
@@ -126,13 +168,18 @@ export async function fetchNewsContext(ticker: string, newsCount: number = DEFAU
     warnings.push(`earnings fetch failed: ${(earningsResult.reason as Error).message}`);
   }
 
-  return {
+  const result: NewsContext = {
     ticker,
     fetchedAt: new Date().toISOString(),
     headlines,
     earnings,
     warnings,
   };
+
+  // Cache successful results (even partial — warnings are informational)
+  setCache(ticker, newsCount, result);
+
+  return result;
 }
 
 /**

@@ -700,29 +700,52 @@ async function runAutoTrade(session: Session) {
   // ── Step 3: Size and validate each candidate ──
   console.log('\n  [3/4] Sizing and validating...');
 
-  // ── Earnings proximity check (advisory, pre-trade) ──
+  // ── Earnings proximity check (advisory + optional deferral) ──
+  const earningsDeferralDays = parseInt(process.env.EARNINGS_DEFERRAL_DAYS || '0', 10);
   const earningsWarnings: string[] = [];
+  const earningsDeferredTickers = new Set<string>();
+
   try {
     const { fetchBatchNewsContext } = await import('@/lib/analyst/news-fetcher');
     const candidateTickers = readyCandidates.slice(0, 5).map(c => c.ticker);
     if (candidateTickers.length > 0) {
       const newsResults = await fetchBatchNewsContext(candidateTickers, 0); // 0 headlines — only need earnings
       for (const news of newsResults) {
-        if (news.earnings.daysUntil !== null && news.earnings.daysUntil <= 5) {
+        if (news.earnings.daysUntil !== null && news.earnings.daysUntil <= Math.max(earningsDeferralDays, 5)) {
           const warn = `⚠️ ${news.ticker}: earnings in ${news.earnings.daysUntil} days`;
           earningsWarnings.push(warn);
           console.log(`    [EARNINGS WARNING] ${warn}`);
+
+          // If deferral is enabled and within the deferral window, mark for downgrade
+          if (earningsDeferralDays > 0 && news.earnings.daysUntil <= earningsDeferralDays) {
+            earningsDeferredTickers.add(news.ticker);
+            console.log(`    [EARNINGS DEFERRED] ${news.ticker} downgraded to B-grade (earnings in ${news.earnings.daysUntil}d, deferral window ${earningsDeferralDays}d)`);
+          }
         }
       }
       if (earningsWarnings.length > 0) {
+        const deferralNote = earningsDeferredTickers.size > 0
+          ? `\n\n🚫 Deferred (EARNINGS_DEFERRAL_DAYS=${earningsDeferralDays}): ${[...earningsDeferredTickers].join(', ')}`
+          : '\n\n<i>Auto-trade will proceed — manual review recommended.</i>';
         await sendTelegramMessage({
-          text: `📅 <b>Earnings Event Risk</b>\n\n${earningsWarnings.join('\n')}\n\n<i>These candidates have earnings within 5 days. Auto-trade will proceed — manual review recommended.</i>`,
+          text: `📅 <b>Earnings Event Risk</b>\n\n${earningsWarnings.join('\n')}${deferralNote}`,
           parseMode: 'HTML',
         }).catch(() => {}); // Best-effort alert
       }
     }
   } catch (err) {
     console.log(`    [EARNINGS CHECK] Skipped: ${(err as Error).message}`);
+  }
+
+  // Remove deferred tickers from the ready list (move to skipped)
+  const originalReadyCount = readyCandidates.length;
+  for (let i = readyCandidates.length - 1; i >= 0; i--) {
+    if (earningsDeferredTickers.has(readyCandidates[i].ticker)) {
+      readyCandidates.splice(i, 1);
+    }
+  }
+  if (earningsDeferredTickers.size > 0) {
+    console.log(`    [EARNINGS DEFERRAL] ${earningsDeferredTickers.size} candidates deferred (${originalReadyCount} → ${readyCandidates.length} remaining)`);
   }
 
   const tradeResults: TradeResult[] = [];

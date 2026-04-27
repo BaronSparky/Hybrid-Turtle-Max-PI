@@ -11,8 +11,9 @@
  *        Training is manual — triggered by button click, not automated.
  */
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import Navbar from '@/components/shared/Navbar';
+import AnalyticsExplainCard from '@/components/analytics/AnalyticsExplainCard';
 import { cn } from '@/lib/utils';
 import { apiRequest } from '@/lib/api-client';
 import {
@@ -142,6 +143,22 @@ export default function PredictionStatusPage() {
 
   const status = data?.status;
   const ranking = data?.ranking;
+
+  // Build context summary for AI explain
+  const predictionContext = useMemo(() => {
+    if (!status) return '';
+    const metricsLine = status.metrics
+      ? `Test R²=${status.metrics.r2.toFixed(3)}, Train R²=${status.metrics.trainR2.toFixed(3)}, MAE=${status.metrics.mae.toFixed(3)}, RMSE=${status.metrics.rmse.toFixed(3)}`
+      : 'No model trained';
+    const overfitCheck = status.metrics
+      ? `Train/Test R² gap: ${(status.metrics.trainR2 - status.metrics.r2).toFixed(3)} (${status.metrics.trainR2 - status.metrics.r2 > 0.3 ? 'POSSIBLE OVERFIT' : 'acceptable'})`
+      : '';
+    const features = status.featureImportance
+      ? status.featureImportance.slice(0, 8).map(f => `${f.feature}: importance=${f.importance.toFixed(3)}, coeff=${f.coefficient.toFixed(3)}`).join('\n')
+      : '';
+    const topCandidates = ranking?.candidates.slice(0, 5).map(c => `${c.ticker}: NCS=${c.ncs?.toFixed(0) ?? '?'}, predR=${c.predictedR?.toFixed(2) ?? '?'}, conf=${c.confidence}`).join('\n') ?? '';
+    return `Prediction Model Status:\nModel: ${status.hasModel ? 'trained' : 'not trained'}${status.daysSinceTraining != null ? `, ${status.daysSinceTraining} days ago` : ''}\nSamples: ${status.trainingSamples ?? 0} train, ${status.testSamples ?? 0} test\nMetrics: ${metricsLine}\n${overfitCheck}\n\nTop Features:\n${features}\n\nTop Ranked Candidates:\n${topCandidates}`;
+  }, [status, ranking]);
 
   return (
     <>
@@ -364,6 +381,17 @@ export default function PredictionStatusPage() {
               </div>
             )}
           </>
+        )}
+
+        {/* ── AI Explain ── */}
+        {data && status && (
+          <div className="mt-6">
+            <AnalyticsExplainCard
+              title="AI Model Analysis"
+              contextSummary={predictionContext}
+              question="Is this prediction model reliable? Is it overfitting? Which features matter most and why? Should I trust the ranked candidates?"
+            />
+          </div>
         )}
       </main>
     </>

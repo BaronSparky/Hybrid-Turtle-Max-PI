@@ -14,12 +14,13 @@ vi.mock('yahoo-finance2', () => {
   return { default: YahooFinanceMock };
 });
 
-import { fetchNewsContext } from './news-fetcher';
+import { fetchNewsContext, clearNewsCache } from './news-fetcher';
 
 describe('fetchNewsContext', () => {
   beforeEach(() => {
     mockSearch.mockReset();
     mockQuoteSummary.mockReset();
+    clearNewsCache();
   });
 
   it('returns headlines and earnings when both succeed', async () => {

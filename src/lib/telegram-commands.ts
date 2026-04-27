@@ -27,6 +27,7 @@ export type TelegramCommand =
   | '/analyst'
   | '/ask'
   | '/news'
+  | '/scorecard'
   | '/help'
   | 'unknown';
 
@@ -87,6 +88,7 @@ export function parseCommand(text: string): TelegramCommand {
     case '/analyst': return '/analyst';
     case '/ask': return '/ask';
     case '/news': return '/news';
+    case '/scorecard': return '/scorecard';
     case '/help': case '/start': return '/help';
     default: return 'unknown';
   }
@@ -106,6 +108,7 @@ export async function handleCommand(command: TelegramCommand, rawText?: string):
       case '/analyst': return await cmdAnalyst();
       case '/ask': return await cmdAsk(rawText || '');
       case '/news': return await cmdNews(rawText || '');
+      case '/scorecard': return await cmdScorecard();
       case '/help': return cmdHelp();
       case 'unknown':
       default:
@@ -439,6 +442,7 @@ function cmdHelp(): CommandResponse {
 /analyst — AI system summary (Ollama)
 /ask &lt;question&gt; — ask the AI analyst
 /news &lt;ticker&gt; — news &amp; earnings check
+/scorecard — filter performance summary
 /help — this message`,
     parseMode: 'HTML',
   };
@@ -652,6 +656,58 @@ async function cmdNews(rawText: string): Promise<CommandResponse> {
     console.error(`[telegram-commands] /news error for ${ticker}:`, err);
     return {
       text: `📰 <b>News: ${escapeHtml(ticker)}</b>\n\n⚠️ Error fetching news. Yahoo may be unreachable.`,
+      parseMode: 'HTML',
+    };
+  }
+}
+
+// ── /scorecard — filter performance summary ──
+
+async function cmdScorecard(): Promise<CommandResponse> {
+  try {
+    const res = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/analytics/filter-scorecard`);
+    if (!res.ok) {
+      return {
+        text: '📊 <b>Filter Scorecard</b>\n\n⚠️ Could not load scorecard data.',
+        parseMode: 'HTML',
+      };
+    }
+
+    const data = await res.json() as {
+      totalCandidates: number;
+      totalEnriched: number;
+      filters: Array<{
+        rule: string;
+        passRate: number;
+        passed: { avgFwd20d: number | null; hit1RRate: number | null; stopHitRate: number | null };
+        blocked: { avgFwd20d: number | null; hit1RRate: number | null; stopHitRate: number | null };
+      }>;
+    };
+
+    if (!data.filters?.length) {
+      return {
+        text: '📊 <b>Filter Scorecard</b>\n\nNo filter data available. Run a scan and wait for enrichment.',
+        parseMode: 'HTML',
+      };
+    }
+
+    const fmtPct = (v: number | null) => v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(1)}%` : '—';
+    const fmtRate = (v: number | null) => v != null ? `${v.toFixed(0)}%` : '—';
+
+    const lines = data.filters.slice(0, 8).map(f => {
+      const passedBetter = (f.passed.avgFwd20d ?? -99) > (f.blocked.avgFwd20d ?? -99);
+      const icon = passedBetter ? '✅' : '⚠️';
+      return `${icon} <b>${escapeHtml(f.rule)}</b> (${f.passRate.toFixed(0)}% pass)\n   Passed: fwd20d ${fmtPct(f.passed.avgFwd20d)}, 1R ${fmtRate(f.passed.hit1RRate)}\n   Blocked: fwd20d ${fmtPct(f.blocked.avgFwd20d)}, 1R ${fmtRate(f.blocked.hit1RRate)}`;
+    });
+
+    return {
+      text: `📊 <b>Filter Scorecard</b>\n${data.totalCandidates} candidates, ${data.totalEnriched} enriched\n\n${lines.join('\n\n')}\n\n<i>✅ = filter improves outcomes, ⚠️ = may need review</i>`,
+      parseMode: 'HTML',
+    };
+  } catch (err) {
+    console.error('[telegram-commands] /scorecard error:', err);
+    return {
+      text: '📊 <b>Filter Scorecard</b>\n\n⚠️ Error loading scorecard. Check dashboard.',
       parseMode: 'HTML',
     };
   }

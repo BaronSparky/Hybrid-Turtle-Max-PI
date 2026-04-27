@@ -11,8 +11,9 @@
  *        All data is observational — never affects scan decisions.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import Navbar from '@/components/shared/Navbar';
+import AnalyticsExplainCard from '@/components/analytics/AnalyticsExplainCard';
 import { cn } from '@/lib/utils';
 import { apiRequest } from '@/lib/api-client';
 import {
@@ -184,6 +185,14 @@ export default function BreakoutEvidencePage() {
     load();
   }, []);
 
+  // Build context summary for AI explain
+  const breakoutContext = useMemo(() => {
+    if (!data) return '';
+    const fmt = (s: BucketStats, label: string) =>
+      `${label}: n=${s.count}, fwd20d=${s.avgFwd20d?.toFixed(2) ?? 'N/A'}%, MFE=${s.avgMfeR?.toFixed(2) ?? '?'}R, 1R=${s.hit1RRate?.toFixed(0) ?? '?'}%, stop=${s.stopHitRate?.toFixed(0) ?? '?'}%`;
+    return `Breakout Evidence Data:\n${fmt(data.breakout, 'Breakout (close >= 20d high)')}\n${fmt(data.nonBreakout, 'Non-Breakout')}\n${fmt(data.shadow.breakoutLowEntropy, 'Breakout + Low Entropy')}\n${fmt(data.shadow.breakoutHighIsolation, 'Breakout + High Isolation')}\nTotal tickers with data: ${data.tickerDetails.length}`;
+  }, [data]);
+
   return (
     <>
       <Navbar />
@@ -324,6 +333,17 @@ export default function BreakoutEvidencePage() {
               </div>
             )}
           </>
+        )}
+
+        {/* ── AI Explain ── */}
+        {data && (
+          <div className="mt-6">
+            <AnalyticsExplainCard
+              title="AI Breakout Analysis"
+              contextSummary={breakoutContext}
+              question="Do breakouts actually outperform non-breakouts in this data? Does adding low entropy or high isolation improve outcomes? Is the evidence strong enough to justify the breakout filter?"
+            />
+          </div>
         )}
       </main>
     </>
