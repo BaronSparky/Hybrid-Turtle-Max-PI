@@ -249,6 +249,16 @@ export default function AnalystCard() {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Auto-fetch batch news on mount to check for earnings proximity warnings
+  useEffect(() => {
+    fetchBatchNews();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Derive earnings warnings from batch data
+  const earningsAlerts = batchData?.portfolio
+    .filter(p => (p.earnings.daysUntil ?? 99) <= 5)
+    .map(p => ({ ticker: p.ticker, daysUntil: p.earnings.daysUntil! })) ?? [];
+
   const handleRefresh = async () => {
     const isUp = await checkHealth();
     if (isUp) {
@@ -347,6 +357,22 @@ export default function AnalystCard() {
       {/* Body */}
       {expanded && (
         <div className="px-4 pb-4">
+          {/* ── Earnings proximity alert (auto-loaded) ── */}
+          {earningsAlerts.length > 0 && (
+            <div className="mb-3 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-xs text-amber-400 flex items-start gap-2">
+              <span className="mt-0.5">⚠️</span>
+              <div>
+                <span className="font-semibold">Earnings Event Risk: </span>
+                {earningsAlerts.map((a, i) => (
+                  <span key={a.ticker}>
+                    {i > 0 && ', '}
+                    <span className="font-semibold">{a.ticker}</span> ({a.daysUntil}d)
+                  </span>
+                ))}
+                <span className="text-amber-400/70"> — consider deferring new entries</span>
+              </div>
+            </div>
+          )}
           {/* Loading health */}
           {state === 'loading-health' && (
             <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">

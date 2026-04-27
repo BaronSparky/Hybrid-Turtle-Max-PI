@@ -472,20 +472,13 @@ async function cmdAnalyst(): Promise<CommandResponse> {
     }
 
     // Strip markdown bold/italic for Telegram HTML and convert
-    const cleaned = result.response
-      .replace(/^⚠️ \*\*Advisory only\*\*.*\n\n/m, '') // Remove disclaimer prefix (we add our own)
+    const cleaned = escapeHtml(
+      result.response.replace(/^⚠️ \*\*Advisory only\*\*.*\n\n/m, '')
+    )
       .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
-      .replace(/\*(.+?)\*/g, '<i>$1</i>')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      // Re-apply our HTML tags after escaping
-      .replace(/&lt;b&gt;/g, '<b>')
-      .replace(/&lt;\/b&gt;/g, '</b>')
-      .replace(/&lt;i&gt;/g, '<i>')
-      .replace(/&lt;\/i&gt;/g, '</i>');
+      .replace(/\*(.+?)\*/g, '<i>$1</i>');
 
-    const header = `🤖 <b>AI Analyst</b> (${result.model || 'unknown'}, ${((result.durationMs || 0) / 1000).toFixed(0)}s)\n<i>Advisory only — verify against dashboard</i>\n\n`;
+    const header = `🤖 <b>AI Analyst</b> (${escapeHtml(result.model || 'unknown')}, ${((result.durationMs || 0) / 1000).toFixed(0)}s)\n<i>Advisory only — verify against dashboard</i>\n\n`;
 
     return {
       text: header + cleaned,
@@ -556,19 +549,13 @@ async function cmdAsk(rawText: string): Promise<CommandResponse> {
 
     // Safety check
     const safety = checkResponseSafety(result.response);
-    const answer = safety.cleaned
-      .replace(/^⚠️ \*\*Advisory only\*\*.*\n\n/m, '')
+    const answer = escapeHtml(
+      safety.cleaned.replace(/^⚠️ \*\*Advisory only\*\*.*\n\n/m, '')
+    )
       .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
-      .replace(/\*(.+?)\*/g, '<i>$1</i>')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/&lt;b&gt;/g, '<b>')
-      .replace(/&lt;\/b&gt;/g, '</b>')
-      .replace(/&lt;i&gt;/g, '<i>')
-      .replace(/&lt;\/i&gt;/g, '</i>');
+      .replace(/\*(.+?)\*/g, '<i>$1</i>');
 
-    const header = `🤖 <b>AI Analyst</b> (${health.selectedModel})\n<i>Advisory only — verify against dashboard</i>\n\n<b>Q:</b> ${escapeHtml(question)}\n\n`;
+    const header = `🤖 <b>AI Analyst</b> (${escapeHtml(health.selectedModel)})\n<i>Advisory only — verify against dashboard</i>\n\n<b>Q:</b> ${escapeHtml(question)}\n\n`;
 
     return {
       text: header + answer,

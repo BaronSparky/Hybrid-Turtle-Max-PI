@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { ArrowDown, ArrowUp } from 'lucide-react';
 import { cn, formatPrice } from '@/lib/utils';
+import CandidateExplainButton from './CandidateExplainButton';
 import type { CandidateListView } from '../../../packages/signals/src';
 
 type SortBy = CandidateListView['sortBy'];
@@ -56,12 +57,17 @@ export default function CandidateRankingsTable({ view }: { view: CandidateListVi
               ))}
               <th>Reasons</th>
               <th>Warnings</th>
+              <th className="text-center">AI</th>
             </tr>
           </thead>
           <tbody>
             {view.items.map((candidate) => (
               <tr key={candidate.symbol}>
-                <td className="font-semibold text-primary-400">{candidate.symbol}</td>
+                <td className="font-semibold text-primary-400">
+                  <Link href={`/trade-pulse/${candidate.symbol}`} className="hover:underline">
+                    {candidate.symbol}
+                  </Link>
+                </td>
                 <td>
                   <span
                     className={cn(
@@ -99,6 +105,9 @@ export default function CandidateRankingsTable({ view }: { view: CandidateListVi
                   ) : (
                     <span className="text-sm text-muted-foreground">None</span>
                   )}
+                </td>
+                <td className="text-center">
+                  <CandidateExplainButton ticker={candidate.symbol} />
                 </td>
               </tr>
             ))}
