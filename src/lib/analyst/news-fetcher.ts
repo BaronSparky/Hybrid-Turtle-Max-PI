@@ -134,3 +134,26 @@ export async function fetchNewsContext(ticker: string, newsCount: number = DEFAU
     warnings,
   };
 }
+
+/**
+ * Fetch news + earnings for multiple tickers in parallel.
+ * Concurrency is capped to avoid hammering Yahoo.
+ * Always resolves — individual ticker failures are captured in their own `warnings`.
+ */
+export async function fetchBatchNewsContext(
+  tickers: string[],
+  newsCount: number = 3
+): Promise<NewsContext[]> {
+  const CONCURRENCY = 4;
+  const results: NewsContext[] = [];
+
+  for (let i = 0; i < tickers.length; i += CONCURRENCY) {
+    const batch = tickers.slice(i, i + CONCURRENCY);
+    const batchResults = await Promise.all(
+      batch.map(ticker => fetchNewsContext(ticker, newsCount))
+    );
+    results.push(...batchResults);
+  }
+
+  return results;
+}

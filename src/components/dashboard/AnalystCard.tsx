@@ -38,6 +38,14 @@ export default function AnalystCard() {
   const [elapsedSec, setElapsedSec] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
 
+  // ── News types ──
+  interface TickerNewsItem {
+    ticker: string;
+    headlines: Array<{ title: string; publisher: string; ageHours: number; link: string; publishedAt: string }>;
+    earnings: { nextEarningsDate: string | null; daysUntil: number | null; isEstimate: boolean };
+    warnings: string[];
+  }
+
   // ── News lookup state ──
   const [newsTicker, setNewsTicker] = useState('');
   const [newsLoading, setNewsLoading] = useState(false);
@@ -50,6 +58,35 @@ export default function AnalystCard() {
   } | null>(null);
   const [newsError, setNewsError] = useState<string | null>(null);
   const [showNews, setShowNews] = useState(false);
+
+  // ── Auto-batch news state ──
+  const [batchLoading, setBatchLoading] = useState(false);
+  const [batchData, setBatchData] = useState<{
+    portfolio: TickerNewsItem[];
+    candidates: TickerNewsItem[];
+    fetchedAt: string;
+  } | null>(null);
+  const [batchError, setBatchError] = useState<string | null>(null);
+  const batchFetchedRef = useRef(false);
+
+  const fetchBatchNews = useCallback(async () => {
+    setBatchLoading(true);
+    setBatchError(null);
+    try {
+      const res = await fetch('/api/analyst/news-batch?topN=5');
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setBatchError(body?.error?.message || `Error ${res.status}`);
+        return;
+      }
+      const data = await res.json();
+      setBatchData(data);
+    } catch (err) {
+      setBatchError(err instanceof Error ? err.message : 'Batch news fetch failed');
+    } finally {
+      setBatchLoading(false);
+    }
+  }, []);
 
   const fetchNews = useCallback(async (ticker: string) => {
     if (!ticker.trim()) return;
@@ -374,7 +411,14 @@ export default function AnalystCard() {
           {/* ── News & Catalyst Lookup ── */}
           <div className="mt-3 pt-3 border-t border-border/50">
             <button
-              onClick={() => setShowNews(!showNews)}
+              onClick={() => {
+                const next = !showNews;
+                setShowNews(next);
+                if (next && !batchData && !batchLoading && !batchFetchedRef.current) {
+                  batchFetchedRef.current = true;
+                  fetchBatchNews();
+                }
+              }}
               className="flex items-center gap-1.5 text-xs font-medium text-violet-400 hover:text-violet-300 transition-colors"
             >
               <Newspaper className="w-3.5 h-3.5" />
@@ -383,93 +427,200 @@ export default function AnalystCard() {
             </button>
 
             {showNews && (
-              <div className="mt-2 space-y-2">
-                {/* Ticker input */}
-                <form
-                  onSubmit={(e) => { e.preventDefault(); fetchNews(newsTicker); }}
-                  className="flex gap-1.5"
-                >
-                  <input
-                    type="text"
-                    value={newsTicker}
-                    onChange={(e) => setNewsTicker(e.target.value.toUpperCase())}
-                    placeholder="Ticker, e.g. AAPL"
-                    maxLength={10}
-                    className="flex-1 px-2.5 py-1.5 text-xs rounded-md bg-surface-2 border border-border text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-violet-500/50"
-                  />
-                  <button
-                    type="submit"
-                    disabled={newsLoading || !newsTicker.trim()}
-                    className="px-2.5 py-1.5 rounded-md bg-violet-500/20 border border-violet-500/30 text-violet-400 text-xs font-medium hover:bg-violet-500/30 disabled:opacity-40 transition-colors flex items-center gap-1"
-                  >
-                    {newsLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
-                    Check
-                  </button>
-                </form>
-
-                {/* News error */}
-                {newsError && (
-                  <p className="text-xs text-loss">{newsError}</p>
+              <div className="mt-2 space-y-3">
+                {/* ── Auto-loaded batch news ── */}
+                {batchLoading && (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-violet-400" />
+                    Loading news for portfolio &amp; top candidates…
+                  </div>
                 )}
 
-                {/* News results */}
-                {newsData && (
-                  <div className="space-y-2">
-                    {/* Earnings */}
-                    <div className="px-2.5 py-2 rounded-md bg-surface-2 border border-border">
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Earnings</p>
-                      {newsData.earnings.nextEarningsDate ? (
-                        <p className={`text-xs ${(newsData.earnings.daysUntil ?? 99) <= 10 ? 'text-amber-400 font-semibold' : 'text-foreground/80'}`}>
-                          {new Date(newsData.earnings.nextEarningsDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                          {' '}({newsData.earnings.daysUntil} days)
-                          {(newsData.earnings.daysUntil ?? 99) <= 10 && ' ⚠️ EVENT RISK'}
-                          {newsData.earnings.isEstimate && ' (estimated)'}
-                        </p>
-                      ) : (
-                        <p className="text-xs text-muted-foreground">No earnings date announced</p>
-                      )}
-                    </div>
+                {batchError && (
+                  <div className="text-xs text-loss">
+                    {batchError}
+                    <button onClick={fetchBatchNews} className="ml-2 underline text-loss/80 hover:text-loss">Retry</button>
+                  </div>
+                )}
 
-                    {/* Headlines */}
-                    <div className="px-2.5 py-2 rounded-md bg-surface-2 border border-border">
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Recent Headlines</p>
-                      {newsData.headlines.length > 0 ? (
-                        <ul className="space-y-1.5">
-                          {newsData.headlines.map((h, i) => (
-                            <li key={i} className="text-xs leading-snug">
-                              <a href={h.link} target="_blank" rel="noopener noreferrer" className="text-foreground/80 hover:text-violet-400 transition-colors">
-                                {h.title}
-                              </a>
-                              <span className="text-muted-foreground/60 ml-1">
-                                — {h.publisher}, {h.ageHours < 1 ? '<1h' : `${Math.round(h.ageHours)}h`} ago
-                              </span>
-                            </li>
+                {batchData && (
+                  <div className="space-y-3">
+                    {/* Portfolio stocks */}
+                    {batchData.portfolio.length > 0 && (
+                      <div>
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">📊 Portfolio Holdings</p>
+                        <div className="space-y-2">
+                          {batchData.portfolio.map((item) => (
+                            <TickerNewsRow key={item.ticker} item={item} />
                           ))}
-                        </ul>
-                      ) : (
-                        <p className="text-xs text-muted-foreground">No recent headlines</p>
-                      )}
-                    </div>
-
-                    {/* LLM Summary */}
-                    {newsData.summary?.available && newsData.summary.response && (
-                      <div className="px-2.5 py-2 rounded-md bg-violet-500/5 border border-violet-500/20">
-                        <p className="text-[10px] font-semibold text-violet-400/70 uppercase tracking-wide mb-1">AI Context Review</p>
-                        <p className="text-xs text-foreground/80 leading-relaxed whitespace-pre-wrap">{newsData.summary.response}</p>
+                        </div>
                       </div>
                     )}
 
-                    {/* Source warnings */}
-                    {newsData.sourceWarnings.length > 0 && (
-                      <p className="text-[10px] text-amber-400/60">{newsData.sourceWarnings.join('; ')}</p>
+                    {/* Top candidates */}
+                    {batchData.candidates.length > 0 && (
+                      <div>
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">🎯 Top Scan Candidates</p>
+                        <div className="space-y-2">
+                          {batchData.candidates.map((item) => (
+                            <TickerNewsRow key={item.ticker} item={item} />
+                          ))}
+                        </div>
+                      </div>
                     )}
+
+                    {batchData.portfolio.length === 0 && batchData.candidates.length === 0 && (
+                      <p className="text-xs text-muted-foreground">No open positions or ready candidates to check.</p>
+                    )}
+
+                    <div className="flex items-center justify-between">
+                      <p className="text-[10px] text-muted-foreground/50">
+                        Fetched {new Date(batchData.fetchedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                      <button
+                        onClick={fetchBatchNews}
+                        disabled={batchLoading}
+                        className="text-[10px] text-violet-400/60 hover:text-violet-400 transition-colors disabled:opacity-40"
+                      >
+                        Refresh
+                      </button>
+                    </div>
                   </div>
                 )}
+
+                {/* ── Manual single-ticker lookup ── */}
+                <div className="pt-2 border-t border-border/30">
+                  <p className="text-[10px] text-muted-foreground mb-1.5">Or check a specific ticker:</p>
+                  <form
+                    onSubmit={(e) => { e.preventDefault(); fetchNews(newsTicker); }}
+                    className="flex gap-1.5"
+                  >
+                    <input
+                      type="text"
+                      value={newsTicker}
+                      onChange={(e) => setNewsTicker(e.target.value.toUpperCase())}
+                      placeholder="Ticker, e.g. AAPL"
+                      maxLength={10}
+                      className="flex-1 px-2.5 py-1.5 text-xs rounded-md bg-surface-2 border border-border text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-violet-500/50"
+                    />
+                    <button
+                      type="submit"
+                      disabled={newsLoading || !newsTicker.trim()}
+                      className="px-2.5 py-1.5 rounded-md bg-violet-500/20 border border-violet-500/30 text-violet-400 text-xs font-medium hover:bg-violet-500/30 disabled:opacity-40 transition-colors flex items-center gap-1"
+                    >
+                      {newsLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
+                      Check
+                    </button>
+                  </form>
+
+                  {newsError && <p className="text-xs text-loss mt-1">{newsError}</p>}
+
+                  {newsData && (
+                    <div className="mt-2 space-y-2">
+                      <div className="px-2.5 py-2 rounded-md bg-surface-2 border border-border">
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+                          {newsData.ticker} — Earnings
+                        </p>
+                        {newsData.earnings.nextEarningsDate ? (
+                          <p className={`text-xs ${(newsData.earnings.daysUntil ?? 99) <= 10 ? 'text-amber-400 font-semibold' : 'text-foreground/80'}`}>
+                            {new Date(newsData.earnings.nextEarningsDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            {' '}({newsData.earnings.daysUntil} days)
+                            {(newsData.earnings.daysUntil ?? 99) <= 10 && ' ⚠️ EVENT RISK'}
+                            {newsData.earnings.isEstimate && ' (estimated)'}
+                          </p>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">No earnings date announced</p>
+                        )}
+                      </div>
+                      <div className="px-2.5 py-2 rounded-md bg-surface-2 border border-border">
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Headlines</p>
+                        {newsData.headlines.length > 0 ? (
+                          <ul className="space-y-1.5">
+                            {newsData.headlines.map((h, i) => (
+                              <li key={i} className="text-xs leading-snug">
+                                <a href={h.link} target="_blank" rel="noopener noreferrer" className="text-foreground/80 hover:text-violet-400 transition-colors">
+                                  {h.title}
+                                </a>
+                                <span className="text-muted-foreground/60 ml-1">
+                                  — {h.publisher}, {h.ageHours < 1 ? '<1h' : `${Math.round(h.ageHours)}h`} ago
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">No recent headlines</p>
+                        )}
+                      </div>
+                      {newsData.summary?.available && newsData.summary.response && (
+                        <div className="px-2.5 py-2 rounded-md bg-violet-500/5 border border-violet-500/20">
+                          <p className="text-[10px] font-semibold text-violet-400/70 uppercase tracking-wide mb-1">AI Context Review</p>
+                          <p className="text-xs text-foreground/80 leading-relaxed whitespace-pre-wrap">{newsData.summary.response}</p>
+                        </div>
+                      )}
+                      {newsData.sourceWarnings.length > 0 && (
+                        <p className="text-[10px] text-amber-400/60">{newsData.sourceWarnings.join('; ')}</p>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
         </div>
       )}
     </section>
+  );
+}
+
+// ── Compact row showing earnings + top headline for a single ticker ──
+
+function TickerNewsRow({ item }: {
+  item: {
+    ticker: string;
+    headlines: Array<{ title: string; publisher: string; ageHours: number; link: string }>;
+    earnings: { nextEarningsDate: string | null; daysUntil: number | null; isEstimate: boolean };
+    warnings: string[];
+  };
+}) {
+  const earningsClose = (item.earnings.daysUntil ?? 99) <= 10;
+
+  return (
+    <div className={`px-2.5 py-2 rounded-md border text-xs ${
+      earningsClose
+        ? 'bg-amber-500/5 border-amber-500/30'
+        : 'bg-surface-2 border-border'
+    }`}>
+      <div className="flex items-center justify-between mb-1">
+        <span className="font-semibold text-foreground">{item.ticker}</span>
+        {item.earnings.nextEarningsDate ? (
+          <span className={`${earningsClose ? 'text-amber-400 font-semibold' : 'text-muted-foreground'}`}>
+            📅 {new Date(item.earnings.nextEarningsDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+            {' '}({item.earnings.daysUntil}d)
+            {earningsClose && ' ⚠️'}
+          </span>
+        ) : (
+          <span className="text-muted-foreground/50">No earnings date</span>
+        )}
+      </div>
+      {item.headlines.length > 0 ? (
+        <ul className="space-y-0.5">
+          {item.headlines.slice(0, 2).map((h, i) => (
+            <li key={i} className="leading-snug text-foreground/70 truncate">
+              <a href={h.link} target="_blank" rel="noopener noreferrer" className="hover:text-violet-400 transition-colors">
+                {h.title}
+              </a>
+              <span className="text-muted-foreground/40 ml-1">
+                {h.ageHours < 1 ? '<1h' : `${Math.round(h.ageHours)}h`}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-muted-foreground/50">No recent headlines</p>
+      )}
+      {item.warnings.length > 0 && (
+        <p className="text-[10px] text-amber-400/50 mt-0.5">{item.warnings.join('; ')}</p>
+      )}
+    </div>
   );
 }
