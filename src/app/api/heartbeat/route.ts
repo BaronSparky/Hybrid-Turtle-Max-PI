@@ -4,8 +4,26 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { apiError } from '@/lib/api-response';
 
-export async function GET(_request: NextRequest) {
+export async function GET(request: NextRequest) {
   try {
+    // Support ?type= filter for specific heartbeat types (e.g. weekly-digest)
+    const typeFilter = request.nextUrl.searchParams.get('type');
+
+    if (typeFilter) {
+      const heartbeats = await prisma.heartbeat.findMany({
+        where: { details: { contains: typeFilter } },
+        orderBy: { timestamp: 'desc' },
+        take: 1,
+      });
+      return NextResponse.json({
+        heartbeats: heartbeats.map(h => ({
+          timestamp: h.timestamp,
+          status: h.status,
+          details: h.details,
+        })),
+      });
+    }
+
     const heartbeat = await prisma.heartbeat.findFirst({
       orderBy: { timestamp: 'desc' },
     });

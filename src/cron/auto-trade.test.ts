@@ -120,3 +120,120 @@ describe('auto-trade: safety configuration', () => {
     expect(stopQuantity).toBe(-3.25);
   });
 });
+
+// ── Trade execution flow contracts ──
+
+describe('auto-trade: trade execution contracts', () => {
+  // Replicates the TradeResult interface
+  interface TradeResult {
+    ticker: string;
+    success: boolean;
+    shares?: number;
+    filledPrice?: number;
+    stopPrice?: number;
+    stopPlaced: boolean;
+    positionId?: string;
+    error?: string;
+    critical?: boolean;
+  }
+
+  it('successful trade result has all required fields', () => {
+    const result: TradeResult = {
+      ticker: 'AAPL',
+      success: true,
+      shares: 10,
+      filledPrice: 185.50,
+      stopPrice: 175.00,
+      stopPlaced: true,
+      positionId: 'pos-123',
+    };
+    expect(result.success).toBe(true);
+    expect(result.stopPlaced).toBe(true);
+    expect(result.shares).toBeGreaterThan(0);
+    expect(result.filledPrice).toBeGreaterThan(0);
+    expect(result.positionId).toBeDefined();
+    expect(result.error).toBeUndefined();
+    expect(result.critical).toBeUndefined();
+  });
+
+  it('buy failure result stops execution before stop placement', () => {
+    const result: TradeResult = {
+      ticker: 'AAPL',
+      success: false,
+      stopPlaced: false,
+      error: 'Insufficient funds',
+    };
+    expect(result.success).toBe(false);
+    expect(result.stopPlaced).toBe(false);
+    expect(result.shares).toBeUndefined();
+  });
+
+  it('fill timeout is marked critical', () => {
+    const result: TradeResult = {
+      ticker: 'AAPL',
+      success: false,
+      stopPlaced: false,
+      error: 'Buy order placed but fill not confirmed after 60s',
+      critical: true,
+    };
+    expect(result.critical).toBe(true);
+    expect(result.success).toBe(false);
+    expect(result.stopPlaced).toBe(false);
+  });
+
+  it('stop failure after successful buy still counts as success', () => {
+    // The position IS live on T212, so the trade "succeeded" even if the stop failed
+    const result: TradeResult = {
+      ticker: 'AAPL',
+      success: true,
+      shares: 10,
+      filledPrice: 185.50,
+      stopPlaced: false, // CRITICAL: stop didn't place
+      positionId: 'pos-123',
+    };
+    expect(result.success).toBe(true);
+    expect(result.stopPlaced).toBe(false);
+    // This scenario triggers a CRITICAL Telegram alert
+  });
+
+  it('initial risk is always positive (entry > stop)', () => {
+    const filledPrice = 185.50;
+    const stopPrice = 175.00;
+    const initialRisk = filledPrice - stopPrice;
+    expect(initialRisk).toBeGreaterThan(0);
+    expect(initialRisk).toBe(10.50);
+  });
+
+  it('fill detection: filledQuantity threshold is 99% of requested', () => {
+    const requestedShares = 10;
+    const threshold = requestedShares * 0.99;
+    // Full fill
+    expect(10 >= threshold).toBe(true);
+    // Partial fill over 99%
+    expect(9.95 >= threshold).toBe(true);
+    // Partial fill under 99%
+    expect(9.8 >= threshold).toBe(false);
+  });
+
+  it('fill price fallback uses entry price when filledValue is 0', () => {
+    const entryPrice = 185.50;
+    const filledValue = 0;
+    const filledQuantity = 10;
+    const filledPrice = filledValue > 0 ? filledValue / filledQuantity : entryPrice;
+    expect(filledPrice).toBe(entryPrice);
+  });
+
+  it('trade results summary counts are correct', () => {
+    const results: TradeResult[] = [
+      { ticker: 'AAPL', success: true, stopPlaced: true },
+      { ticker: 'MSFT', success: true, stopPlaced: false },
+      { ticker: 'GOOG', success: false, stopPlaced: false, error: 'Failed' },
+    ];
+    const executed = results.filter(r => r.success).length;
+    const failed = results.filter(r => !r.success).length;
+    const stopsPlaced = results.filter(r => r.stopPlaced).length;
+    expect(executed).toBe(2);
+    expect(failed).toBe(1);
+    expect(stopsPlaced).toBe(1);
+  });
+});

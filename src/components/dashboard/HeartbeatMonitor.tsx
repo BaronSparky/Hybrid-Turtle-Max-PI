@@ -19,10 +19,11 @@ export default function HeartbeatMonitor() {
   const { lastHeartbeat, heartbeatOk, heartbeatStatus } = useStore();
   const [steps, setSteps] = useState<NightlyStepInfo[] | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const [lastDigest, setLastDigest] = useState<string | null>(null);
 
   const isPartial = heartbeatOk && heartbeatStatus === 'PARTIAL';
 
-  // Fetch nightly step details from latest heartbeat
+  // Fetch nightly step details + weekly digest status
   useEffect(() => {
     apiRequest<{ details?: string; status?: string }>('/api/heartbeat')
       .then(data => {
@@ -35,6 +36,15 @@ export default function HeartbeatMonitor() {
           } catch {
             // Not all heartbeats have step details
           }
+        }
+      })
+      .catch(() => {});
+
+    // Check for latest weekly digest heartbeat
+    apiRequest<{ heartbeats?: Array<{ details: string; timestamp: string }> }>('/api/heartbeat?type=weekly-digest')
+      .then(data => {
+        if (data?.heartbeats?.[0]?.timestamp) {
+          setLastDigest(data.heartbeats[0].timestamp);
         }
       })
       .catch(() => {});
@@ -119,6 +129,14 @@ export default function HeartbeatMonitor() {
               </span>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Weekly digest status */}
+      {lastDigest && (
+        <div className="mt-2 pt-2 border-t border-border/30 text-[11px] text-muted-foreground flex items-center gap-1.5">
+          <CheckCircle className="w-3 h-3 text-primary-400" />
+          Weekly digest: {timeSince(new Date(lastDigest))}
         </div>
       )}
     </div>
