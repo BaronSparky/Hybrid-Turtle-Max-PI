@@ -11,7 +11,7 @@
  */
 
 import { useState } from 'react';
-import { BrainCircuit, Loader2 } from 'lucide-react';
+import { BrainCircuit, Loader2, ThumbsUp, ThumbsDown } from 'lucide-react';
 
 interface AnalyticsExplainCardProps {
   title: string;
@@ -24,6 +24,7 @@ export default function AnalyticsExplainCard({ title, contextSummary, question }
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modelUsed, setModelUsed] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
 
   const handleExplain = async () => {
     setLoading(true);
@@ -96,8 +97,34 @@ export default function AnalyticsExplainCard({ title, contextSummary, question }
       {explanation && (
         <div className="space-y-2">
           <div className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">{explanation}</div>
-          <div className="text-[10px] text-amber-400/70">⚠️ Advisory only — verify against the data tables above.</div>
-          <button onClick={handleExplain} className="text-[10px] text-violet-400/60 hover:text-violet-400 transition-colors">Regenerate</button>
+          <div className="flex items-center justify-between">
+            <div className="text-[10px] text-amber-400/70">⚠️ Advisory only — verify against the data tables above.</div>
+            <div className="flex items-center gap-1">
+              {feedback ? (
+                <span className="text-[10px] text-muted-foreground">
+                  {feedback === 'up' ? '👍 Helpful' : '👎 Not helpful'}
+                </span>
+              ) : (
+                <>
+                  <button
+                    onClick={() => { setFeedback('up'); try { const key = `analyst-fb-${title}`; const data = JSON.parse(localStorage.getItem('analyst-feedback') || '{}'); data[key] = { rating: 'up', at: Date.now() }; localStorage.setItem('analyst-feedback', JSON.stringify(data)); } catch {} }}
+                    className="p-1 rounded hover:bg-emerald-500/15 text-muted-foreground/50 hover:text-emerald-400 transition-colors"
+                    title="Helpful"
+                  >
+                    <ThumbsUp className="w-3 h-3" />
+                  </button>
+                  <button
+                    onClick={() => { setFeedback('down'); try { const key = `analyst-fb-${title}`; const data = JSON.parse(localStorage.getItem('analyst-feedback') || '{}'); data[key] = { rating: 'down', at: Date.now() }; localStorage.setItem('analyst-feedback', JSON.stringify(data)); } catch {} }}
+                    className="p-1 rounded hover:bg-red-500/15 text-muted-foreground/50 hover:text-red-400 transition-colors"
+                    title="Not helpful"
+                  >
+                    <ThumbsDown className="w-3 h-3" />
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+          <button onClick={() => { setFeedback(null); handleExplain(); }} className="text-[10px] text-violet-400/60 hover:text-violet-400 transition-colors">Regenerate</button>
         </div>
       )}
     </div>

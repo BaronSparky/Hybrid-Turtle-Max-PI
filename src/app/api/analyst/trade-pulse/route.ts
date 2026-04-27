@@ -12,7 +12,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { generateTradePulseExplanation } from '@/lib/analyst/analyst-service';
+import { generateTradePulseExplanation, streamTradePulseExplanation } from '@/lib/analyst/analyst-service';
 import { fetchNewsContext } from '@/lib/analyst/news-fetcher';
 import { apiError } from '@/lib/api-response';
 import type { TradePulseExplainData } from '@/lib/analyst/prompt-builder';
@@ -20,7 +20,7 @@ import type { TradePulseExplainData } from '@/lib/analyst/prompt-builder';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
-    const { ticker, score, grade, decision, signals, concerns, opportunities, model } = body as {
+    const { ticker, score, grade, decision, signals, concerns, opportunities, model, stream } = body as {
       ticker?: string;
       score?: number;
       grade?: string;
@@ -29,6 +29,7 @@ export async function POST(request: NextRequest) {
       concerns?: string[];
       opportunities?: string[];
       model?: string;
+      stream?: boolean;
     };
 
     if (!ticker || typeof ticker !== 'string') {
@@ -64,6 +65,30 @@ export async function POST(request: NextRequest) {
       headlines,
       earnings,
     };
+
+    // Streaming mode: return SSE stream
+    if (stream) {
+      const streamResult = await streamTradePulseExplanation(data, model);
+      if (!streamResult.available || !streamResult.stream) {
+        return NextResponse.json({
+          available: false,
+          error: streamResult.error || 'Stream unavailable',
+          ticker,
+          grade,
+          earnings,
+        });
+      }
+      return new Response(streamResult.stream, {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+          'X-Ticker': ticker,
+          'X-Grade': grade,
+          'X-Model': streamResult.model || '',
+        },
+      });
+    }
 
     const result = await generateTradePulseExplanation(data, model);
 

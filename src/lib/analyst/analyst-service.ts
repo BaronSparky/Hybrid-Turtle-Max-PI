@@ -317,6 +317,19 @@ export async function streamJournalDraft(
 }
 
 /**
+ * Streaming version of the Trade Pulse explanation pipeline.
+ */
+export async function streamTradePulseExplanation(
+  data: TradePulseExplainData,
+  preferredModel?: string
+): Promise<StreamingAnalystResult> {
+  return runStreamingPipeline(
+    () => buildTradePulseExplainPrompt(data),
+    preferredModel
+  );
+}
+
+/**
  * Core streaming pipeline: check health → build prompt → stream from Ollama.
  * Returns a ReadableStream that emits SSE-formatted chunks.
  */

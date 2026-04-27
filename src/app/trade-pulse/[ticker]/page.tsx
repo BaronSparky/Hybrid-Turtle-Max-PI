@@ -12,7 +12,7 @@
  *        Concerns before opportunities (risks first).
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Navbar from '@/components/shared/Navbar';
 import { cn } from '@/lib/utils';
@@ -259,17 +259,26 @@ export default function TradePulsePage() {
 // ── AI Explain Card ──────────────────────────────────────────
 
 function AiExplainCard({ data }: { data: TradePulseData }) {
-  const [explanation, setExplanation] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [streamedText, setStreamedText] = useState('');
+  const [streaming, setStreaming] = useState(false);
+  const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modelUsed, setModelUsed] = useState<string | null>(null);
-  const [durationSec, setDurationSec] = useState<number | null>(null);
+  const [startTime, setStartTime] = useState<number | null>(null);
   const [earnings, setEarnings] = useState<{ nextEarningsDate: string | null; daysUntil: number | null } | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const handleExplain = async () => {
-    setLoading(true);
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    setStreaming(true);
+    setDone(false);
+    setStreamedText('');
     setError(null);
-    setExplanation(null);
+    setStartTime(Date.now());
+
     try {
       const res = await fetch('/api/analyst/trade-pulse', {
         method: 'POST',
@@ -282,28 +291,68 @@ function AiExplainCard({ data }: { data: TradePulseData }) {
           signals: data.signals,
           concerns: data.concerns,
           opportunities: data.opportunities,
+          stream: true,
         }),
+        signal: controller.signal,
       });
+
+      // Check if JSON fallback (unavailable)
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const body = await res.json();
+        if (!body.available) {
+          setError('Ollama is offline. Start it with: ollama serve');
+          setStreaming(false);
+          return;
+        }
+        if (body.earnings) setEarnings(body.earnings);
+      }
+
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         setError(body?.error?.message || `Error ${res.status}`);
+        setStreaming(false);
         return;
       }
-      const result = await res.json();
-      if (!result.available) {
-        setError('Ollama is offline. Start it with: ollama serve');
-        return;
+
+      // Read earnings from headers
+      const gradeHeader = res.headers.get('X-Grade');
+      const modelHeader = res.headers.get('X-Model');
+      if (modelHeader) setModelUsed(modelHeader);
+
+      // Stream SSE tokens
+      const reader = res.body?.getReader();
+      if (!reader) { setError('No stream'); setStreaming(false); return; }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done: readerDone, value } = await reader.read();
+        if (readerDone) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const event = JSON.parse(line.slice(6)) as { type: string; text?: string; model?: string };
+            if (event.type === 'start' && event.model) setModelUsed(event.model);
+            else if (event.type === 'token' && event.text) setStreamedText(prev => prev + event.text);
+            else if (event.type === 'done') { setDone(true); setStreaming(false); return; }
+          } catch { /* skip */ }
+        }
       }
-      setExplanation(result.response);
-      setModelUsed(result.model);
-      setDurationSec(result.durationMs ? Math.round(result.durationMs / 1000) : null);
-      if (result.earnings) setEarnings(result.earnings);
+      setDone(true);
+      setStreaming(false);
     } catch (err) {
+      if ((err as Error).name === 'AbortError') return;
       setError(err instanceof Error ? err.message : 'Failed to get explanation');
-    } finally {
-      setLoading(false);
+      setStreaming(false);
     }
   };
+
+  const elapsedSec = startTime ? Math.round((Date.now() - startTime) / 1000) : null;
 
   return (
     <div className="card-surface border-l-4 border-l-violet-500/60 p-4">
@@ -316,11 +365,11 @@ function AiExplainCard({ data }: { data: TradePulseData }) {
           </span>
         </h2>
         {modelUsed && (
-          <span className="text-[10px] text-muted-foreground">{modelUsed}{durationSec ? ` · ${durationSec}s` : ''}</span>
+          <span className="text-[10px] text-muted-foreground">{modelUsed}{done && elapsedSec ? ` · ${elapsedSec}s` : ''}</span>
         )}
       </div>
 
-      {!explanation && !loading && !error && (
+      {!streamedText && !streaming && !error && (
         <div className="flex flex-col items-center py-4 gap-2">
           <p className="text-xs text-muted-foreground text-center">
             Get a plain-English explanation of this analysis — what the grade means, which signals matter, and any news context.
@@ -335,10 +384,18 @@ function AiExplainCard({ data }: { data: TradePulseData }) {
         </div>
       )}
 
-      {loading && (
-        <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
-          <Loader2 className="w-4 h-4 animate-spin text-violet-400" />
-          Generating explanation (this may take a minute on CPU)…
+      {streaming && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-violet-400" />
+            Generating explanation…
+          </div>
+          {streamedText && (
+            <div className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">
+              {streamedText}
+              <span className="inline-block w-1.5 h-4 bg-violet-400 animate-pulse ml-0.5 align-text-bottom" />
+            </div>
+          )}
         </div>
       )}
 
@@ -349,14 +406,14 @@ function AiExplainCard({ data }: { data: TradePulseData }) {
         </div>
       )}
 
-      {explanation && (
+      {done && streamedText && (
         <div className="space-y-2">
           {earnings?.nextEarningsDate && (earnings.daysUntil ?? 99) <= 10 && (
             <div className="px-2.5 py-1.5 rounded bg-amber-500/10 border border-amber-500/30 text-xs text-amber-400">
               ⚠️ Earnings in {earnings.daysUntil} days — elevated event risk
             </div>
           )}
-          <div className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">{explanation}</div>
+          <div className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">{streamedText}</div>
           <div className="text-[10px] text-amber-400/70">⚠️ Advisory only — verify against dashboard data before acting.</div>
           <button
             onClick={handleExplain}
