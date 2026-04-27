@@ -188,4 +188,56 @@ describe('scan-engine pure functions', () => {
       expect(etf).toBeGreaterThan(hedge);
     });
   });
+
+  // ── Pipeline Integration: Filter → Classify → Rank ──
+
+  describe('pipeline integration (stages 2-4)', () => {
+    it('strong CORE candidate passes filters, classifies as READY, ranks highest', () => {
+      const tech = makeTechnicals({ adx: 35, volumeRatio: 2.0, efficiency: 70, relativeStrength: 80 });
+      const price = 155; // Above MA200 (140)
+      const entryTrigger = 155; // At trigger
+
+      // Stage 2: should pass all filters
+      const filters = runTechnicalFilters(price, tech, 'CORE');
+      expect(filters.passesAll).toBe(true);
+
+      // Stage 3: at trigger → READY
+      const status = classifyCandidate(price, entryTrigger);
+      expect(status).toBe('READY');
+
+      // Stage 4: CORE + READY + high ADX = high rank
+      const score = rankCandidate('CORE', tech, status);
+      expect(score).toBeGreaterThan(70); // CORE (40) + READY (30) + ADX/vol bonuses
+    });
+
+    it('weak stock fails filters and should not reach classification', () => {
+      const tech = makeTechnicals({ adx: 10, plusDI: 8, minusDI: 20, atrPercent: 9 });
+      const price = 130; // Below MA200 (140)
+
+      const filters = runTechnicalFilters(price, tech, 'CORE');
+      expect(filters.passesAll).toBe(false);
+      // In the real pipeline, this stock would be skipped before classify/rank
+    });
+
+    it('HIGH_RISK stock with high ATR% fails even if other filters pass', () => {
+      const tech = makeTechnicals({ atrPercent: 7.5 }); // Above 7% HIGH_RISK cap
+      const filters = runTechnicalFilters(150, tech, 'HIGH_RISK');
+      expect(filters.atrPercentBelow8).toBe(false);
+      expect(filters.passesAll).toBe(false);
+    });
+
+    it('candidates rank in expected order: CORE READY > CORE WATCH > HR READY > ETF FAR', () => {
+      const tech = makeTechnicals();
+      const scores = [
+        rankCandidate('CORE', tech, 'READY'),
+        rankCandidate('CORE', tech, 'WATCH'),
+        rankCandidate('HIGH_RISK', tech, 'READY'),
+        rankCandidate('ETF', tech, 'FAR'),
+      ];
+      // Each should be strictly ordered
+      for (let i = 0; i < scores.length - 1; i++) {
+        expect(scores[i]).toBeGreaterThan(scores[i + 1]);
+      }
+    });
+  });
 });
