@@ -26,6 +26,7 @@ export type TelegramCommand =
   | '/candidates'
   | '/analyst'
   | '/ask'
+  | '/news'
   | '/help'
   | 'unknown';
 
@@ -85,6 +86,7 @@ export function parseCommand(text: string): TelegramCommand {
     case '/candidates': return '/candidates';
     case '/analyst': return '/analyst';
     case '/ask': return '/ask';
+    case '/news': return '/news';
     case '/help': case '/start': return '/help';
     default: return 'unknown';
   }
@@ -103,6 +105,7 @@ export async function handleCommand(command: TelegramCommand, rawText?: string):
       case '/candidates': return await cmdCandidates();
       case '/analyst': return await cmdAnalyst();
       case '/ask': return await cmdAsk(rawText || '');
+      case '/news': return await cmdNews(rawText || '');
       case '/help': return cmdHelp();
       case 'unknown':
       default:
@@ -435,6 +438,7 @@ function cmdHelp(): CommandResponse {
 /candidates — ready candidates
 /analyst — AI system summary (Ollama)
 /ask &lt;question&gt; — ask the AI analyst
+/news &lt;ticker&gt; — news &amp; earnings check
 /help — this message`,
     parseMode: 'HTML',
   };
@@ -574,6 +578,92 @@ async function cmdAsk(rawText: string): Promise<CommandResponse> {
     console.error('[telegram-commands] /ask error:', err);
     return {
       text: '🤖 <b>AI Analyst</b>\n\n⚠️ Error processing question. Check dashboard logs.',
+      parseMode: 'HTML',
+    };
+  }
+}
+
+// ── /news <ticker> — news headlines + earnings calendar + optional AI review ──
+
+async function cmdNews(rawText: string): Promise<CommandResponse> {
+  const ticker = rawText.replace(/^\/news\s*/i, '').trim().toUpperCase();
+  if (!ticker || !/^[A-Z0-9.\-]{1,10}$/.test(ticker)) {
+    return {
+      text: '📰 <b>News &amp; Catalyst Check</b>\n\nUsage: <code>/news AAPL</code>\n\nReturns recent headlines and next earnings date for a ticker.',
+      parseMode: 'HTML',
+    };
+  }
+
+  try {
+    const { fetchNewsContext } = await import('@/lib/analyst/news-fetcher');
+
+    const news = await fetchNewsContext(ticker, 5);
+
+    // Earnings section
+    let earningsLine: string;
+    if (news.earnings.nextEarningsDate) {
+      const dateStr = new Date(news.earnings.nextEarningsDate).toLocaleDateString('en-GB', {
+        day: 'numeric', month: 'short', year: 'numeric',
+      });
+      const warn = (news.earnings.daysUntil ?? 99) <= 10 ? ' ⚠️ EVENT RISK' : '';
+      const est = news.earnings.isEstimate ? ' (estimated)' : '';
+      earningsLine = `📅 Earnings: <b>${dateStr}</b> (${news.earnings.daysUntil} days)${warn}${est}`;
+    } else {
+      earningsLine = '📅 Earnings: not announced';
+    }
+
+    // Headlines section
+    let headlinesBlock: string;
+    if (news.headlines.length > 0) {
+      headlinesBlock = news.headlines.map((h) => {
+        const age = h.ageHours < 1 ? '<1h' : `${Math.round(h.ageHours)}h`;
+        return `• ${escapeHtml(h.title)}\n  <i>${escapeHtml(h.publisher)}, ${age} ago</i>`;
+      }).join('\n');
+    } else {
+      headlinesBlock = '<i>No recent headlines</i>';
+    }
+
+    // Optional LLM summary
+    let summaryBlock = '';
+    try {
+      const { checkOllamaHealth } = await import('@/lib/analyst/ollama-client');
+      const health = await checkOllamaHealth();
+      if (health.available) {
+        const { generateNewsContextSummary } = await import('@/lib/analyst/analyst-service');
+        const result = await generateNewsContextSummary({
+          ticker,
+          headlines: news.headlines.map(h => ({
+            title: h.title,
+            publisher: h.publisher,
+            publishedAt: h.publishedAt,
+            ageHours: h.ageHours,
+          })),
+          earnings: news.earnings,
+        });
+        if (result.available && result.response) {
+          const cleaned = result.response
+            .replace(/^⚠️ \*\*Advisory only\*\*.*\n\n/m, '')
+            .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+            .replace(/\*(.+?)\*/g, '<i>$1</i>');
+          summaryBlock = `\n\n🤖 <b>AI Review</b> (${result.model || 'unknown'})\n${cleaned}`;
+        }
+      }
+    } catch {
+      // LLM summary is best-effort — skip if Ollama is offline
+    }
+
+    const warningsLine = news.warnings.length > 0
+      ? `\n\n⚠️ ${escapeHtml(news.warnings.join('; '))}`
+      : '';
+
+    return {
+      text: `📰 <b>News: ${escapeHtml(ticker)}</b>\n\n${earningsLine}\n\n<b>Headlines</b>\n${headlinesBlock}${summaryBlock}${warningsLine}\n\n<i>Advisory only — verify before acting</i>`,
+      parseMode: 'HTML',
+    };
+  } catch (err) {
+    console.error(`[telegram-commands] /news error for ${ticker}:`, err);
+    return {
+      text: `📰 <b>News: ${escapeHtml(ticker)}</b>\n\n⚠️ Error fetching news. Yahoo may be unreachable.`,
       parseMode: 'HTML',
     };
   }
