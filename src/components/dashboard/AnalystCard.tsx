@@ -293,7 +293,7 @@ export default function AnalystCard() {
           {health?.available && (health?.models?.length ?? 0) > 1 && (
             <button
               onClick={() => setShowModelPicker(!showModelPicker)}
-              className="p-1.5 rounded-md hover:bg-surface-2 transition-colors text-muted-foreground hover:text-foreground"
+              className="p-1.5 rounded-md hover:bg-navy-600 transition-colors text-muted-foreground hover:text-foreground"
               title="Choose model"
             >
               <Settings2 className="w-3.5 h-3.5" />
@@ -304,7 +304,7 @@ export default function AnalystCard() {
           <button
             onClick={handleRefresh}
             disabled={state === 'loading-health' || state === 'streaming'}
-            className="p-1.5 rounded-md hover:bg-surface-2 transition-colors text-muted-foreground hover:text-foreground disabled:opacity-40"
+            className="p-1.5 rounded-md hover:bg-navy-600 transition-colors text-muted-foreground hover:text-foreground disabled:opacity-40"
             title="Refresh summary"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${(state === 'loading-health' || state === 'streaming') ? 'animate-spin' : ''}`} />
@@ -313,7 +313,7 @@ export default function AnalystCard() {
           {/* Expand/collapse */}
           <button
             onClick={() => setExpanded(!expanded)}
-            className="p-1.5 rounded-md hover:bg-surface-2 transition-colors text-muted-foreground hover:text-foreground"
+            className="p-1.5 rounded-md hover:bg-navy-600 transition-colors text-muted-foreground hover:text-foreground"
           >
             {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
           </button>
@@ -322,7 +322,7 @@ export default function AnalystCard() {
 
       {/* Model picker dropdown */}
       {showModelPicker && health?.models && (
-        <div className="mx-4 mb-2 p-2 rounded-lg bg-surface-2 border border-border">
+        <div className="mx-4 mb-2 p-2 rounded-lg bg-navy-600 border border-border">
           <p className="text-xs text-muted-foreground mb-1.5">Select model:</p>
           <div className="flex flex-wrap gap-1.5">
             {health.models.map((m) => (
@@ -332,7 +332,7 @@ export default function AnalystCard() {
                 className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
                   m.name === selectedModel
                     ? 'bg-violet-500/25 text-violet-300 border border-violet-500/40'
-                    : 'bg-surface-3 text-muted-foreground border border-border hover:border-violet-500/30 hover:text-foreground'
+                    : 'bg-navy-500 text-muted-foreground border border-border hover:border-violet-500/30 hover:text-foreground'
                 }`}
               >
                 {m.name}
@@ -358,7 +358,7 @@ export default function AnalystCard() {
 
           {/* Offline */}
           {state === 'offline' && (
-            <div className="flex items-center gap-3 py-4 px-3 rounded-lg bg-surface-2 border border-border">
+            <div className="flex items-center gap-3 py-4 px-3 rounded-lg bg-navy-600 border border-border">
               <WifiOff className="w-5 h-5 text-muted-foreground flex-shrink-0" />
               <div>
                 <p className="text-sm text-muted-foreground">Analyst offline</p>
@@ -501,7 +501,7 @@ export default function AnalystCard() {
                       onChange={(e) => setNewsTicker(e.target.value.toUpperCase())}
                       placeholder="Ticker, e.g. AAPL"
                       maxLength={10}
-                      className="flex-1 px-2.5 py-1.5 text-xs rounded-md bg-surface-2 border border-border text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-violet-500/50"
+                      className="flex-1 px-2.5 py-1.5 text-xs rounded-md bg-navy-600 border border-border text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-violet-500/50"
                     />
                     <button
                       type="submit"
@@ -517,7 +517,7 @@ export default function AnalystCard() {
 
                   {newsData && (
                     <div className="mt-2 space-y-2">
-                      <div className="px-2.5 py-2 rounded-md bg-surface-2 border border-border">
+                      <div className="px-2.5 py-2 rounded-md bg-navy-600 border border-border">
                         <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">
                           {newsData.ticker} — Earnings
                         </p>
@@ -532,7 +532,7 @@ export default function AnalystCard() {
                           <p className="text-xs text-muted-foreground">No earnings date announced</p>
                         )}
                       </div>
-                      <div className="px-2.5 py-2 rounded-md bg-surface-2 border border-border">
+                      <div className="px-2.5 py-2 rounded-md bg-navy-600 border border-border">
                         <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Headlines</p>
                         {newsData.headlines.length > 0 ? (
                           <ul className="space-y-1.5">
@@ -588,7 +588,7 @@ function TickerNewsRow({ item }: {
     <div className={`px-2.5 py-2 rounded-md border text-xs ${
       earningsClose
         ? 'bg-amber-500/5 border-amber-500/30'
-        : 'bg-surface-2 border-border'
+        : 'bg-navy-600 border-border'
     }`}>
       <div className="flex items-center justify-between mb-1">
         <span className="font-semibold text-foreground">{item.ticker}</span>
