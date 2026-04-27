@@ -207,10 +207,12 @@ async function executeTrade(
     rankScore: number;
     atr?: number;
     adx?: number;
-  }
+  },
+  tradeLog?: ReturnType<typeof createCronLogger>
 ): Promise<TradeResult> {
   const { ticker, t212Ticker, entryPrice, stopPrice, shares, accountType } = candidate;
 
+  tradeLog?.info('Trade execution starting', { ticker, shares, entryPrice, stopPrice, accountType });
   console.log(`  [TRADE] ${ticker}: ${shares} shares @ ~${entryPrice.toFixed(2)}, stop @ ${stopPrice.toFixed(2)} (${accountType})`);
 
   // ── Phase A: Place Market Buy ──
@@ -302,6 +304,7 @@ async function executeTrade(
       responseBody: JSON.stringify(stopOrder), stopPrice, quantity: stopQuantity, accountType,
     });
     stopPlaced = true;
+    tradeLog?.info('Stop-loss placed', { ticker, stopPrice, orderId: stopOrder.id });
     console.log(`    ✓ Stop-loss placed @ ${stopPrice.toFixed(4)} (ID: ${stopOrder.id})`);
   } catch (err) {
     const msg = err instanceof Trading212Error ? `T212 ${err.statusCode}: ${err.message}` : (err as Error).message;
@@ -311,6 +314,7 @@ async function executeTrade(
       accountType, error: msg, stopPrice, quantity: stopQuantity,
     });
     console.error(`    ✗ CRITICAL: Stop-loss FAILED — ${msg}`);
+    tradeLog?.error('CRITICAL: Stop-loss FAILED', { ticker, error: msg });
   }
 
   // ── Phase D: Create DB Position (direct Prisma — no dashboard needed) ──
@@ -943,7 +947,7 @@ async function runAutoTrade(session: Session) {
       rankScore: candidate.rankScore,
       atr: candidate.technicals?.atr,
       adx: candidate.technicals?.adx,
-    });
+    }, log);
 
     tradeResults.push(result);
 
