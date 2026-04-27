@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
     if (!parsed.ok) return parsed.response;
 
     const cmd = parseCommand(parsed.data.command);
-    const response = await handleCommand(cmd);
+    const response = await handleCommand(cmd, parsed.data.command);
 
     return NextResponse.json({
       command: cmd,

@@ -32,6 +32,7 @@ import EveningReviewSummary from '@/components/dashboard/EveningReviewSummary';
 import TonightWorkflowCard from '@/components/dashboard/TonightWorkflowCard';
 import SafetyAlertsPanel from '@/components/dashboard/SafetyAlertsPanel';
 import OnboardingBanner from '@/components/dashboard/OnboardingBanner';
+import AnalystCard from '@/components/dashboard/AnalystCard';
 import RegimeBadge from '@/components/shared/RegimeBadge';
 import { useStore } from '@/store/useStore';
 import { formatDate } from '@/lib/utils';
@@ -223,6 +224,9 @@ export default function DashboardPage() {
 
         {/* Today's Directive — first element */}
         <TodayDirectiveCard />
+
+        {/* AI Analyst — advisory summary (independent fetch, doesn't block other cards) */}
+        <AnalystCard />
 
         {/* Market Indices Row */}
         <MarketIndicesBar />

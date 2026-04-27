@@ -113,8 +113,9 @@ if %errorlevel%==0 (
 timeout /t 1 /nobreak >nul
 
 :: Ensure production build exists (install.bat pre-builds; this catches edge cases)
-if not exist ".next" (
-    echo  Building dashboard for the first time ^(this may take a few minutes^)...
+:: Check for BUILD_ID which next start specifically requires — a stale .next dir without it will fail
+if not exist ".next\BUILD_ID" (
+    echo  Building dashboard ^(this may take a few minutes^)...
     call npx next build
     if %errorlevel% neq 0 (
         echo  !! Build failed. Try running install.bat again.
@@ -133,8 +134,8 @@ echo   Press Ctrl+C or close this window to stop.
 echo  ───────────────────────────────────────────────────────────
 echo.
 
-:: Open browser once server is ready (polls until responsive, max 60s)
-start /min cmd /v:on /c "set TRIES=0 && :loop && set /a TRIES+=1 && if !TRIES! GTR 30 (echo Server did not start in time. Open http://localhost:3000 manually. && pause && exit /b) && timeout /t 2 /nobreak >nul && powershell -NoProfile -Command \"try { (Invoke-WebRequest -Uri http://localhost:3000 -UseBasicParsing -TimeoutSec 2).StatusCode } catch { exit 1 }\" >nul 2>&1 && start http://localhost:3000/dashboard || goto loop"
+:: Open browser once server is ready (polls every 2s, max 60s)
+start /min powershell -NoProfile -WindowStyle Hidden -Command "for ($i=0; $i -lt 30; $i++) { Start-Sleep 2; try { $null = Invoke-WebRequest -Uri http://localhost:3000 -UseBasicParsing -TimeoutSec 2; Start-Process http://localhost:3000/dashboard; exit } catch {} }; Write-Host 'Server did not start in time. Open http://localhost:3000 manually.'"
 
 :: Start the production server (blocks until user closes)
 call npm start

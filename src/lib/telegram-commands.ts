@@ -24,6 +24,8 @@ export type TelegramCommand =
   | '/regime'
   | '/risk'
   | '/candidates'
+  | '/analyst'
+  | '/ask'
   | '/help'
   | 'unknown';
 
@@ -81,6 +83,8 @@ export function parseCommand(text: string): TelegramCommand {
     case '/regime': return '/regime';
     case '/risk': return '/risk';
     case '/candidates': return '/candidates';
+    case '/analyst': return '/analyst';
+    case '/ask': return '/ask';
     case '/help': case '/start': return '/help';
     default: return 'unknown';
   }
@@ -88,7 +92,7 @@ export function parseCommand(text: string): TelegramCommand {
 
 // ── Main handler ──
 
-export async function handleCommand(command: TelegramCommand): Promise<CommandResponse> {
+export async function handleCommand(command: TelegramCommand, rawText?: string): Promise<CommandResponse> {
   try {
     switch (command) {
       case '/status': return await cmdStatus();
@@ -97,6 +101,8 @@ export async function handleCommand(command: TelegramCommand): Promise<CommandRe
       case '/regime': return await cmdRegime();
       case '/risk': return await cmdRisk();
       case '/candidates': return await cmdCandidates();
+      case '/analyst': return await cmdAnalyst();
+      case '/ask': return await cmdAsk(rawText || '');
       case '/help': return cmdHelp();
       case 'unknown':
       default:
@@ -427,7 +433,148 @@ function cmdHelp(): CommandResponse {
 /regime — market regime detail
 /risk — risk budget
 /candidates — ready candidates
+/analyst — AI system summary (Ollama)
+/ask &lt;question&gt; — ask the AI analyst
 /help — this message`,
     parseMode: 'HTML',
   };
+}
+
+// ── /analyst — AI system summary via Ollama ──
+
+async function cmdAnalyst(): Promise<CommandResponse> {
+  try {
+    const { generateSystemSummary } = await import('@/lib/analyst/analyst-service');
+    const { gatherSystemData } = await import('@/lib/analyst/gather-system-data');
+    const { checkOllamaHealth } = await import('@/lib/analyst/ollama-client');
+
+    // Quick health check first
+    const health = await checkOllamaHealth();
+    if (!health.available) {
+      return {
+        text: '🤖 <b>AI Analyst</b>\n\n⚠️ Ollama is not running. Start it with <code>ollama serve</code> to enable AI summaries.',
+        parseMode: 'HTML',
+      };
+    }
+
+    const summaryData = await gatherSystemData(DEFAULT_USER_ID);
+    const result = await generateSystemSummary(summaryData);
+
+    if (!result.available || !result.response) {
+      return {
+        text: '🤖 <b>AI Analyst</b>\n\n⚠️ Could not generate summary. Ollama may be loading — try again in a moment.',
+        parseMode: 'HTML',
+      };
+    }
+
+    // Strip markdown bold/italic for Telegram HTML and convert
+    const cleaned = result.response
+      .replace(/^⚠️ \*\*Advisory only\*\*.*\n\n/m, '') // Remove disclaimer prefix (we add our own)
+      .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+      .replace(/\*(.+?)\*/g, '<i>$1</i>')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      // Re-apply our HTML tags after escaping
+      .replace(/&lt;b&gt;/g, '<b>')
+      .replace(/&lt;\/b&gt;/g, '</b>')
+      .replace(/&lt;i&gt;/g, '<i>')
+      .replace(/&lt;\/i&gt;/g, '</i>');
+
+    const header = `🤖 <b>AI Analyst</b> (${result.model || 'unknown'}, ${((result.durationMs || 0) / 1000).toFixed(0)}s)\n<i>Advisory only — verify against dashboard</i>\n\n`;
+
+    return {
+      text: header + cleaned,
+      parseMode: 'HTML',
+    };
+  } catch (err) {
+    console.error('[telegram-commands] /analyst error:', err);
+    return {
+      text: '🤖 <b>AI Analyst</b>\n\n⚠️ Error generating summary. Check dashboard logs.',
+      parseMode: 'HTML',
+    };
+  }
+}
+
+// ── /ask <question> — ask the AI analyst a question ──
+
+async function cmdAsk(rawText: string): Promise<CommandResponse> {
+  // Extract question after "/ask "
+  const question = rawText.replace(/^\/ask\s*/i, '').trim();
+  if (!question) {
+    return {
+      text: '🤖 <b>AI Analyst</b>\n\nUsage: <code>/ask your question here</code>\n\nExample: <code>/ask why are my trades blocked?</code>',
+      parseMode: 'HTML',
+    };
+  }
+
+  try {
+    const { checkOllamaHealth, ollamaGenerate } = await import('@/lib/analyst/ollama-client');
+    const { ANALYST_SYSTEM_PROMPT } = await import('@/lib/analyst/prompt-builder');
+    const { gatherSystemData } = await import('@/lib/analyst/gather-system-data');
+    const { checkResponseSafety } = await import('@/lib/analyst/safety-filter');
+    const { stripSensitiveData } = await import('@/lib/analyst/safety-filter');
+
+    const health = await checkOllamaHealth();
+    if (!health.available || !health.selectedModel) {
+      return {
+        text: '🤖 <b>AI Analyst</b>\n\n⚠️ Ollama is not running. Start it with <code>ollama serve</code>.',
+        parseMode: 'HTML',
+      };
+    }
+
+    // Gather current system state as context
+    const data = await gatherSystemData(DEFAULT_USER_ID);
+
+    const contextBlock = stripSensitiveData(`Current System State:
+- Phase: ${data.phase} | Regime: ${data.regime} | Mode: ${data.operatingMode}
+- Health: ${data.healthOverall} | Equity: £${data.equity?.toFixed(0) || 'unknown'}
+- Positions: ${data.openPositionCount}/${data.maxPositions} | Risk: ${data.openRiskPct.toFixed(1)}%/${data.maxOpenRisk}%
+- Ready candidates: ${data.readyCandidateCount} | Triggers met: ${data.triggerMetCount}
+- Stops pending: ${data.stopsPending} | Data stale: ${data.dataStale ? 'YES' : 'no'}
+- Blockers: ${data.blockers.length > 0 ? data.blockers.map(b => b.label).join(', ') : 'none'}`);
+
+    const prompt = `${contextBlock}\n\nUser question: ${question}\n\nAnswer the question based only on the system state above. Be concise (2-3 sentences). If the question is not about the trading system, politely redirect.`;
+
+    const result = await ollamaGenerate({
+      model: health.selectedModel,
+      system: ANALYST_SYSTEM_PROMPT,
+      prompt,
+      options: { temperature: 0.3, num_predict: 200, num_ctx: 4096 },
+    });
+
+    if (!result || !result.response) {
+      return {
+        text: '🤖 <b>AI Analyst</b>\n\n⚠️ No response from model. It may be loading — try again shortly.',
+        parseMode: 'HTML',
+      };
+    }
+
+    // Safety check
+    const safety = checkResponseSafety(result.response);
+    const answer = safety.cleaned
+      .replace(/^⚠️ \*\*Advisory only\*\*.*\n\n/m, '')
+      .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+      .replace(/\*(.+?)\*/g, '<i>$1</i>')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/&lt;b&gt;/g, '<b>')
+      .replace(/&lt;\/b&gt;/g, '</b>')
+      .replace(/&lt;i&gt;/g, '<i>')
+      .replace(/&lt;\/i&gt;/g, '</i>');
+
+    const header = `🤖 <b>AI Analyst</b> (${health.selectedModel})\n<i>Advisory only — verify against dashboard</i>\n\n<b>Q:</b> ${escapeHtml(question)}\n\n`;
+
+    return {
+      text: header + answer,
+      parseMode: 'HTML',
+    };
+  } catch (err) {
+    console.error('[telegram-commands] /ask error:', err);
+    return {
+      text: '🤖 <b>AI Analyst</b>\n\n⚠️ Error processing question. Check dashboard logs.',
+      parseMode: 'HTML',
+    };
+  }
 }

@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
 
     // ── Parse and handle command ──
     const command = parseCommand(text);
-    const response = await handleCommand(command);
+    const response = await handleCommand(command, text);
 
     // ── Send response via Telegram ──
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
