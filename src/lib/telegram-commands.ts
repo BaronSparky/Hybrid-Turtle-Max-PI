@@ -210,6 +210,16 @@ async function cmdPositions(): Promise<CommandResponse> {
   const tickers = positions.map((p) => p.stock.ticker);
   const livePrices = await getBatchPrices(tickers);
 
+  // Fetch earnings dates (best-effort, cached)
+  let earningsMap = new Map<string, number | null>();
+  try {
+    const { fetchBatchNewsContext } = await import('@/lib/analyst/news-fetcher');
+    const newsResults = await fetchBatchNewsContext(tickers, 0);
+    for (const n of newsResults) {
+      earningsMap.set(n.ticker, n.earnings.daysUntil);
+    }
+  } catch { /* best-effort */ }
+
   const lines = positions.map((p) => {
     const price = livePrices[p.stock.ticker] ?? p.entryPrice;
     const rMul = calculateRMultiple(price, p.entryPrice, p.initialRisk);
@@ -218,7 +228,11 @@ async function cmdPositions(): Promise<CommandResponse> {
       : p.protectionLevel === 'LOCK_08R' ? '🔵'
       : p.protectionLevel === 'BREAKEVEN' ? '🟡' : '⚪';
     const sym = currencySymbol(p.stock.currency);
-    return `${levelEmoji} <b>${escapeHtml(p.stock.ticker)}</b>  ${rLabel}  ${p.protectionLevel ?? 'INITIAL'}  Stop: ${sym}${p.currentStop.toFixed(2)}`;
+    const earningsDays = earningsMap.get(p.stock.ticker);
+    const earningsTag = earningsDays != null && earningsDays <= 10
+      ? ` 📅${earningsDays}d${earningsDays <= 5 ? '⚠️' : ''}`
+      : '';
+    return `${levelEmoji} <b>${escapeHtml(p.stock.ticker)}</b>  ${rLabel}  ${p.protectionLevel ?? 'INITIAL'}  Stop: ${sym}${p.currentStop.toFixed(2)}${earningsTag}`;
   });
 
   // Total open risk

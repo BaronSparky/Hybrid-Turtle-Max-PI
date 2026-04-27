@@ -4,11 +4,15 @@ import {
   buildCandidateExplainPrompt,
   buildStopExplainPrompt,
   buildJournalDraftPrompt,
+  buildNewsContextPrompt,
+  buildTradePulseExplainPrompt,
   ANALYST_SYSTEM_PROMPT,
   type SystemSummaryData,
   type CandidateExplainData,
   type StopExplainData,
   type JournalDraftData,
+  type NewsContextData,
+  type TradePulseExplainData,
 } from './prompt-builder';
 
 // ── Test fixtures ──
@@ -284,5 +288,91 @@ describe('buildJournalDraftPrompt', () => {
     const lessonData = { ...MOCK_JOURNAL_DATA, type: 'lesson' as const };
     const result = buildJournalDraftPrompt(lessonData);
     expect(result.prompt).toContain('lessons learned');
+  });
+});
+
+// ── buildNewsContextPrompt ──
+
+const MOCK_NEWS_DATA: NewsContextData = {
+  ticker: 'AAPL',
+  name: 'Apple Inc',
+  sleeve: 'CORE',
+  scanStatus: 'READY',
+  headlines: [
+    { title: 'Apple reports record Q2', publisher: 'Reuters', publishedAt: '2026-04-27T10:00:00Z', ageHours: 2 },
+  ],
+  earnings: { nextEarningsDate: '2026-04-30T00:00:00Z', daysUntil: 3, isEstimate: false },
+};
+
+describe('buildNewsContextPrompt', () => {
+  it('includes ticker and headlines', () => {
+    const result = buildNewsContextPrompt(MOCK_NEWS_DATA);
+    expect(result.prompt).toContain('AAPL');
+    expect(result.prompt).toContain('Apple reports record Q2');
+    expect(result.prompt).toContain('Reuters');
+  });
+
+  it('includes earnings date and days-until', () => {
+    const result = buildNewsContextPrompt(MOCK_NEWS_DATA);
+    expect(result.prompt).toContain('3 days');
+  });
+
+  it('uses analyst system prompt', () => {
+    const result = buildNewsContextPrompt(MOCK_NEWS_DATA);
+    expect(result.system).toBe(ANALYST_SYSTEM_PROMPT);
+  });
+
+  it('handles no headlines gracefully', () => {
+    const noNews = { ...MOCK_NEWS_DATA, headlines: [] };
+    const result = buildNewsContextPrompt(noNews);
+    expect(result.prompt).toContain('no recent headlines');
+  });
+});
+
+// ── buildTradePulseExplainPrompt ──
+
+const MOCK_TRADE_PULSE_DATA: TradePulseExplainData = {
+  ticker: 'MSFT',
+  score: 72,
+  grade: 'B',
+  decision: 'CONDITIONAL',
+  signals: [
+    { name: 'Trend Strength', shortName: 'ADX', score: 85, weight: 0.25, status: 'POSITIVE', detail: 'Strong uptrend' },
+    { name: 'Volume Profile', shortName: 'VOL', score: 40, weight: 0.15, status: 'NEUTRAL' },
+  ],
+  concerns: ['Volume below average'],
+  opportunities: ['Strong ADX trend'],
+  headlines: [{ title: 'Microsoft Cloud revenue surges', publisher: 'Bloomberg', ageHours: 5 }],
+  earnings: { nextEarningsDate: '2026-05-15T00:00:00Z', daysUntil: 18, isEstimate: false },
+};
+
+describe('buildTradePulseExplainPrompt', () => {
+  it('includes grade and score', () => {
+    const result = buildTradePulseExplainPrompt(MOCK_TRADE_PULSE_DATA);
+    expect(result.prompt).toContain('72');
+    expect(result.prompt).toContain('B');
+  });
+
+  it('includes signal details sorted by weight', () => {
+    const result = buildTradePulseExplainPrompt(MOCK_TRADE_PULSE_DATA);
+    expect(result.prompt).toContain('ADX');
+    expect(result.prompt).toContain('VOL');
+    expect(result.prompt).toContain('25%');
+  });
+
+  it('includes concerns and opportunities', () => {
+    const result = buildTradePulseExplainPrompt(MOCK_TRADE_PULSE_DATA);
+    expect(result.prompt).toContain('Volume below average');
+    expect(result.prompt).toContain('Strong ADX trend');
+  });
+
+  it('includes news headlines', () => {
+    const result = buildTradePulseExplainPrompt(MOCK_TRADE_PULSE_DATA);
+    expect(result.prompt).toContain('Microsoft Cloud revenue surges');
+  });
+
+  it('includes earnings date', () => {
+    const result = buildTradePulseExplainPrompt(MOCK_TRADE_PULSE_DATA);
+    expect(result.prompt).toContain('18 days');
   });
 });

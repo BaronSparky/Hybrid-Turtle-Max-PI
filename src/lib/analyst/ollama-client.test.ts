@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pickModel, type OllamaModel } from './ollama-client';
+import { pickModel, pickModelForContext, type OllamaModel } from './ollama-client';
 
 // ── pickModel ──
 
@@ -42,5 +42,35 @@ describe('pickModel', () => {
 
   it('falls back to gemma preference when preferred model not found', () => {
     expect(pickModel(MODELS, 'nonexistent:7b')).toBe('gemma3:4b');
+  });
+});
+
+// ── pickModelForContext ──
+
+describe('pickModelForContext', () => {
+  it('returns largest model for summary context', () => {
+    expect(pickModelForContext(MODELS, 'summary')).toBe('gemma3:12b');
+  });
+
+  it('returns largest model for explain context', () => {
+    expect(pickModelForContext(MODELS, 'explain')).toBe('gemma3:12b');
+  });
+
+  it('returns smallest model for short context', () => {
+    expect(pickModelForContext(MODELS, 'short')).toBe('llama3.2:3b');
+  });
+
+  it('respects preferred model override regardless of context', () => {
+    expect(pickModelForContext(MODELS, 'short', 'gemma3:12b')).toBe('gemma3:12b');
+  });
+
+  it('returns empty string for empty model list', () => {
+    expect(pickModelForContext([], 'summary')).toBe('');
+  });
+
+  it('returns only model when single model available', () => {
+    const single: OllamaModel[] = [{ name: 'mistral:7b', size: 4e9, digest: 'abc', modified_at: '' }];
+    expect(pickModelForContext(single, 'summary')).toBe('mistral:7b');
+    expect(pickModelForContext(single, 'short')).toBe('mistral:7b');
   });
 });

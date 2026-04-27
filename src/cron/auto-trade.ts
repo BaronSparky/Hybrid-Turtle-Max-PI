@@ -518,6 +518,36 @@ async function sendSessionSummary(
   const openCount = await prisma.position.count({ where: { userId: 'default-user', status: 'OPEN' } });
   lines.push('', `Open positions: ${openCount}`);
 
+  // Weekly earnings calendar (scan session only)
+  if (session === 'scan') {
+    try {
+      const openPositions = await prisma.position.findMany({
+        where: { userId: 'default-user', status: 'OPEN' },
+        select: { stock: { select: { ticker: true } } },
+      });
+      const holdingTickers = openPositions.map(p => p.stock.ticker);
+      const candidateTickers = eligible.slice(0, 5).map(c => c.ticker);
+      const allTickers = [...new Set([...holdingTickers, ...candidateTickers])];
+      if (allTickers.length > 0) {
+        const { fetchBatchNewsContext } = await import('@/lib/analyst/news-fetcher');
+        const results = await fetchBatchNewsContext(allTickers, 0);
+        const upcoming = results
+          .filter(r => r.earnings.daysUntil != null && r.earnings.daysUntil <= 7)
+          .sort((a, b) => (a.earnings.daysUntil ?? 99) - (b.earnings.daysUntil ?? 99));
+        if (upcoming.length > 0) {
+          lines.push('', `📅 <b>Earnings this week:</b>`);
+          for (const u of upcoming) {
+            const warn = (u.earnings.daysUntil ?? 99) <= 3 ? '⚠️ ' : '';
+            const type = holdingTickers.includes(u.ticker) ? '(held)' : '(candidate)';
+            lines.push(`  ${warn}<b>${u.ticker}</b> in ${u.earnings.daysUntil}d ${type}`);
+          }
+        }
+      }
+    } catch {
+      // Best-effort — don't fail the summary
+    }
+  }
+
   await sendTelegramMessage({ text: lines.join('\n') });
 }
 

@@ -7,7 +7,7 @@
  *        NEVER imports sacred files. NEVER writes to the database. NEVER calls execution endpoints.
  */
 
-import { ollamaGenerate, ollamaGenerateStream, checkOllamaHealth, pickModel, type OllamaModel } from './ollama-client';
+import { ollamaGenerate, ollamaGenerateStream, checkOllamaHealth, pickModel, pickModelForContext, type OllamaModel, type AnalystContext } from './ollama-client';
 import {
   buildSystemSummaryPrompt,
   buildCandidateExplainPrompt,
@@ -91,7 +91,8 @@ export async function generateSystemSummary(
 ): Promise<AnalystResult> {
   return runAnalystPipeline(
     () => buildSystemSummaryPrompt(data),
-    preferredModel
+    preferredModel,
+    'summary'
   );
 }
 
@@ -104,7 +105,8 @@ export async function generateCandidateExplanation(
 ): Promise<AnalystResult> {
   return runAnalystPipeline(
     () => buildCandidateExplainPrompt(data),
-    preferredModel
+    preferredModel,
+    'short'
   );
 }
 
@@ -144,7 +146,8 @@ export async function generateNewsContextSummary(
 ): Promise<AnalystResult> {
   return runAnalystPipeline(
     () => buildNewsContextPrompt(data),
-    preferredModel
+    preferredModel,
+    'short'
   );
 }
 
@@ -166,13 +169,26 @@ export async function generateTradePulseExplanation(
  */
 async function runAnalystPipeline(
   buildPrompt: () => { system: string; prompt: string; contextNumbers: number[] },
-  preferredModel?: string
+  preferredModel?: string,
+  contextHint: AnalystContext = 'explain'
 ): Promise<AnalystResult> {
   const start = Date.now();
 
-  // Check Ollama availability
-  const health = await checkOllamaHealth(preferredModel);
-  if (!health.available || !health.selectedModel) {
+  // Check Ollama availability (use context-aware model selection)
+  const health = await checkOllamaHealth();
+  if (!health.available || !health.models.length) {
+    return {
+      available: false,
+      response: null,
+      model: null,
+      durationMs: Date.now() - start,
+      safetyWarnings: [],
+      fabricationWarnings: [],
+    };
+  }
+
+  const selectedModel = pickModelForContext(health.models, contextHint, preferredModel);
+  if (!selectedModel) {
     return {
       available: false,
       response: null,
@@ -187,7 +203,7 @@ async function runAnalystPipeline(
   const { system, prompt, contextNumbers } = buildPrompt();
 
   // Check LLM cache
-  const cacheKey = hashPrompt(system, prompt, health.selectedModel);
+  const cacheKey = hashPrompt(system, prompt, selectedModel);
   const cached = getLlmCached(cacheKey);
   if (cached) {
     return { ...cached, durationMs: Date.now() - start };
@@ -195,7 +211,7 @@ async function runAnalystPipeline(
 
   // Call Ollama
   const result = await ollamaGenerate({
-    model: health.selectedModel,
+    model: selectedModel,
     system,
     prompt,
     options: GENERATION_OPTIONS,
@@ -205,7 +221,7 @@ async function runAnalystPipeline(
     return {
       available: true,
       response: null,
-      model: health.selectedModel,
+      model: selectedModel,
       durationMs: Date.now() - start,
       safetyWarnings: ['Ollama generation returned no result'],
       fabricationWarnings: [],
@@ -226,7 +242,7 @@ async function runAnalystPipeline(
   const analystResult: AnalystResult = {
     available: true,
     response: safety.cleaned,
-    model: health.selectedModel,
+    model: selectedModel,
     durationMs: Date.now() - start,
     safetyWarnings: safety.warnings,
     fabricationWarnings,

@@ -142,6 +142,35 @@ export function pickModel(models: OllamaModel[], preferred?: string): string {
   return models[0].name;
 }
 
+export type AnalystContext = 'summary' | 'explain' | 'short';
+
+/**
+ * Pick a model appropriate for the context.
+ * - 'summary': prefer larger models for system-wide analysis
+ * - 'explain': prefer larger models for detailed explanations
+ * - 'short': prefer smaller models for quick inline explanations
+ * Falls back to pickModel if no context-appropriate choice is available.
+ */
+export function pickModelForContext(models: OllamaModel[], context: AnalystContext, preferred?: string): string {
+  if (preferred) return pickModel(models, preferred);
+  if (!models.length) return '';
+
+  // Sort by size
+  const sorted = [...models].sort((a, b) => a.size - b.size);
+  const small = sorted[0]; // Smallest available
+  const large = sorted.length > 1 ? sorted[sorted.length - 1] : sorted[0]; // Largest available
+
+  switch (context) {
+    case 'summary':
+    case 'explain':
+      return large.name;
+    case 'short':
+      return small.name;
+    default:
+      return pickModel(models);
+  }
+}
+
 /**
  * Generate a completion from Ollama. Returns the text response.
  * Non-streaming for simplicity. Returns null if Ollama is unavailable.
