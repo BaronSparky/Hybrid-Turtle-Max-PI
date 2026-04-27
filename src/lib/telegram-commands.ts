@@ -641,11 +641,12 @@ async function cmdNews(rawText: string): Promise<CommandResponse> {
           earnings: news.earnings,
         });
         if (result.available && result.response) {
-          const cleaned = result.response
-            .replace(/^⚠️ \*\*Advisory only\*\*.*\n\n/m, '')
+          const cleaned = escapeHtml(
+            result.response.replace(/^⚠️ \*\*Advisory only\*\*.*\n\n/m, '')
+          )
             .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
             .replace(/\*(.+?)\*/g, '<i>$1</i>');
-          summaryBlock = `\n\n🤖 <b>AI Review</b> (${result.model || 'unknown'})\n${cleaned}`;
+          summaryBlock = `\n\n🤖 <b>AI Review</b> (${escapeHtml(result.model || 'unknown')})\n${cleaned}`;
         }
       }
     } catch {

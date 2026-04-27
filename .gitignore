@@ -57,3 +57,6 @@ prisma/backups/
 
 # persisted caches
 prisma/cache/
+
+# HVE-Core AI workflow artifacts (local only)
+.copilot-tracking/

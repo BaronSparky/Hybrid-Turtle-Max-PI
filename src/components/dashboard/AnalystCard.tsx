@@ -25,6 +25,13 @@ interface OllamaHealthResponse {
 
 type CardState = 'loading-health' | 'offline' | 'streaming' | 'ready' | 'error';
 
+interface TickerNewsItem {
+  ticker: string;
+  headlines: Array<{ title: string; publisher: string; ageHours: number; link: string; publishedAt: string }>;
+  earnings: { nextEarningsDate: string | null; daysUntil: number | null; isEstimate: boolean };
+  warnings: string[];
+}
+
 export default function AnalystCard() {
   const [state, setState] = useState<CardState>('loading-health');
   const [health, setHealth] = useState<OllamaHealthResponse | null>(null);
@@ -37,14 +44,6 @@ export default function AnalystCard() {
   const [startTime, setStartTime] = useState<number | null>(null);
   const [elapsedSec, setElapsedSec] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
-
-  // ── News types ──
-  interface TickerNewsItem {
-    ticker: string;
-    headlines: Array<{ title: string; publisher: string; ageHours: number; link: string; publishedAt: string }>;
-    earnings: { nextEarningsDate: string | null; daysUntil: number | null; isEstimate: boolean };
-    warnings: string[];
-  }
 
   // ── News lookup state ──
   const [newsTicker, setNewsTicker] = useState('');

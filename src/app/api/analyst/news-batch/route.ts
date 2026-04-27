@@ -17,7 +17,6 @@ import { apiError } from '@/lib/api-response';
 import prisma from '@/lib/prisma';
 
 const DEFAULT_USER_ID = 'default-user';
-const MAX_CANDIDATES = 5;
 
 export async function GET(request: NextRequest) {
   try {
