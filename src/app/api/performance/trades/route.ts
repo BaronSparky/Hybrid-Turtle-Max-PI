@@ -46,6 +46,20 @@ export async function GET(request: NextRequest) {
     const wins = data.filter(t => t.rMultiple > 0);
     const losses = data.filter(t => t.rMultiple <= 0);
 
+    // R-distribution buckets
+    const buckets = [
+      { label: '< -1R', min: -Infinity, max: -1, count: 0 },
+      { label: '-1 to 0R', min: -1, max: 0, count: 0 },
+      { label: '0 to 1R', min: 0, max: 1, count: 0 },
+      { label: '1 to 2R', min: 1, max: 2, count: 0 },
+      { label: '2 to 3R', min: 2, max: 3, count: 0 },
+      { label: '3R+', min: 3, max: Infinity, count: 0 },
+    ];
+    for (const t of data) {
+      const bucket = buckets.find(b => t.rMultiple >= b.min && t.rMultiple < b.max);
+      if (bucket) bucket.count++;
+    }
+
     return NextResponse.json({
       trades: data,
       summary: {
@@ -55,6 +69,7 @@ export async function GET(request: NextRequest) {
         winRate: data.length > 0 ? (wins.length / data.length) * 100 : 0,
         avgR: data.length > 0 ? data.reduce((s, t) => s + t.rMultiple, 0) / data.length : 0,
         totalR: data.reduce((s, t) => s + t.rMultiple, 0),
+        distribution: buckets.map(b => ({ label: b.label, count: b.count })),
       },
     });
   } catch (error) {

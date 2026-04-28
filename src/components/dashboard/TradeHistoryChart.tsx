@@ -30,6 +30,7 @@ interface TradeSummary {
   winRate: number;
   avgR: number;
   totalR: number;
+  distribution?: Array<{ label: string; count: number }>;
 }
 
 export default function TradeHistoryChart() {
@@ -150,6 +151,35 @@ export default function TradeHistoryChart() {
           </BarChart>
         </ResponsiveContainer>
       </div>
+
+      {/* R-distribution */}
+      {summary?.distribution && summary.distribution.some(b => b.count > 0) && (
+        <div className="mt-3 pt-3 border-t border-border/30">
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">R Distribution</p>
+          <div className="flex items-end gap-1 h-12">
+            {summary.distribution.map((bucket, i) => {
+              const maxCount = Math.max(...summary.distribution!.map(b => b.count), 1);
+              const heightPct = (bucket.count / maxCount) * 100;
+              const isLoss = i < 2;
+              return (
+                <div key={bucket.label} className="flex-1 flex flex-col items-center gap-0.5">
+                  <div
+                    className={cn(
+                      'w-full rounded-t transition-all',
+                      isLoss ? 'bg-loss/60' : 'bg-profit/60',
+                      bucket.count === 0 && 'bg-border/20'
+                    )}
+                    style={{ height: `${Math.max(heightPct, 4)}%` }}
+                    title={`${bucket.label}: ${bucket.count} trade${bucket.count !== 1 ? 's' : ''}`}
+                  />
+                  <span className="text-[8px] text-muted-foreground/60 truncate w-full text-center">{bucket.label}</span>
+                  {bucket.count > 0 && <span className="text-[9px] font-mono text-muted-foreground">{bucket.count}</span>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

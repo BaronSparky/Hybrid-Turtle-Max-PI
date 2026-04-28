@@ -126,6 +126,48 @@ async function runWeeklyDigest() {
     lines.push(`  ⚠ ${scoreboard.sampleSizeWarning}`);
   }
 
+  // Automated weekly review suggestions
+  lines.push('');
+  lines.push('<b>📋 Weekly Review</b>');
+  const suggestions: string[] = [];
+
+  // Grade-based suggestion
+  if (scoreboard.grade === 'D' || scoreboard.grade === 'F') {
+    suggestions.push('System grade is low — review entry criteria and consider tightening filters.');
+  }
+
+  // Win rate trend
+  if (closedThisWeek.length >= 3) {
+    const weekWinRate = (weekWins.length / closedThisWeek.length) * 100;
+    if (weekWinRate < 40) suggestions.push(`This week's win rate (${weekWinRate.toFixed(0)}%) is below 40% — check if entries are being chased.`);
+    if (weekWinRate >= 70) suggestions.push(`Excellent week (${weekWinRate.toFixed(0)}% win rate) — system is performing well.`);
+  }
+
+  // Equity drawdown
+  if (equityChangePct !== null && equityChangePct < -3) {
+    suggestions.push(`Equity down ${Math.abs(equityChangePct).toFixed(1)}% this week — consider reducing position size or pausing.`);
+  }
+
+  // Risk budget
+  if (openCount >= 4) {
+    suggestions.push(`${openCount} positions open — close to max capacity. Focus on managing existing positions.`);
+  } else if (openCount === 0) {
+    suggestions.push('No open positions — scan for new opportunities on the next BULLISH regime day.');
+  }
+
+  // Sample size
+  if (scoreboard.totalClosedTrades < 30) {
+    suggestions.push(`Only ${scoreboard.totalClosedTrades} trades completed — too early for reliable system statistics. Keep following the rules.`);
+  }
+
+  if (suggestions.length > 0) {
+    for (const s of suggestions) {
+      lines.push(`  • ${s}`);
+    }
+  } else {
+    lines.push('  ✅ No concerns — system operating normally.');
+  }
+
   // Current state
   lines.push('');
   lines.push(`<b>Current:</b> ${openCount} open position(s)`);
