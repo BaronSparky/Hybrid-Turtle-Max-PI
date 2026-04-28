@@ -109,7 +109,7 @@ export default function TradeHistoryChart() {
           <BarChart3 className="w-4 h-4 text-primary-400" />
           Trade History (R-multiples)
         </h3>
-        <button onClick={fetchData} className="text-muted-foreground hover:text-foreground transition-colors">
+        <button onClick={fetchData} className="text-muted-foreground hover:text-foreground transition-colors" title="Refresh">
           <RefreshCw className="w-3 h-3" />
         </button>
       </div>

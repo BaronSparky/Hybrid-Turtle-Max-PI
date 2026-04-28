@@ -294,8 +294,9 @@ async function fetchFromCache(
     results.set(row.ticker, {
       ticker: row.ticker,
       close: row.close,
-      // Cache doesn't have intraday OHLC — use close for all
-      // This is safe for nightly stop management (uses close, not intraday)
+      // Cache doesn't have intraday OHLC — open/high/low set to close.
+      // Gap detection (nightly step 3c) uses getBatchQuotes directly, not this fallback,
+      // so gap percentages remain accurate. Only stop management consumes these values.
       open: row.close,
       high: row.close,
       low: row.close,
@@ -304,6 +305,10 @@ async function fetchFromCache(
       source,
       isStale,
     });
+  }
+
+  if (results.size > 0) {
+    console.warn(`[DataProvider] Cache fallback: ${results.size} ticker(s) using cached close (OHLC unavailable)`);
   }
 
   return results;

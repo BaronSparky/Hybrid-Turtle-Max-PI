@@ -11,6 +11,7 @@
 
 import prisma from './prisma';
 import type { Trading212Client } from './trading212';
+import { inferLevelFromStop } from './stop-manager';
 
 export interface StopDriftResult {
   ticker: string;
@@ -120,12 +121,13 @@ export async function checkStopBrokerSync(
       // causing false stop-hit alerts. Correct DB down to match broker.
       if (autoCorrect && direction === 'DB_HIGHER' && brokerStop > 0) {
         try {
+          const correctedLevel = inferLevelFromStop(brokerStop, pos.entryPrice, pos.initialRisk);
           await prisma.position.update({
             where: { id: pos.id },
             data: {
               currentStop: brokerStop,
               stopLoss: brokerStop,
-              protectionLevel: 'INITIAL', // Reset since we don't know the correct level
+              protectionLevel: correctedLevel,
             },
           });
           wasCorrected = true;

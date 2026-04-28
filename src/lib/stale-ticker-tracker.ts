@@ -10,17 +10,18 @@
  */
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
+import { DEAD_REASONS, INSUFFICIENT_DATA_PREFIX } from './modules/data-validation-codes';
 
 // ── Config ──
 const CONSECUTIVE_FAILURE_THRESHOLD = 3;
 const STATE_FILE = join(process.cwd(), 'prisma', 'cache', 'stale-ticker-counts.json');
 
-// Reasons that indicate a truly dead/delisted ticker (not just a bad day)
+// Dead ticker patterns — derived from data-validator.ts constants.
+// These indicate a truly dead/delisted ticker (not just a bad day).
 const DEAD_TICKER_PATTERNS = [
-  'Zero volume',
-  'stock may be halted',
-  'Insufficient data: 1 bars',
-  'Same closing price for 3+ days',
+  DEAD_REASONS.ZERO_VOLUME,
+  DEAD_REASONS.STALE_PRICE,
+  INSUFFICIENT_DATA_PREFIX,
 ];
 
 interface FailureState {

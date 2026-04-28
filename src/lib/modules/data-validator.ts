@@ -9,6 +9,9 @@
 import 'server-only';
 import type { DataValidationResult } from '@/types';
 import { getDailyPrices } from '../market-data';
+import { DEAD_REASONS } from './data-validation-codes';
+
+export { DEAD_REASONS, INSUFFICIENT_DATA_PREFIX } from './data-validation-codes';
 
 const MAX_DATA_AGE_DAYS = 5; // business days
 const SPIKE_THRESHOLD = 25;  // % daily move considered anomalous
@@ -26,7 +29,7 @@ export function validateTickerData(
     return {
       ticker,
       isValid: false,
-      issues: ['No data available — may be delisted or halted'],
+      issues: [DEAD_REASONS.NO_DATA],
     };
   }
 
@@ -61,14 +64,14 @@ export function validateTickerData(
 
   // Check for zero volume (halted)
   if (bars[0].volume === 0) {
-    issues.push('Zero volume — stock may be halted');
+    issues.push(DEAD_REASONS.ZERO_VOLUME);
   }
 
   // Check for stale price (same close for 3+ days)
   if (bars.length >= 3) {
     const same = bars[0].close === bars[1].close && bars[1].close === bars[2].close;
     if (same) {
-      issues.push('Same closing price for 3+ days — possible stale data');
+      issues.push(DEAD_REASONS.STALE_PRICE);
     }
   }
 

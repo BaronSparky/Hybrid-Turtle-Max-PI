@@ -28,6 +28,7 @@ import {
   getFXRate,
 } from './market-data';
 import { validateTickerData } from './modules/data-validator';
+import { INSUFFICIENT_DATA_PREFIX } from './modules/data-validation-codes';
 import { calculateAdaptiveBuffer } from './modules/adaptive-atr-buffer';
 import { calcBIS } from './breakout-integrity';
 import { getEarningsInfo } from './earnings-calendar';
@@ -245,7 +246,7 @@ export async function syncSnapshot(
             getWeeklyPrices(stock.ticker),
           ]);
           if (daily.length < 55) {
-            throw new Error(`Insufficient data: ${daily.length} bars`);
+            throw new Error(`${INSUFFICIENT_DATA_PREFIX} ${daily.length} bars`);
           }
 
           const validation = validateTickerData(stock.ticker, daily);

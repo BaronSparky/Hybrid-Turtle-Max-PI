@@ -78,8 +78,8 @@ function ConditionalMIBar({ entry }: { entry: ConditionalMIEntry }) {
       <span className="text-sm text-muted-foreground w-28 truncate" title={label}>{label}</span>
       <div className="flex-1 h-4 bg-navy-800/60 rounded-full overflow-hidden relative">
         {/* Threshold markers */}
-        <div className="absolute top-0 bottom-0 w-px bg-amber-500/30 z-10" style={{ left: `${(0.05 / 0.3) * 100}%` }} title="0.05 threshold" />
-        <div className="absolute top-0 bottom-0 w-px bg-emerald-500/30 z-10" style={{ left: `${(0.15 / 0.3) * 100}%` }} title="0.15 threshold" />
+        <div className="absolute top-0 bottom-0 w-px bg-amber-500/30 z-10 left-[16.67%]" title="0.05 threshold" />
+        <div className="absolute top-0 bottom-0 w-px bg-emerald-500/30 z-10 left-[50%]" title="0.15 threshold" />
         <div
           className={cn('h-full rounded-full transition-all duration-500',
             entry.recommendation === 'KEEP' ? 'bg-emerald-500/70' :
@@ -113,7 +113,7 @@ function MIHeatmap({ matrix, signals }: { matrix: MIMatrixEntry[]; signals: stri
           <tr>
             <th className="p-1" />
             {signals.map(s => (
-              <th key={s} className="p-1 text-muted-foreground font-normal text-center writing-mode-vertical" style={{ writingMode: 'vertical-lr' }}>
+              <th key={s} className="p-1 text-muted-foreground font-normal text-center [writing-mode:vertical-lr]">
                 {(LABELS[s] ?? s).substring(0, 8)}
               </th>
             ))}

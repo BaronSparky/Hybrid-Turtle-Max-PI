@@ -249,7 +249,7 @@ export default function PositionsTable({ positions, onUpdateStop, onExitPosition
           <thead>
             <tr>
               <th className="w-8">
-                <input type="checkbox" className="rounded border-border bg-navy-800" />
+                <input type="checkbox" className="rounded border-border bg-navy-800" aria-label="Select all positions" />
               </th>
               <th className="w-8"></th>
               <th className="w-8"></th>
@@ -288,7 +288,7 @@ export default function PositionsTable({ positions, onUpdateStop, onExitPosition
             {sorted.map((pos) => (
               <tr key={pos.id} className="group">
                 <td>
-                  <input type="checkbox" className="rounded border-border bg-navy-800" />
+                  <input type="checkbox" className="rounded border-border bg-navy-800" aria-label="Select position" />
                 </td>
                 <td>
                   <div
@@ -537,7 +537,7 @@ export default function PositionsTable({ positions, onUpdateStop, onExitPosition
                 <TrendingUp className="w-5 h-5 text-primary-400" />
                 <h3 className="font-semibold">Update Stop — {stopModal.ticker}</h3>
               </div>
-              <button onClick={() => setStopModal(null)} className="text-muted-foreground hover:text-foreground">
+              <button onClick={() => setStopModal(null)} className="text-muted-foreground hover:text-foreground" title="Close">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -898,6 +898,7 @@ export default function PositionsTable({ positions, onUpdateStop, onExitPosition
                   value={stopInput}
                   onChange={(e) => { setStopInput(e.target.value); setStopError(null); }}
                   className="w-full px-3 py-2 bg-navy-900 border border-border rounded-lg font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  aria-label="New stop price"
                   autoFocus
                 />
               </div>
@@ -1043,7 +1044,7 @@ export default function PositionsTable({ positions, onUpdateStop, onExitPosition
                 <LogOut className="w-5 h-5 text-loss" />
                 <h3 className="font-semibold">Exit Position — {exitModal.ticker}</h3>
               </div>
-              <button onClick={() => setExitModal(null)} className="text-muted-foreground hover:text-foreground">
+              <button onClick={() => setExitModal(null)} className="text-muted-foreground hover:text-foreground" title="Close">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1093,6 +1094,7 @@ export default function PositionsTable({ positions, onUpdateStop, onExitPosition
                   value={exitReasonInput}
                   onChange={(e) => setExitReasonInput(e.target.value)}
                   className="w-full px-3 py-2 bg-navy-900 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-loss/50"
+                  title="Exit reason"
                 >
                   <option value="">Auto-detect from price</option>
                   <option value="STOP_HIT">Stop-loss triggered</option>

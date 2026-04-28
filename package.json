@@ -99,8 +99,5 @@
   "lint-staged": {
     "*.{ts,tsx}": "eslint --no-warn-ignored",
     "*.{js,jsx,mjs}": "eslint --no-warn-ignored"
-  },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
   }
 }

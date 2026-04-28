@@ -103,7 +103,7 @@ export default function RegimeHistoryChart() {
               {d}d
             </button>
           ))}
-          <button onClick={fetchData} className="text-muted-foreground hover:text-foreground transition-colors ml-1">
+          <button onClick={fetchData} className="text-muted-foreground hover:text-foreground transition-colors ml-1" title="Refresh">
             <RefreshCw className="w-3 h-3" />
           </button>
         </div>

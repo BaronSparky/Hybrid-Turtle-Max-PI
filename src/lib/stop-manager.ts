@@ -371,7 +371,7 @@ export async function calculateTrailingATRStop(
     const roundedCurrent = Math.round(currentStop * 100) / 100;
 
     // SAFEGUARD: Trailing ATR stops must not be tighter than 1×ATR from
-    // the current price. When ATR is small relative to price (high-priced stocks),
+    // the highest close. When ATR is small relative to price (high-priced stocks),
     // the formula can produce stops that are too close, triggering false stop-hit alerts.
     // If the trailing stop would be within 1×currentATR of the highest close,
     // it's too tight — skip the update.

@@ -258,6 +258,7 @@ export default function TradeLogPage() {
             value={decisionFilter}
             onChange={(e) => setDecisionFilter(e.target.value)}
             className="px-3 py-2 rounded-md bg-navy-700/40 border border-border text-sm text-foreground"
+            title="Filter by decision"
           >
             <option value="all">All decisions</option>
             <option value="TAKEN">TAKEN</option>
@@ -269,6 +270,7 @@ export default function TradeLogPage() {
             value={tradeTypeFilter}
             onChange={(e) => setTradeTypeFilter(e.target.value)}
             className="px-3 py-2 rounded-md bg-navy-700/40 border border-border text-sm text-foreground"
+            title="Filter by trade type"
           >
             <option value="all">All trade types</option>
             <option value="ENTRY">ENTRY</option>

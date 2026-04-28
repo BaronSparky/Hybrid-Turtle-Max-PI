@@ -17,12 +17,20 @@ import { checkStopBrokerSync } from './stop-broker-sync-check';
 const mockFindMany = prisma.position.findMany as ReturnType<typeof vi.fn>;
 const mockUpdate = prisma.position.update as ReturnType<typeof vi.fn>;
 
-function makePosition(ticker: string, currentStop: number, t212Ticker?: string) {
+function makePosition(
+  ticker: string,
+  currentStop: number,
+  t212Ticker?: string,
+  entryPrice = 100,
+  initialRisk = 10,
+) {
   return {
     id: `pos-${ticker}`,
     currentStop,
     t212Ticker: t212Ticker ?? null,
     stopLoss: currentStop,
+    entryPrice,
+    initialRisk,
     stock: { ticker, t212Ticker: t212Ticker ?? `${ticker}_EQ`, currency: 'USD' },
   };
 }
@@ -125,7 +133,8 @@ describe('checkStopBrokerSync', () => {
 
   describe('auto-correction', () => {
     it('auto-corrects DB_HIGHER when autoCorrect=true', async () => {
-      mockFindMany.mockResolvedValue([makePosition('GEV', 1088.54, 'GEV_EQ')]);
+      // Entry $1100, initialRisk $80 → broker stop $1039.30 is below entry → INITIAL
+      mockFindMany.mockResolvedValue([makePosition('GEV', 1088.54, 'GEV_EQ', 1100, 80)]);
       mockUpdate.mockResolvedValue({});
 
       const report = await checkStopBrokerSync(
@@ -141,7 +150,7 @@ describe('checkStopBrokerSync', () => {
         corrected: true,
       });
 
-      // Verify the DB update was called with broker's stop
+      // Verify the DB update was called with broker's stop and inferred level
       expect(mockUpdate).toHaveBeenCalledWith({
         where: { id: 'pos-GEV' },
         data: {
@@ -168,6 +177,27 @@ describe('checkStopBrokerSync', () => {
         corrected: false,
       });
       expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('infers correct protection level when broker stop is above entry', async () => {
+      // Entry $900, initialRisk $50 → broker stop $960 → stopR = 1.2 → LOCK_1R_TRAIL
+      mockFindMany.mockResolvedValue([makePosition('SLAB', 990, 'SLAB_EQ', 900, 50)]);
+      mockUpdate.mockResolvedValue({});
+
+      const report = await checkStopBrokerSync(
+        [makeClient([{ ticker: 'SLAB_EQ', stopPrice: 960 }])],
+        true
+      );
+
+      expect(report.corrected).toBe(1);
+      expect(mockUpdate).toHaveBeenCalledWith({
+        where: { id: 'pos-SLAB' },
+        data: {
+          currentStop: 960,
+          stopLoss: 960,
+          protectionLevel: 'LOCK_1R_TRAIL', // NOT 'INITIAL' — inferred from stop position
+        },
+      });
     });
 
     it('does NOT auto-correct when autoCorrect=false (default)', async () => {

@@ -81,7 +81,7 @@ function EntryNoteModal({
       <div className="card-surface p-6 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-foreground">Entry Note</h3>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground" title="Close">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -104,6 +104,7 @@ function EntryNoteModal({
                   'p-1 transition-colors',
                   n <= confidence ? 'text-amber-400' : 'text-navy-600'
                 )}
+                title={`${n} star`}
               >
                 <Star className="w-5 h-5" fill={n <= confidence ? 'currentColor' : 'none'} />
               </button>
@@ -176,7 +177,7 @@ function CloseNoteModal({
       <div className="card-surface p-6 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-foreground">Close Note</h3>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground" title="Close">
             <X className="w-5 h-5" />
           </button>
         </div>
