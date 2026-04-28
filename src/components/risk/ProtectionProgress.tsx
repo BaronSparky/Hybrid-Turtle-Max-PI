@@ -18,12 +18,13 @@ interface ProtectionProgressProps {
 const levelConfig: Record<string, { color: string; bgColor: string; icon: React.ElementType }> = {
   INITIAL: { color: 'text-muted-foreground', bgColor: 'bg-navy-600', icon: Shield },
   BREAKEVEN: { color: 'text-warning', bgColor: 'bg-warning/30', icon: Lock },
+  TRAILING_ATR: { color: 'text-violet-400', bgColor: 'bg-violet-500/30', icon: TrendingUp },
   LOCK_08R: { color: 'text-blue-400', bgColor: 'bg-blue-500/30', icon: TrendingUp },
   LOCK_1R_TRAIL: { color: 'text-profit', bgColor: 'bg-profit/30', icon: ArrowUp },
 };
 
-const levelOrder = ['INITIAL', 'BREAKEVEN', 'LOCK_08R', 'LOCK_1R_TRAIL'];
-const levelThresholds = [0, 1.5, 2.5, 3.0];
+const levelOrder = ['INITIAL', 'BREAKEVEN', 'TRAILING_ATR', 'LOCK_08R', 'LOCK_1R_TRAIL'];
+const levelThresholds = [0, 1.5, 0, 2.5, 3.0];
 
 function ProtectionProgress({ positions = [] }: ProtectionProgressProps) {
   const progressPositions: PositionProgress[] = positions.map((pos) => {
