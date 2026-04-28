@@ -35,6 +35,7 @@ export type TelegramCommand =
   | '/briefing'
   | '/backtest'
   | '/equity'
+  | '/summary'
   | '/help'
   | 'unknown';
 
@@ -103,6 +104,7 @@ export function parseCommand(text: string): TelegramCommand {
     case '/briefing': return '/briefing';
     case '/backtest': return '/backtest';
     case '/equity': return '/equity';
+    case '/summary': case '/portfolio': return '/summary';
     case '/help': case '/start': return '/help';
     default: return 'unknown';
   }
@@ -130,6 +132,7 @@ export async function handleCommand(command: TelegramCommand, rawText?: string):
       case '/briefing': return await cmdBriefing();
       case '/backtest': return await cmdBacktest();
       case '/equity': return await cmdEquity();
+      case '/summary': return await cmdSummary();
       case '/help': return cmdHelp();
       case 'unknown':
       default:
@@ -242,6 +245,9 @@ async function cmdPositions(): Promise<CommandResponse> {
     const price = livePrices[p.stock.ticker] ?? p.entryPrice;
     const rMul = calculateRMultiple(price, p.entryPrice, p.initialRisk);
     const rLabel = rMul >= 0 ? `+${rMul.toFixed(1)}R` : `${rMul.toFixed(1)}R`;
+    const pnl = (price - p.entryPrice) * p.shares;
+    const pnlPct = p.entryPrice > 0 ? ((price - p.entryPrice) / p.entryPrice * 100) : 0;
+    const pnlStr = `${pnl >= 0 ? '+' : ''}${currencySymbol(p.stock.currency)}${Math.abs(pnl).toFixed(2)} (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%)`;
     const levelEmoji = p.protectionLevel === 'LOCK_1R_TRAIL' ? '🟢'
       : p.protectionLevel === 'LOCK_08R' ? '🔵'
       : p.protectionLevel === 'BREAKEVEN' ? '🟡' : '⚪';
@@ -250,7 +256,7 @@ async function cmdPositions(): Promise<CommandResponse> {
     const earningsTag = earningsDays != null && earningsDays <= 10
       ? ` 📅${earningsDays}d${earningsDays <= 5 ? '⚠️' : ''}`
       : '';
-    return `${levelEmoji} <b>${escapeHtml(p.stock.ticker)}</b>  ${rLabel}  ${p.protectionLevel ?? 'INITIAL'}  Stop: ${sym}${p.currentStop.toFixed(2)}${earningsTag}`;
+    return `${levelEmoji} <b>${escapeHtml(p.stock.ticker)}</b>  ${rLabel}  ${pnlStr}\n   Stop: ${sym}${p.currentStop.toFixed(2)} | ${p.protectionLevel ?? 'INITIAL'}${earningsTag}`;
   });
 
   // Total open risk
@@ -678,6 +684,53 @@ async function cmdEquity(): Promise<CommandResponse> {
   }
 }
 
+// ── /summary — compact mobile portfolio overview ──
+
+async function cmdSummary(): Promise<CommandResponse> {
+  try {
+    const [user, positions, regime] = await Promise.all([
+      prisma.user.findUnique({ where: { id: DEFAULT_USER_ID }, select: { equity: true, riskProfile: true, operatingMode: true } }),
+      prisma.position.findMany({ where: { userId: DEFAULT_USER_ID, status: 'OPEN' }, include: { stock: { select: { ticker: true, currency: true } } } }),
+      getMarketRegime().catch(() => 'UNKNOWN' as const),
+    ]);
+
+    const equity = user?.equity ?? 0;
+    const tickers = positions.map(p => p.stock.ticker);
+    const prices = tickers.length > 0 ? await getBatchPrices(tickers) : {};
+
+    let totalPnl = 0;
+    const posLines: string[] = [];
+    for (const p of positions) {
+      const price = prices[p.stock.ticker] ?? p.entryPrice;
+      const pnl = (price - p.entryPrice) * p.shares;
+      const rMul = calculateRMultiple(price, p.entryPrice, p.initialRisk);
+      totalPnl += pnl;
+      const emoji = rMul >= 2 ? '🟢' : rMul >= 0 ? '🔵' : '🔴';
+      posLines.push(`${emoji} ${p.stock.ticker} ${rMul >= 0 ? '+' : ''}${rMul.toFixed(1)}R`);
+    }
+
+    const regimeEmoji = regime === 'BULLISH' ? '🟢' : regime === 'SIDEWAYS' ? '🟡' : '🔴';
+
+    const lines = [
+      `📱 <b>Portfolio Summary</b>`,
+      `${regimeEmoji} ${regime} | £${equity.toFixed(0)} | ${positions.length} pos`,
+      '',
+    ];
+
+    if (posLines.length > 0) {
+      lines.push(posLines.join(' | '));
+      lines.push('');
+      lines.push(`P&L: ${totalPnl >= 0 ? '+' : '-'}£${Math.abs(totalPnl).toFixed(2)}`);
+    } else {
+      lines.push('No open positions');
+    }
+
+    return { text: lines.join('\n'), parseMode: 'HTML' };
+  } catch (err) {
+    return { text: `❌ Summary failed: ${(err as Error).message}`, parseMode: 'HTML' };
+  }
+}
+
 // ── /help ──
 
 function cmdHelp(): CommandResponse {
@@ -692,6 +745,7 @@ function cmdHelp(): CommandResponse {
 /briefing — current session briefing
 /backtest — system performance grade
 /equity — equity + P&L trend
+/summary — compact portfolio overview
 /watchlist — watchlist news + sentiment + earnings
 /feedback — AI analyst feedback stats
 /analyst — AI system summary (Ollama)
