@@ -5,12 +5,12 @@
 # Last modified: 2026-03-09
 # Notes: Builds the current stable SQLite-backed runtime for local/container deployment.
 
-FROM node:20-bookworm AS deps
+FROM node:22-bookworm AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
-FROM node:20-bookworm AS builder
+FROM node:22-bookworm AS builder
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
@@ -18,7 +18,7 @@ COPY . .
 RUN npm run db:generate
 RUN npm run build
 
-FROM node:20-bookworm AS runner
+FROM node:22-bookworm AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
