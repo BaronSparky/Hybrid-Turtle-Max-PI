@@ -71,16 +71,19 @@ interface BenchmarkData {
 export default function PerformanceTab() {
   const [data, setData] = useState<PerformanceData | null>(null);
   const [benchmark, setBenchmark] = useState<BenchmarkData | null>(null);
+  const [vwrlBenchmark, setVwrlBenchmark] = useState<BenchmarkData | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
     try {
-      const [res, bench] = await Promise.all([
+      const [res, bench, vwrl] = await Promise.all([
         apiRequest<PerformanceData & { ok: boolean }>('/api/performance/summary'),
         apiRequest<BenchmarkData>('/api/performance/benchmark?days=90').catch(() => null),
+        apiRequest<BenchmarkData>('/api/performance/benchmark?days=90&ticker=VWRL.L').catch(() => null),
       ]);
       setData(res);
       if (bench) setBenchmark(bench);
+      if (vwrl) setVwrlBenchmark(vwrl);
     } catch {
       // Graceful degradation
     } finally {
@@ -98,19 +101,20 @@ export default function PerformanceTab() {
   const combinedTotal = realisedTotal + unrealisedTotal;
   const hasChartData = (data?.equityCurve?.length ?? 0) >= 7;
 
-  // Build merged return comparison data for dual-axis chart
+  // Build merged return comparison data for multi-benchmark chart
   const returnComparisonData = (() => {
     if (!hasChartData || !data?.equityCurve || !benchmark?.data?.length) return null;
     const firstEquity = data.equityCurve[0]?.value;
     if (!firstEquity || firstEquity <= 0) return null;
 
-    // Index benchmark returns by date for lookup
     const benchByDate = new Map(benchmark.data.map(b => [b.date, b.returnPct]));
+    const vwrlByDate = new Map((vwrlBenchmark?.data ?? []).map(b => [b.date, b.returnPct]));
 
     return data.equityCurve.map(e => ({
       date: e.date,
       portfolio: Math.round(((e.value - firstEquity) / firstEquity) * 1000) / 10,
       spy: benchByDate.get(e.date) ?? null,
+      vwrl: vwrlByDate.get(e.date) ?? null,
     })).filter(d => d.spy !== null);
   })();
 
@@ -227,13 +231,21 @@ export default function PerformanceTab() {
                 <Line type="monotone" dataKey="value" stroke="#6366f1" strokeWidth={2} dot={false} activeDot={{ r: 4, fill: '#6366f1' }} />
               </LineChart>
             </ResponsiveContainer>
-            {benchmark?.summary && (
+            {(benchmark?.summary || vwrlBenchmark?.summary) && (
               <p className="text-xs text-muted-foreground mt-2">
-                Benchmark (SPY): <span className={cn(benchmark.summary.returnPct >= 0 ? 'text-gain' : 'text-loss', 'font-medium')}>
-                  {benchmark.summary.returnPct >= 0 ? '+' : ''}{benchmark.summary.returnPct.toFixed(1)}%
-                </span> over same period
+                {benchmark?.summary && (
+                  <>SPY: <span className={cn(benchmark.summary.returnPct >= 0 ? 'text-gain' : 'text-loss', 'font-medium')}>
+                    {benchmark.summary.returnPct >= 0 ? '+' : ''}{benchmark.summary.returnPct.toFixed(1)}%
+                  </span></>
+                )}
+                {benchmark?.summary && vwrlBenchmark?.summary && ' · '}
+                {vwrlBenchmark?.summary && (
+                  <>VWRL: <span className={cn(vwrlBenchmark.summary.returnPct >= 0 ? 'text-gain' : 'text-loss', 'font-medium')}>
+                    {vwrlBenchmark.summary.returnPct >= 0 ? '+' : ''}{vwrlBenchmark.summary.returnPct.toFixed(1)}%
+                  </span></>
+                )}
                 {data.totalGainLossPct != null && (
-                  <> · Your portfolio: <span className={cn(data.totalGainLossPct >= 0 ? 'text-gain' : 'text-loss', 'font-medium')}>
+                  <> · Portfolio: <span className={cn(data.totalGainLossPct >= 0 ? 'text-gain' : 'text-loss', 'font-medium')}>
                     {data.totalGainLossPct >= 0 ? '+' : ''}{data.totalGainLossPct.toFixed(1)}%
                   </span></>
                 )}
@@ -248,7 +260,7 @@ export default function PerformanceTab() {
       {/* Returns vs Benchmark chart */}
       {returnComparisonData && returnComparisonData.length >= 7 && (
         <div className="card-surface p-5">
-          <h2 className="text-sm font-semibold text-foreground mb-3">Returns vs Benchmark (SPY)</h2>
+          <h2 className="text-sm font-semibold text-foreground mb-3">Returns vs Benchmarks</h2>
           <ResponsiveContainer width="100%" height={250}>
             <LineChart data={returnComparisonData}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
@@ -256,15 +268,20 @@ export default function PerformanceTab() {
               <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} tickLine={false} axisLine={{ stroke: 'rgba(255,255,255,0.1)' }} tickFormatter={(v: number) => `${v}%`} />
               <Tooltip
                 contentStyle={{ backgroundColor: '#1e293b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#f1f5f9', fontSize: '12px' }}
-                formatter={(value: number, name: string) => [`${value >= 0 ? '+' : ''}${value.toFixed(1)}%`, name === 'portfolio' ? 'Portfolio' : 'SPY']}
+                formatter={(value: number, name: string) => {
+                  const labels: Record<string, string> = { portfolio: 'Portfolio', spy: 'SPY', vwrl: 'VWRL' };
+                  return [`${value >= 0 ? '+' : ''}${value.toFixed(1)}%`, labels[name] ?? name];
+                }}
               />
               <Line type="monotone" dataKey="portfolio" stroke="#6366f1" strokeWidth={2} dot={false} name="portfolio" />
               <Line type="monotone" dataKey="spy" stroke="#f59e0b" strokeWidth={1.5} dot={false} strokeDasharray="4 2" name="spy" />
+              <Line type="monotone" dataKey="vwrl" stroke="#22d3ee" strokeWidth={1.5} dot={false} strokeDasharray="4 2" name="vwrl" connectNulls />
             </LineChart>
           </ResponsiveContainer>
           <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
             <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-indigo-500 inline-block" /> Portfolio</span>
-            <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-amber-500 inline-block border-dashed" /> SPY</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-amber-500 inline-block" /> SPY</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-cyan-400 inline-block" /> VWRL</span>
           </div>
         </div>
       )}

@@ -3,23 +3,29 @@
  * Consumed by: PerformanceTab.tsx (equity chart benchmark overlay)
  * Consumes: market-data.ts (getDailyPrices)
  * Risk-sensitive: NO (display only)
- * Notes: Returns SPY daily close indexed to 100 at the start date,
- *        aligned to the equity snapshot date range.
+ * Notes: Returns benchmark daily close indexed to 100 at the start date.
+ *        Supports ?ticker=SPY (default) or ?ticker=VWRL.L for UK/global.
  */
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getDailyPrices } from '@/lib/market-data';
 
+const ALLOWED_BENCHMARKS = new Set(['SPY', 'VWRL.L']);
+
 export async function GET(request: NextRequest) {
   try {
     const days = parseInt(request.nextUrl.searchParams.get('days') || '90', 10);
+    const ticker = request.nextUrl.searchParams.get('ticker') || 'SPY';
+    if (!ALLOWED_BENCHMARKS.has(ticker)) {
+      return NextResponse.json({ data: [], error: `Invalid benchmark: ${ticker}` }, { status: 400 });
+    }
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
     const sinceStr = since.toISOString().split('T')[0];
 
-    const bars = await getDailyPrices('SPY', 'full');
+    const bars = await getDailyPrices(ticker, 'full');
     if (!bars || bars.length === 0) {
-      return NextResponse.json({ data: [], error: 'No SPY data available' });
+      return NextResponse.json({ data: [], error: `No ${ticker} data available` });
     }
 
     // bars are newest-first from Yahoo — reverse to chronological
@@ -44,7 +50,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       data,
       summary: {
-        ticker: 'SPY',
+        ticker,
         startDate: data[0].date,
         endDate: last.date,
         startPrice: data[0].close,
