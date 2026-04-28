@@ -27,6 +27,7 @@ describe('parseCommand', () => {
     expect(parseCommand('/earnings')).toBe('/earnings');
     expect(parseCommand('/briefing')).toBe('/briefing');
     expect(parseCommand('/stops')).toBe('/stopsdue');
+    expect(parseCommand('/backtest')).toBe('/backtest');
   });
 
   it('returns unknown for unrecognized commands', () => {

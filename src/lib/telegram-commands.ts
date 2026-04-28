@@ -33,6 +33,7 @@ export type TelegramCommand =
   | '/watchlist'
   | '/feedback'
   | '/briefing'
+  | '/backtest'
   | '/help'
   | 'unknown';
 
@@ -99,6 +100,7 @@ export function parseCommand(text: string): TelegramCommand {
     case '/watchlist': return '/watchlist';
     case '/feedback': return '/feedback';
     case '/briefing': return '/briefing';
+    case '/backtest': return '/backtest';
     case '/help': case '/start': return '/help';
     default: return 'unknown';
   }
@@ -124,6 +126,7 @@ export async function handleCommand(command: TelegramCommand, rawText?: string):
       case '/watchlist': return await cmdWatchlist();
       case '/feedback': return await cmdFeedback();
       case '/briefing': return await cmdBriefing();
+      case '/backtest': return await cmdBacktest();
       case '/help': return cmdHelp();
       case 'unknown':
       default:
@@ -566,6 +569,57 @@ async function cmdBriefing(): Promise<CommandResponse> {
   }
 }
 
+// ── /backtest — latest backtest results ──
+
+async function cmdBacktest(): Promise<CommandResponse> {
+  try {
+    const scoreboard = await (await import('@/lib/profit-scoreboard')).computeProfitScoreboard();
+
+    const lines = [
+      `📈 <b>System Performance</b>`,
+      '',
+      `Grade: <b>${scoreboard.grade}</b> — ${scoreboard.gradeReason}`,
+      `Trades: ${scoreboard.totalClosedTrades} closed`,
+      '',
+    ];
+
+    if (scoreboard.totalClosedTrades > 0) {
+      lines.push(`Win rate: ${scoreboard.winRate.toFixed(0)}%`);
+      lines.push(`Avg win: +${scoreboard.avgWinR.toFixed(1)}R | Avg loss: ${scoreboard.avgLossR.toFixed(1)}R`);
+      lines.push(`Expectancy: ${scoreboard.expectancyPerTrade >= 0 ? '+' : ''}${scoreboard.expectancyPerTrade.toFixed(2)}R/trade`);
+      if (scoreboard.profitFactor) lines.push(`Profit factor: ${scoreboard.profitFactor.toFixed(2)}`);
+      lines.push(`Max drawdown: ${scoreboard.maxDrawdownPct.toFixed(1)}%`);
+      if (scoreboard.avgHoldDays) lines.push(`Avg hold: ${scoreboard.avgHoldDays.toFixed(0)} days`);
+    } else {
+      lines.push('No closed trades yet — performance data will appear after your first exit.');
+    }
+
+    if (scoreboard.sampleSizeWarning) {
+      lines.push('', `⚠ ${scoreboard.sampleSizeWarning}`);
+    }
+
+    // Equity trend (last 7 snapshots)
+    const snapshots = await prisma.equitySnapshot.findMany({
+      orderBy: { capturedAt: 'desc' },
+      take: 7,
+      select: { equity: true, capturedAt: true },
+    });
+
+    if (snapshots.length >= 2) {
+      const latest = snapshots[0].equity;
+      const oldest = snapshots[snapshots.length - 1].equity;
+      const change = latest - oldest;
+      const changePct = oldest > 0 ? (change / oldest) * 100 : 0;
+      lines.push('', `<b>Equity (${snapshots.length}d)</b>`);
+      lines.push(`£${latest.toFixed(2)} (${change >= 0 ? '+' : ''}£${change.toFixed(2)}, ${changePct >= 0 ? '+' : ''}${changePct.toFixed(1)}%)`);
+    }
+
+    return { text: lines.join('\n'), parseMode: 'HTML' };
+  } catch (err) {
+    return { text: `❌ Backtest failed: ${(err as Error).message}`, parseMode: 'HTML' };
+  }
+}
+
 // ── /help ──
 
 function cmdHelp(): CommandResponse {
@@ -578,6 +632,7 @@ function cmdHelp(): CommandResponse {
 /risk — risk budget
 /candidates — ready candidates
 /briefing — current session briefing
+/backtest — latest backtest results
 /watchlist — watchlist news + sentiment + earnings
 /feedback — AI analyst feedback stats
 /analyst — AI system summary (Ollama)
