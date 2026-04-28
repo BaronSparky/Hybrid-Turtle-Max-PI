@@ -22,6 +22,7 @@ const KNOWN_TASKS = [
   { id: 'weekly-digest', label: 'Weekly Digest', schedule: 'Sunday 18:00', type: 'weekly-digest' },
   { id: 'monday-briefing', label: 'Monday Briefing', schedule: 'Monday 07:30', type: 'monday-briefing' },
   { id: 'us-briefing', label: 'US Pre-Session', schedule: 'Tue-Fri 14:30', type: 'us-briefing' },
+  { id: 'uk-briefing', label: 'UK Pre-Session', schedule: 'Mon-Fri 08:00', type: 'uk-briefing' },
 ];
 
 export async function GET() {

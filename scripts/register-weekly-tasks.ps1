@@ -27,6 +27,12 @@ schtasks /Create /TN "HybridTurtle-MondayBriefing" /SC WEEKLY /D MON /ST 07:30 /
 Set-TaskResilient "HybridTurtle-MondayBriefing"
 Write-Host "Monday Briefing: $LASTEXITCODE"
 
+# UK Pre-Session Briefing — Mon-Fri 08:00
+schtasks /Delete /TN "HybridTurtle-UKBriefing" /F 2>$null
+schtasks /Create /TN "HybridTurtle-UKBriefing" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 08:00 /TR "`"$root\uk-briefing-task.bat`"" /RL HIGHEST /F
+Set-TaskResilient "HybridTurtle-UKBriefing"
+Write-Host "UK Briefing: $LASTEXITCODE"
+
 # US Pre-Session Briefing — Tue-Fri 14:30
 schtasks /Delete /TN "HybridTurtle-USBriefing" /F 2>$null
 schtasks /Create /TN "HybridTurtle-USBriefing" /SC WEEKLY /D TUE,WED,THU,FRI /ST 14:30 /TR "`"$root\us-briefing-task.bat`"" /RL HIGHEST /F

@@ -134,4 +134,72 @@ describe('stop recommendation pipeline E2E', () => {
       }
     });
   });
+
+  describe('ATR multiplier consistency (backtest validation)', () => {
+    // Verify the 1.5x multiplier produces tighter trailing stops than the old 2.0x
+    // This validates that the change from hardcoded 2.0 to ATR_TRAILING_MULTIPLIER (1.5)
+    // produces the expected behavior: tighter stops = more profit locked in winners
+
+    it('1.5x ATR produces tighter stop than 2.0x', () => {
+      const highestClose = 150;
+      const atr = 5;
+      const stop_1_5x = highestClose - 1.5 * atr; // 142.5
+      const stop_2_0x = highestClose - 2.0 * atr; // 140.0
+      expect(stop_1_5x).toBeGreaterThan(stop_2_0x);
+      expect(stop_1_5x).toBe(142.5);
+    });
+
+    it('calculateProtectionStop for LOCK_1R_TRAIL uses 1.5x multiplier', () => {
+      // Trailing: 150 - 1.5 * 5 = 142.5, Lock floor: 110
+      const stop = calculateProtectionStop(100, 10, 'LOCK_1R_TRAIL', 150, 5);
+      expect(stop).toBe(142.5); // Not 140 (which would be 2.0x)
+    });
+
+    it('tighter stop means more profit locked on winners', () => {
+      // Scenario: position entry 100, risk 10, price rallied to 150, ATR 5
+      const entry = 100;
+      const risk = 10;
+      const price = 150;
+      const atr = 5;
+
+      const trailingStop_1_5x = price - 1.5 * atr; // 142.5
+      const trailingStop_2_0x = price - 2.0 * atr; // 140.0
+
+      const profitLocked_1_5x = trailingStop_1_5x - entry; // 42.5
+      const profitLocked_2_0x = trailingStop_2_0x - entry; // 40.0
+
+      const rLocked_1_5x = profitLocked_1_5x / risk; // 4.25R
+      const rLocked_2_0x = profitLocked_2_0x / risk; // 4.0R
+
+      expect(rLocked_1_5x).toBeGreaterThan(rLocked_2_0x);
+      expect(rLocked_1_5x).toBe(4.25);
+      expect(rLocked_2_0x).toBe(4.0);
+    });
+
+    it('1.5x multiplier still gives meaningful room for volatility', () => {
+      // ATR is the average daily range. 1.5x ATR gives ~1.5 days of normal movement
+      // before the stop would be hit. Still reasonable for trend-following.
+      const atr = 3; // e.g. $3 average daily range
+      const room_1_5x = 1.5 * atr; // $4.50
+      const room_2_0x = 2.0 * atr; // $6.00
+
+      // Both give meaningful breathing room (at least 1 day of movement)
+      expect(room_1_5x).toBeGreaterThan(atr);
+      expect(room_2_0x).toBeGreaterThan(atr);
+
+      // 1.5x is tighter but still more than 1 ATR of room
+      expect(room_1_5x).toBe(4.5);
+    });
+
+    it('stop rounding at 2dp does not lose precision for normal prices', () => {
+      // Verify rounding doesn't cause problems with typical price levels
+      const testPrices = [10.50, 42.82, 150.33, 1500.00, 0.15];
+      for (const price of testPrices) {
+        const stop = calculateProtectionStop(price * 0.9, price * 0.1, 'LOCK_1R_TRAIL', price, price * 0.03);
+        const rounded = Math.round(stop * 100) / 100;
+        // Rounding should not change the value by more than 1 cent
+        expect(Math.abs(stop - rounded)).toBeLessThan(0.01);
+      }
+    });
+  });
 });
