@@ -86,7 +86,7 @@ export function parseCommand(text: string): TelegramCommand {
   switch (cmd) {
     case '/status': return '/status';
     case '/positions': return '/positions';
-    case '/stopsdue': return '/stopsdue';
+    case '/stopsdue': case '/stops': return '/stopsdue';
     case '/regime': return '/regime';
     case '/risk': return '/risk';
     case '/candidates': return '/candidates';
@@ -316,17 +316,26 @@ async function cmdStopsDue(): Promise<CommandResponse> {
     }
   }
 
-  if (merged.size === 0) {
+  // Filter out same-value recs (floating-point edge cases)
+  const filtered = new Map(
+    Array.from(merged.entries()).filter(([, r]) => {
+      const roundedNew = Math.round(r.newStop * 100) / 100;
+      const roundedCurrent = Math.round(r.currentStop * 100) / 100;
+      return roundedNew > roundedCurrent;
+    })
+  );
+
+  if (filtered.size === 0) {
     return { text: '🔔 <b>Stops Due</b>\n✅ All stops up to date.', parseMode: 'HTML' };
   }
 
-  const lines = Array.from(merged.values()).map((r) => {
+  const lines = Array.from(filtered.values()).map((r) => {
     const sym = currencySymbol(r.currency);
     return `${escapeHtml(r.ticker)}: Move stop ${sym}${r.currentStop.toFixed(2)} → ${sym}${r.newStop.toFixed(2)} (${r.level})`;
   });
 
   return {
-    text: `🔔 <b>Stops Due (${merged.size})</b>\n${lines.join('\n')}\n\n<i>Apply stops in the dashboard → /portfolio/positions</i>`,
+    text: `🔔 <b>Stops Due (${filtered.size})</b>\n${lines.join('\n')}\n\n<i>Apply stops in the dashboard → /portfolio/positions</i>`,
     parseMode: 'HTML',
   };
 }
@@ -564,7 +573,7 @@ function cmdHelp(): CommandResponse {
     text: `🐢 <b>HybridTurtle Commands</b>
 /status — system overview
 /positions — open positions
-/stopsdue — pending stop updates
+/stopsdue — pending stop updates (also /stops)
 /regime — market regime detail
 /risk — risk budget
 /candidates — ready candidates

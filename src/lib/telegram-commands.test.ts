@@ -26,6 +26,7 @@ describe('parseCommand', () => {
     expect(parseCommand('/scorecard')).toBe('/scorecard');
     expect(parseCommand('/earnings')).toBe('/earnings');
     expect(parseCommand('/briefing')).toBe('/briefing');
+    expect(parseCommand('/stops')).toBe('/stopsdue');
   });
 
   it('returns unknown for unrecognized commands', () => {

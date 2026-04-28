@@ -14,6 +14,7 @@ import AcceleratorWidget from '@/components/dashboard/AcceleratorWidget';
 import ExitIntelligenceCard from '@/components/portfolio/ExitIntelligenceCard';
 import EarlyBirdWidget from '@/components/plan/EarlyBirdWidget';
 import TodayPanel from '@/components/plan/TodayPanel';
+import SessionBriefingCard from '@/components/plan/SessionBriefingCard';
 import { useStore } from '@/store/useStore';
 import { apiRequest } from '@/lib/api-client';
 import { ClipboardList, Calendar, Loader2, ChevronDown, ChevronUp, Shield } from 'lucide-react';
@@ -466,6 +467,9 @@ export default function PlanPage() {
           </div>
         ) : (
           <>
+          {/* ── Session Briefing Card ── */}
+          <SessionBriefingCard />
+
           {/* ── LAYER 1 + 2: TodayPanel (novice-first, always visible) ── */}
           <TodayPanel
             weeklyPhase={weeklyPhase}
