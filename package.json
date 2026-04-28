@@ -32,6 +32,7 @@
     "db:status": "prisma migrate status",
     "fix:account-types": "tsx scripts/fix-account-types.ts",
     "system:check": "tsx scripts/system-check.ts",
+    "test:e2e": "tsx scripts/test-telegram.ts && tsx scripts/test-e2e-market.ts && tsx scripts/test-e2e-system.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {
