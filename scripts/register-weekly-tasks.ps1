@@ -39,7 +39,14 @@ schtasks /Create /TN "HybridTurtle-USBriefing" /SC WEEKLY /D TUE,WED,THU,FRI /ST
 Set-TaskResilient "HybridTurtle-USBriefing"
 Write-Host "US Briefing: $LASTEXITCODE"
 
+# Ticker Audit — 1st of each month at 06:00 (before market open)
+schtasks /Delete /TN "HybridTurtle-TickerAudit" /F 2>$null
+schtasks /Create /TN "HybridTurtle-TickerAudit" /SC MONTHLY /D 1 /ST 06:00 /TR "`"$root\ticker-audit-task.bat`" --scheduled" /RL HIGHEST /F
+Set-TaskResilient "HybridTurtle-TickerAudit"
+Write-Host "Ticker Audit: $LASTEXITCODE"
+
 Write-Host ""
 Write-Host "Done. Verify with: schtasks /Query /TN HybridTurtle-WeeklyDigest"
 Write-Host "                    schtasks /Query /TN HybridTurtle-MondayBriefing"
 Write-Host "                    schtasks /Query /TN HybridTurtle-USBriefing"
+Write-Host "                    schtasks /Query /TN HybridTurtle-TickerAudit"

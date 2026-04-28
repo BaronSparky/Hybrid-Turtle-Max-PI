@@ -369,6 +369,21 @@ export async function calculateTrailingATRStop(
     // Require at least 1 cent improvement to suppress floating-point noise.
     const roundedStop = Math.round(trailingStop * 100) / 100;
     const roundedCurrent = Math.round(currentStop * 100) / 100;
+
+    // SAFEGUARD: Trailing ATR stops must not be tighter than 1×ATR from
+    // the current price. When ATR is small relative to price (high-priced stocks),
+    // the formula can produce stops that are too close, triggering false stop-hit alerts.
+    // If the trailing stop would be within 1×currentATR of the highest close,
+    // it's too tight — skip the update.
+    if (currentATR > 0 && highestClose - roundedStop < currentATR) {
+      return {
+        trailingStop: roundedCurrent, // keep current
+        highestClose,
+        currentATR,
+        shouldUpdate: false,
+      };
+    }
+
     const shouldUpdate = roundedStop > roundedCurrent + 0.004;
 
     return {

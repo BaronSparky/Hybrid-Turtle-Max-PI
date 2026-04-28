@@ -52,8 +52,11 @@ export async function GET() {
     const healthAge = latestHealth
       ? (now - latestHealth.runDate.getTime()) / 3600000
       : 999;
-    const t212SyncAgeH = user?.t212LastSync
-      ? (now - user.t212LastSync.getTime()) / 3600000
+    // Use the most recent sync from whichever T212 account(s) are connected
+    const syncDates = [user?.t212LastSync, user?.t212IsaLastSync].filter((d): d is Date => d != null);
+    const latestSyncDate = syncDates.length > 0 ? new Date(Math.max(...syncDates.map(d => d.getTime()))) : null;
+    const t212SyncAgeH = latestSyncDate
+      ? (now - latestSyncDate.getTime()) / 3600000
       : null;
 
     const checks = [

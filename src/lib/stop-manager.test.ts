@@ -283,8 +283,11 @@ describe('calculateTrailingATRStop regressions', () => {
 
     const extendedResult = await calculateTrailingATRStop('TEST', 114, entryDate, 100, 2.0);
     expect(extendedResult).not.toBeNull();
-    expect(extendedResult?.trailingStop).toBe(119.26);
-    expect(extendedResult!.trailingStop).toBeGreaterThanOrEqual(baseResult!.trailingStop);
+    // After adding volatile bars (TR~60), the trailing stop of 119.26 is now too
+    // tight relative to current ATR — the safeguard rejects the update and keeps
+    // the current stop, returning shouldUpdate=false.
+    expect(extendedResult?.shouldUpdate).toBe(false);
+    expect(extendedResult?.trailingStop).toBe(100); // keeps currentStop
 
     spy.mockRestore();
   });

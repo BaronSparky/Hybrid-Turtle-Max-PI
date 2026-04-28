@@ -19,6 +19,7 @@
 import 'server-only';
 import { z } from 'zod';
 import type { StockQuote, MarketIndex, FearGreedData } from '@/types';
+import { EODHD_TICKER_MAP, toEodhdTicker } from './ticker-maps';
 
 // ── EODHD API config ──
 const EODHD_BASE = 'https://eodhd.com/api';
@@ -92,57 +93,8 @@ const EodhdEodBarSchema = z.object({
 
 const EodhdEodResponseSchema = z.array(EodhdEodBarSchema);
 
-// ── Ticker translation: DB/T212 format → EODHD format ──
-// EODHD uses {TICKER}.{EXCHANGE} format:
-//   US → AAPL.US | UK/LSE → GSK.LSE | Germany → SAP.XETRA
-//   Netherlands → ASML.AS | France → MC.PA | Switzerland → NOVN.SW
-//   Denmark → NOVO-B.CO | Italy → UCG.MI
-const EODHD_TICKER_MAP: Record<string, string> = {
-  // UK / LSE — stored without suffix in DB
-  AIAI: 'AIAI.LSE',
-  AZN: 'AZN.LSE',
-  BTEE: 'BTEE.LSE',
-  CNDX: 'CNDX.LSE',
-  DGE: 'DGE.LSE',
-  EIMI: 'EIMI.LSE',
-  GSK: 'GSK.LSE',
-  HSBA: 'HSBA.LSE',
-  INRG: 'INRG.LSE',
-  IWMO: 'IWMO.LSE',
-  NG: 'NG.LSE',
-  RBOT: 'RBOT.LSE',
-  REL: 'REL.LSE',
-  RIO: 'RIO.LSE',
-  SGLN: 'SGLN.LSE',
-  SHEL: 'SHEL.LSE',
-  SSE: 'SSE.LSE',
-  SSLN: 'SSLN.LSE',
-  ULVR: 'ULVR.LSE',
-  VUSA: 'VUSA.LSE',
-  WSML: 'WSML.LSE',
-  // Germany / XETRA
-  ALV: 'ALV.XETRA',
-  SAP: 'SAP.XETRA',
-  SIE: 'SIE.XETRA',
-  DBK: 'DBK.XETRA',
-  IFX: 'IFX.XETRA',
-  HLAG: 'HLAG.XETRA',
-  // Netherlands / Euronext Amsterdam
-  ASML: 'ASML.AS',
-  MT: 'MT.AS',
-  // France / Euronext Paris
-  MC: 'MC.PA',
-  OR: 'OR.PA',
-  SU: 'SU.PA',
-  TTE: 'TTE.PA',
-  // Switzerland / SIX
-  NOVN: 'NOVN.SW',
-  ROG: 'ROG.SW',
-  // Denmark / Copenhagen
-  NVO: 'NOVO-B.CO',
-  // Italy / Milan
-  UCG: 'UCG.MI',
-};
+// ── Ticker mapping: uses shared ticker-maps.ts ──
+// EODHD_TICKER_MAP and toEodhdTicker imported from './ticker-maps'
 
 // EODHD index tickers (different from Yahoo's ^PREFIX format)
 const EODHD_INDEX_MAP: { name: string; eodhTicker: string }[] = [
@@ -154,29 +106,7 @@ const EODHD_INDEX_MAP: { name: string; eodhTicker: string }[] = [
   { name: 'VIX', eodhTicker: 'VIX.INDX' },
 ];
 
-/**
- * Convert a database/T212 ticker to its EODHD symbol.
- * Priority: explicit map → T212 'l' suffix rule → default to .US (US stocks)
- */
-export function toEodhdTicker(ticker: string): string {
-  if (EODHD_TICKER_MAP[ticker]) return EODHD_TICKER_MAP[ticker];
-
-  // UK stocks: T212 appends lowercase 'l' for London exchange
-  if (/^[A-Z]{2,5}l$/.test(ticker)) {
-    return ticker.slice(0, -1) + '.LSE';
-  }
-
-  // Yahoo-format tickers that already have exchange suffix
-  if (ticker.endsWith('.L')) return ticker.replace('.L', '.LSE');
-  if (ticker.endsWith('.DE')) return ticker.replace('.DE', '.XETRA');
-  // .AS, .PA, .SW, .CO, .MI are the same in EODHD
-  if (/\.(AS|PA|SW|CO|MI)$/.test(ticker)) return ticker;
-
-  // Default: assume US stock
-  if (!ticker.includes('.')) return `${ticker}.US`;
-
-  return ticker;
-}
+// toEodhdTicker imported from './ticker-maps'
 
 // ── HTTP helper with error handling ──
 async function eodhFetch<T>(path: string, params: Record<string, string> = {}): Promise<T> {

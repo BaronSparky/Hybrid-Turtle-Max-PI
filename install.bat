@@ -460,6 +460,11 @@ schtasks /Delete /TN "HybridTurtle-WeeklyDigest" /F >> "%LOG%" 2>&1
 schtasks /Create /TN "HybridTurtle-WeeklyDigest" /SC WEEKLY /D SUN /ST 18:00 /TR "\"%WK_BAT%\"" /RL HIGHEST /F >> "%LOG%" 2>&1
 echo         Weekly digest: 18:00 Sunday
 
+set "TA_BAT=%~dp0ticker-audit-task.bat"
+schtasks /Delete /TN "HybridTurtle-TickerAudit" /F >> "%LOG%" 2>&1
+schtasks /Create /TN "HybridTurtle-TickerAudit" /SC MONTHLY /D 1 /ST 06:00 /TR "\"%TA_BAT%\" --scheduled" /RL HIGHEST /F >> "%LOG%" 2>&1
+echo         Ticker audit: 06:00 1st+15th monthly
+
 >> "%LOG%" echo [%date% %time%] Auto-trade + briefing scheduled tasks created
 
 :skip_autotrade

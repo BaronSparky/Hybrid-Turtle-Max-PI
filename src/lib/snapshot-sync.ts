@@ -52,6 +52,8 @@ export interface SyncResult {
   snapshotId: string;
   rowCount: number;
   failed: string[];
+  /** Map of ticker → failure reason for diagnostics and stale tracking */
+  failureReasons: Map<string, string>;
   regime: string;
   durationMs: number;
 }
@@ -225,6 +227,7 @@ export async function syncSnapshot(
 
   // 6. Process each stock in batches
   const failed: string[] = [];
+  const failureReasons = new Map<string, string>();
   let done = 0;
   const batchData: Record<string, unknown>[] = [];
   // Cache daily bars (close only) for post-batch network isolation computation
@@ -428,8 +431,10 @@ export async function syncSnapshot(
             novelSignalVersion: 2,
           };
         } catch (err) {
-          console.warn(`[Sync] Failed ${stock.ticker}:`, (err as Error).message);
+          const reason = (err as Error).message;
+          console.warn(`[Sync] Failed ${stock.ticker}:`, reason);
           failed.push(stock.ticker);
+          failureReasons.set(stock.ticker, reason);
           return null;
         }
       })
@@ -525,6 +530,7 @@ export async function syncSnapshot(
     snapshotId: snapshot.id,
     rowCount: done,
     failed,
+    failureReasons,
     regime,
     durationMs: Date.now() - t0,
   };

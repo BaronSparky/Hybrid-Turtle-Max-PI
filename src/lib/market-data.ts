@@ -26,6 +26,7 @@ import { calcBIS } from './breakout-integrity';
 import { persistCache, rehydrateCache } from './cache-persistence';
 import { CACHE_KEYS } from './cache-keys';
 import { withRetry } from './fetch-retry';
+import { YAHOO_TICKER_MAP, toYahooTicker } from './ticker-maps';
 
 // ── Zod schemas for Yahoo Finance runtime validation ──
 const YahooQuoteSchema = z.object({
@@ -108,8 +109,8 @@ export interface YahooCalendarEvents {
 
 /** Shape of the yahoo-finance2 instance */
 interface YahooFinanceInstance {
-  quote(ticker: string): Promise<YahooQuoteResult | null>;
-  quote(tickers: string[]): Promise<YahooQuoteResult[]>;
+  quote(ticker: string, queryOpts?: Record<string, unknown>, moduleOpts?: { validateResult: false }): Promise<unknown>;
+  quote(tickers: string[], queryOpts?: Record<string, unknown>, moduleOpts?: { validateResult: false }): Promise<unknown[]>;
   chart(ticker: string, opts: { period1: string; period2: string; interval: string }): Promise<{ quotes: YahooChartBar[] }>;
   quoteSummary(ticker: string, opts: { modules: string[] }): Promise<{ calendarEvents?: YahooCalendarEvents } | null>;
 }
@@ -214,67 +215,8 @@ interface DailyBar {
 // ── Ticker translation: DB/T212 format → Yahoo Finance format ──
 // Trading 212 uses e.g. "GSKl" for London, Yahoo Finance uses "GSK.L"
 // Non-US tickers without exchange suffixes need explicit mapping.
-const YAHOO_TICKER_MAP: Record<string, string> = {
-  // UK / LSE (GBP / GBX) — stored without .L suffix
-  AIAI: 'AIAI.L',
-  AZN: 'AZN.L',
-  BTEE: 'BTEE.L',
-  CNDX: 'CNDX.L',
-  DGE: 'DGE.L',
-  EIMI: 'EIMI.L',
-  GSK: 'GSK.L',
-  HSBA: 'HSBA.L',
-  INRG: 'INRG.L',
-  IWMO: 'IWMO.L',
-  NG: 'NG.L',
-  RBOT: 'RBOT.L',
-  REL: 'REL.L',
-  RIO: 'RIO.L',
-  SGLN: 'SGLN.L',
-  SHEL: 'SHEL.L',
-  SSE: 'SSE.L',
-  SSLN: 'SSLN.L',
-  ULVR: 'ULVR.L',
-  VUSA: 'VUSA.L',
-  WSML: 'WSML.L',
-  // Germany / XETRA (EUR)
-  ALV: 'ALV.DE',
-  SAP: 'SAP.DE',
-  SIE: 'SIE.DE',
-  // Netherlands / Euronext Amsterdam (EUR)
-  ASML: 'ASML.AS',
-  MT: 'MT.AS',
-  // France / Euronext Paris (EUR)
-  MC: 'MC.PA',
-  OR: 'OR.PA',
-  SU: 'SU.PA',
-  TTE: 'TTE.PA',
-  // Switzerland / SIX (CHF)
-  NOVN: 'NOVN.SW',
-  ROG: 'ROG.SW',
-  // Denmark / Copenhagen (DKK)
-  NVO: 'NOVO-B.CO',
-  // Germany / XETRA additions (Feb 2026)
-  DBK: 'DBK.DE',
-  IFX: 'IFX.DE',
-  HLAG: 'HLAG.DE',
-  // Italy / Milan additions (Feb 2026)
-  UCG: 'UCG.MI',
-};
-
-/**
- * Convert a database/T212 ticker to its Yahoo Finance symbol.
- * Priority: explicit yahooTicker override → static map → T212 'l' suffix rule → passthrough.
- */
-export function toYahooTicker(ticker: string, yahooTickerOverride?: string | null): string {
-  if (yahooTickerOverride) return yahooTickerOverride;
-  if (YAHOO_TICKER_MAP[ticker]) return YAHOO_TICKER_MAP[ticker];
-  // UK stocks: T212 appends lowercase 'l' for London exchange
-  if (/^[A-Z]{2,5}l$/.test(ticker)) {
-    return ticker.slice(0, -1) + '.L';
-  }
-  return ticker;
-}
+// ── Ticker mapping: uses shared ticker-maps.ts ──
+// YAHOO_TICKER_MAP and toYahooTicker imported from './ticker-maps'
 
 // ────────────────────────────────────────────────────
 // Stock Quote — live price via active provider
@@ -292,7 +234,10 @@ export async function getStockQuote(ticker: string, forceRefresh = false): Promi
   const yahooTicker = toYahooTicker(ticker);
 
   try {
-    const raw = await withRetry(() => yf.quote(yahooTicker), `quote:${ticker}`);
+    // Skip yahoo-finance2 internal Ajv validation — our Zod schema handles it.
+    // This prevents FailedYahooValidationError for ETFs and other quoteTypes
+    // the library's schema doesn't recognize in batch mode.
+    const raw = await withRetry(() => yf.quote(yahooTicker, {}, { validateResult: false }), `quote:${ticker}`);
     if (!raw) return null;
 
     // Runtime validation — rejects malformed Yahoo responses
@@ -773,7 +718,7 @@ export async function getMarketIndices(): Promise<MarketIndex[]> {
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
       const rawResults = await withRetry(
-        () => yf.quote(indexTickers) as Promise<YahooQuoteResult[]>,
+        () => yf.quote(indexTickers, {}, { validateResult: false }) as Promise<YahooQuoteResult[]>,
         `indices:attempt${attempt}`
       );
       const indices = INDEX_MAP.map(idx => {
@@ -825,7 +770,7 @@ export async function getFearGreedIndex(): Promise<FearGreedData> {
   if (isEodhd()) return eodhd.getFearGreedIndex();
 
   try {
-    const vix = await yf.quote('^VIX');
+    const vix = await yf.quote('^VIX', {}, { validateResult: false }) as YahooQuoteResult | null;
     const vixPrice = vix?.regularMarketPrice || 20;
 
     let value: number;
@@ -864,7 +809,7 @@ export async function getFXRate(fromCurrency: string, toCurrency: string, forceR
   }
 
   try {
-    const result = await withRetry(() => yf.quote(`${pair}=X`), `fx:${pair}`);
+    const result = await withRetry(() => yf.quote(`${pair}=X`, {}, { validateResult: false }), `fx:${pair}`) as YahooQuoteResult | null;
     const rate = result?.regularMarketPrice;
     if (rate && rate > 0) {
       fxCache.set(cacheKey, { data: rate, expiry: Date.now() + FX_TTL });
@@ -1000,8 +945,10 @@ export async function getBatchQuotes(tickers: string[], forceRefresh = false): P
   for (let i = 0; i < yahooTickers.length; i += BATCH_SIZE) {
     const batch = yahooTickers.slice(i, i + BATCH_SIZE);
     try {
+      // Skip yahoo-finance2 internal validation — our own checks below handle it.
+      // Prevents FailedYahooValidationError for ETFs and non-EQUITY quoteTypes.
       const rawResults = await withRetry(
-        () => yf.quote(batch) as Promise<YahooQuoteResult[]>,
+        () => yf.quote(batch, {}, { validateResult: false }) as Promise<YahooQuoteResult[]>,
         `batchQuote:chunk${i}`
       );
       for (const r of rawResults) {

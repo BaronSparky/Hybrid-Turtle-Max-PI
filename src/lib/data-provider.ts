@@ -22,6 +22,7 @@
 
 import 'server-only';
 import { getBatchQuotes, getStockQuote } from './market-data';
+import { getBatchQuotes as getEodhdBatchQuotes } from './market-data-eodhd';
 import type { StockQuote } from '@/types';
 
 // ── Types ─────────────────────────────────────────────────────
@@ -64,51 +65,162 @@ export interface FetchResult {
 const CACHE_RECENT_THRESHOLD_HOURS = 24;
 const CACHE_STALE_THRESHOLD_HOURS = 48;
 
-// ── Alpha Vantage Stub ────────────────────────────────────────
+// ── Alpha Vantage ─────────────────────────────────────────────
+
+/** AV GLOBAL_QUOTE response shape */
+interface AVGlobalQuote {
+  'Global Quote': {
+    '01. symbol': string;
+    '02. open': string;
+    '03. high': string;
+    '04. low': string;
+    '05. price': string;
+    '06. volume': string;
+    '07. latest trading day': string;
+    '08. previous close': string;
+    '09. change': string;
+    '10. change percent': string;
+  };
+}
+
+/** Rate limit: max 5 requests/minute for free tier */
+const AV_RATE_LIMIT_MS = 12_500; // 12.5s between calls = ~5/min
 
 /**
- * Fetch price data from Alpha Vantage.
+ * Fetch price data from Alpha Vantage GLOBAL_QUOTE endpoint.
  * Only attempts if ALPHA_VANTAGE_API_KEY env var is set and non-empty.
- * Returns null if key is missing (skip silently) or on failure.
+ * Each ticker requires a separate API call — used as fallback for small batches.
+ *
+ * Free tier: 25 requests/day, 5/minute.
+ * Only fetches up to 20 tickers per invocation to stay within daily limits.
  *
  * @returns Map of ticker → PriceData, or null if provider unavailable
  */
 async function fetchFromAlphaVantage(
-  _tickers: string[]
+  tickers: string[]
 ): Promise<Map<string, PriceData> | null> {
   const key = process.env.ALPHA_VANTAGE_API_KEY;
   if (!key || key.trim() === '') return null;
 
-  // TODO: implement AV fetch
-  // Free tier: 25 requests/day, 5/minute
-  // Endpoint: https://www.alphavantage.co/query
-  // Function: TIME_SERIES_DAILY
-  // Each ticker needs a separate API call — batch carefully
-  console.warn('[DataProvider] Alpha Vantage key detected but not yet implemented');
-  return null;
+  const results = new Map<string, PriceData>();
+
+  // Cap at 20 to stay within 25/day free tier (leaves headroom for retries)
+  const toFetch = tickers.slice(0, 20);
+  if (toFetch.length < tickers.length) {
+    console.warn(`[DataProvider] Alpha Vantage: capping at ${toFetch.length}/${tickers.length} tickers (daily limit)`);
+  }
+
+  console.log(`[DataProvider] Alpha Vantage: fetching ${toFetch.length} tickers...`);
+
+  for (let i = 0; i < toFetch.length; i++) {
+    const ticker = toFetch[i];
+    try {
+      const url = new URL('https://www.alphavantage.co/query');
+      url.searchParams.set('function', 'GLOBAL_QUOTE');
+      url.searchParams.set('symbol', ticker);
+      url.searchParams.set('apikey', key);
+
+      const res = await fetch(url.toString(), { signal: AbortSignal.timeout(10_000) });
+      if (!res.ok) {
+        console.warn(`[DataProvider] AV HTTP ${res.status} for ${ticker}`);
+        continue;
+      }
+
+      const json = (await res.json()) as AVGlobalQuote | { Note?: string; Information?: string };
+
+      // Check for rate-limit or error messages
+      if ('Note' in json || 'Information' in json) {
+        const msg = ('Note' in json ? json.Note : json.Information) ?? '';
+        console.warn(`[DataProvider] AV rate-limited or error: ${msg.slice(0, 100)}`);
+        break; // Stop trying — we've hit the limit
+      }
+
+      const gq = (json as AVGlobalQuote)['Global Quote'];
+      if (!gq || !gq['05. price']) {
+        continue; // No data for this ticker
+      }
+
+      const close = parseFloat(gq['05. price']);
+      if (close <= 0 || isNaN(close)) continue;
+
+      results.set(ticker, {
+        ticker,
+        close,
+        open: parseFloat(gq['02. open']) || close,
+        high: parseFloat(gq['03. high']) || close,
+        low: parseFloat(gq['04. low']) || close,
+        volume: parseInt(gq['06. volume'], 10) || 0,
+        timestamp: new Date(),
+        source: 'ALPHA_VANTAGE',
+        isStale: false,
+      });
+    } catch (error) {
+      console.warn(`[DataProvider] AV failed for ${ticker}: ${(error as Error).message}`);
+    }
+
+    // Rate limit between calls (skip delay after last ticker)
+    if (i < toFetch.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, AV_RATE_LIMIT_MS));
+    }
+  }
+
+  if (results.size > 0) {
+    console.log(`[DataProvider] Alpha Vantage: got ${results.size}/${toFetch.length} tickers`);
+  }
+
+  return results.size > 0 ? results : null;
 }
 
-// ── EODHD Stub ────────────────────────────────────────────────
+// ── EODHD ─────────────────────────────────────────────────────
 
 /**
- * Fetch price data from EODHD Financial APIs.
+ * Fetch price data from EODHD Financial APIs via the existing
+ * market-data-eodhd.ts module (getBatchQuotes).
  * Only attempts if EODHD_API_KEY env var is set and non-empty.
  * Returns null if key is missing (skip silently) or on failure.
+ *
+ * Uses EODHD real-time endpoint with batch support (up to 50 tickers).
+ * API docs: https://eodhd.com/financial-apis/live-realtime-stocks-api
  *
  * @returns Map of ticker → PriceData, or null if provider unavailable
  */
 async function fetchFromEODHD(
-  _tickers: string[]
+  tickers: string[]
 ): Promise<Map<string, PriceData> | null> {
   const key = process.env.EODHD_API_KEY;
   if (!key || key.trim() === '') return null;
 
-  // TODO: implement EODHD fetch
-  // Endpoint: https://eodhd.com/api/real-time/{SYMBOL}
-  // Supports batch: comma-separated tickers
-  // API docs: https://eodhd.com/financial-apis/live-realtime-stocks-api
-  console.warn('[DataProvider] EODHD key detected but not yet implemented');
-  return null;
+  const results = new Map<string, PriceData>();
+
+  try {
+    console.log(`[DataProvider] EODHD: fetching ${tickers.length} tickers...`);
+    const quotes = await getEodhdBatchQuotes(tickers);
+    const now = new Date();
+
+    quotes.forEach((quote: StockQuote, ticker: string) => {
+      if (quote.price > 0) {
+        results.set(ticker, {
+          ticker,
+          close: quote.price,
+          open: quote.open,
+          high: quote.high,
+          low: quote.low,
+          volume: quote.volume,
+          timestamp: now,
+          source: 'EODHD',
+          isStale: false,
+        });
+      }
+    });
+
+    if (results.size > 0) {
+      console.log(`[DataProvider] EODHD: got ${results.size}/${tickers.length} tickers`);
+    }
+  } catch (error) {
+    console.error('[DataProvider] EODHD batch fetch failed:', (error as Error).message);
+  }
+
+  return results.size > 0 ? results : null;
 }
 
 // ── DB Cache Fallback ─────────────────────────────────────────

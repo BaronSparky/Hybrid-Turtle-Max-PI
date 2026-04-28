@@ -7,57 +7,9 @@
 // ============================================================
 
 import { PrismaClient } from '@prisma/client';
+import { YAHOO_TICKER_MAP } from '../src/lib/ticker-maps';
 
 const prisma = new PrismaClient();
-
-// Same map as src/lib/market-data.ts YAHOO_TICKER_MAP
-const YAHOO_TICKER_MAP: Record<string, string> = {
-  // UK / LSE
-  AIAI: 'AIAI.L',
-  AZN: 'AZN.L',
-  BTEE: 'BTEE.L',
-  CNDX: 'CNDX.L',
-  DGE: 'DGE.L',
-  EIMI: 'EIMI.L',
-  GSK: 'GSK.L',
-  HSBA: 'HSBA.L',
-  INRG: 'INRG.L',
-  IWMO: 'IWMO.L',
-  NG: 'NG.L',
-  RBOT: 'RBOT.L',
-  REL: 'REL.L',
-  RIO: 'RIO.L',
-  SGLN: 'SGLN.L',
-  SHEL: 'SHEL.L',
-  SSE: 'SSE.L',
-  SSLN: 'SSLN.L',
-  ULVR: 'ULVR.L',
-  VUSA: 'VUSA.L',
-  WSML: 'WSML.L',
-  // Germany / XETRA
-  ALV: 'ALV.DE',
-  SAP: 'SAP.DE',
-  SIE: 'SIE.DE',
-  // Netherlands / Euronext Amsterdam
-  ASML: 'ASML.AS',
-  MT: 'MT.AS',
-  // France / Euronext Paris
-  MC: 'MC.PA',
-  OR: 'OR.PA',
-  SU: 'SU.PA',
-  TTE: 'TTE.PA',
-  // Switzerland / SIX
-  NOVN: 'NOVN.SW',
-  ROG: 'ROG.SW',
-  // Denmark / Copenhagen
-  NVO: 'NOVO-B.CO',
-  // Germany / XETRA additions (Feb 2026)
-  DBK: 'DBK.DE',
-  IFX: 'IFX.DE',
-  HLAG: 'HLAG.DE',
-  // Italy / Milan additions (Feb 2026)
-  UCG: 'UCG.MI',
-};
 
 async function main() {
   console.log('Syncing Yahoo ticker mappings...\n');

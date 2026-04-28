@@ -695,6 +695,40 @@ async function runNightlyProcess() {
     }
     console.log(`        T212 stop push: ${stopsPushedToT212} pushed, ${stopsPushFailed} failed`);
 
+    // Step 3h: Stop–Broker sync check — compare DB stops vs T212 pending orders
+    if (process.env.BROKER_ADAPTER === 'trading212') {
+      try {
+        const { checkStopBrokerSync } = await import('@/lib/stop-broker-sync-check');
+        const t212Clients: { type: string; client: typeof import('@/lib/trading212').Trading212Client.prototype }[] = [];
+        for (const acctType of ['invest', 'isa'] as T212AccountType[]) {
+          const c = await getNightlyT212Client(userId, acctType);
+          if (c) t212Clients.push({ type: acctType, client: c });
+        }
+        if (t212Clients.length > 0) {
+          const driftReport = await checkStopBrokerSync(t212Clients, true); // autoCorrect DB_HIGHER
+          if (driftReport.mismatches.length > 0) {
+            for (const m of driftReport.mismatches) {
+              const dir = m.driftDirection === 'NO_BROKER_STOP'
+                ? 'NO T212 STOP'
+                : `DB:$${m.dbStop.toFixed(2)} vs T212:$${m.brokerStop?.toFixed(2)} (${m.driftPct.toFixed(1)}%)${m.corrected ? ' → AUTO-CORRECTED' : ''}`;
+              console.warn(`        ⚠ Stop drift: ${m.ticker} — ${dir}`);
+            }
+            const uncorrected = driftReport.mismatches.filter(m => !m.corrected);
+            if (uncorrected.length > 0) {
+              alerts.push(`⚠ ${uncorrected.length} stop(s) drifted from T212 — check manually`);
+            }
+            if (driftReport.corrected > 0) {
+              alerts.push(`✅ ${driftReport.corrected} stop(s) auto-corrected to match T212`);
+            }
+          } else {
+            console.log(`        Stop-broker sync: ${driftReport.checked} checked, all matched`);
+          }
+        }
+      } catch (error) {
+        console.warn('  [3h] Stop-broker sync check failed:', (error as Error).message);
+      }
+    }
+
     // Step 4: Detect laggards + collect alerts
     console.log('  [4/9] Detecting laggards...');
     startStep('4', 'Laggard detection');
@@ -1080,9 +1114,9 @@ async function runNightlyProcess() {
         alerts.push(`${pyramidAlerts.length} position(s) eligible for pyramid add`);
       }
 
-      // Send pyramid add alerts via notification centre (Tuesday only)
-      const dayOfWeekPyramid = getUKDayOfWeek(); // 0=Sun, 2=Tue — UK timezone
-      if (dayOfWeekPyramid === 2 && pyramidAlerts.length > 0) {
+      // Send pyramid add alerts via notification centre (Friday only — matches execution day)
+      const dayOfWeekPyramid = getUKDayOfWeek(); // 0=Sun, 5=Fri — UK timezone
+      if (dayOfWeekPyramid === 5 && pyramidAlerts.length > 0) {
         for (const pa of pyramidAlerts) {
           const currSymbol = pa.currency === 'GBP' || pa.currency === 'GBX' ? '£' : pa.currency === 'EUR' ? '€' : '$';
           const sizingLine = pa.addShares > 0
@@ -1091,7 +1125,7 @@ async function runNightlyProcess() {
           await sendAlert({
             type: 'PYRAMID_ADD',
             title: `${pa.ticker} is ready for a pyramid add`,
-            message: `Your position in ${pa.ticker} has moved up enough to add more shares.\n\nR-multiple: ${pa.rMultiple.toFixed(1)}R\n${sizingLine}\n${pa.triggerPrice ? `Trigger price: ${currSymbol}${pa.triggerPrice.toFixed(2)}` : ''}\n${pa.message}\n\nOpen the Portfolio page on Tuesday to review.`,
+            message: `Your position in ${pa.ticker} has moved up enough to add more shares.\n\nR-multiple: ${pa.rMultiple.toFixed(1)}R\n${sizingLine}\n${pa.triggerPrice ? `Trigger price: ${currSymbol}${pa.triggerPrice.toFixed(2)}` : ''}\n${pa.message}\n\nPyramid adds auto-execute on Friday nightly if regime is BULLISH.`,
             data: { ticker: pa.ticker, rMultiple: pa.rMultiple, addNumber: pa.addNumber, addShares: pa.addShares, addRiskAmount: pa.addRiskAmount, riskScalar: pa.riskScalar },
             priority: 'INFO',
           });
@@ -1110,8 +1144,8 @@ async function runNightlyProcess() {
       const regime = await getMarketRegime().catch(() => 'UNKNOWN');
       const dayOfWeek = getUKDayOfWeek();
 
-      // Only pyramid on execution days (Tue-Fri) in BULLISH regime
-      if (regime === 'BULLISH' && dayOfWeek >= 2 && dayOfWeek <= 5) {
+      // Only pyramid on Fridays in BULLISH regime (end-of-week confirmation)
+      if (regime === 'BULLISH' && dayOfWeek === 5) {
         console.log('  [6-auto] Auto-executing pyramid adds...');
         try {
           for (const pa of pyramidAlerts) {
@@ -1385,10 +1419,10 @@ async function runNightlyProcess() {
       };
     });
 
-    let snapshotSync = { synced: false, rowCount: 0, failed: [] as string[], snapshotId: '' };
+    let snapshotSync = { synced: false, rowCount: 0, failed: [] as string[], snapshotId: '', failureReasons: new Map<string, string>() };
     try {
       const result = await syncSnapshot();
-      snapshotSync = { synced: true, rowCount: result.rowCount, failed: result.failed, snapshotId: result.snapshotId };
+      snapshotSync = { synced: true, rowCount: result.rowCount, failed: result.failed, snapshotId: result.snapshotId, failureReasons: result.failureReasons };
       if (result.failed.length > 0) {
         alerts.push(`Snapshot sync: ${result.rowCount} tickers synced, ${result.failed.length} failed`);
       }
@@ -1398,6 +1432,25 @@ async function runNightlyProcess() {
       alerts.push('Snapshot sync failed — scores may be stale');
     }
     console.log(`        Snapshot: ${snapshotSync.rowCount} synced, ${snapshotSync.failed.length} failed`);
+
+    // ── Auto-deactivate chronically dead tickers ──
+    if (snapshotSync.synced && snapshotSync.failureReasons.size > 0) {
+      try {
+        const { updateStaleTracking } = await import('@/lib/stale-ticker-tracker');
+        const activeStocksForTracking = await prisma.stock.findMany({ where: { active: true }, select: { ticker: true } });
+        const allActive = new Set(activeStocksForTracking.map(s => s.ticker));
+        const staleResult = await updateStaleTracking(snapshotSync.failureReasons, allActive);
+        if (staleResult.deactivated.length > 0) {
+          alerts.push(`Auto-deactivated ${staleResult.deactivated.length} dead tickers: ${staleResult.deactivated.join(', ')}`);
+          console.log(`        Auto-deactivated: ${staleResult.deactivated.join(', ')}`);
+        }
+        if (staleResult.tracked > 0) {
+          console.log(`        Stale tracking: ${staleResult.tracked} tickers being monitored`);
+        }
+      } catch (error) {
+        console.warn('  [7] Stale ticker tracking failed:', (error as Error).message);
+      }
+    }
 
     // ── Score Breakdown: record BQS/FWS/NCS component decomposition for analytics ──
     if (snapshotSync.snapshotId && snapshotSync.synced) {
