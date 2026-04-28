@@ -250,6 +250,7 @@ async function cmdPositions(): Promise<CommandResponse> {
     const pnlStr = `${pnl >= 0 ? '+' : ''}${currencySymbol(p.stock.currency)}${Math.abs(pnl).toFixed(2)} (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%)`;
     const levelEmoji = p.protectionLevel === 'LOCK_1R_TRAIL' ? '🟢'
       : p.protectionLevel === 'LOCK_08R' ? '🔵'
+      : p.protectionLevel === 'TRAILING_ATR' ? '🟣'
       : p.protectionLevel === 'BREAKEVEN' ? '🟡' : '⚪';
     const sym = currencySymbol(p.stock.currency);
     const earningsDays = earningsMap.get(p.stock.ticker);

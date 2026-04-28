@@ -91,7 +91,7 @@ describe('audit harness output schema', () => {
   });
 
   it('protectionLevel values are from the allowed set', () => {
-    const allowed = new Set(['INITIAL', 'BREAKEVEN', 'LOCK_08R', 'LOCK_1R_TRAIL']);
+    const allowed = new Set(['INITIAL', 'BREAKEVEN', 'TRAILING_ATR', 'LOCK_08R', 'LOCK_1R_TRAIL']);
     for (const row of snapshot.rows) {
       expect(allowed.has(row.protectionLevel)).toBe(true);
     }
