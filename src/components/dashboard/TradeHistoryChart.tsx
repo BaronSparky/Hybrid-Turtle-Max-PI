@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
-import { BarChart3, RefreshCw } from 'lucide-react';
+import { BarChart3, RefreshCw, Download } from 'lucide-react';
 import { apiRequest } from '@/lib/api-client';
 import {
   ResponsiveContainer,
@@ -37,6 +37,7 @@ export default function TradeHistoryChart() {
   const [trades, setTrades] = useState<TradeData[]>([]);
   const [summary, setSummary] = useState<TradeSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [importing, setImporting] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -66,14 +67,36 @@ export default function TradeHistoryChart() {
   }
 
   if (trades.length === 0) {
+    const handleImport = async () => {
+      setImporting(true);
+      try {
+        await apiRequest('/api/t212-import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accountType: 'both' }),
+        });
+        await fetchData();
+      } catch { /* silent */ }
+      finally { setImporting(false); }
+    };
+
     return (
       <div className="card-surface p-4">
         <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
           <BarChart3 className="w-4 h-4 text-primary-400" />
           Trade History
         </h3>
-        <div className="h-32 flex items-center justify-center text-xs text-muted-foreground">
-          No closed trades yet — R-multiple chart will appear after your first exit.
+        <div className="h-32 flex flex-col items-center justify-center gap-3 text-xs text-muted-foreground">
+          <p>No closed trades yet.</p>
+          <button
+            onClick={handleImport}
+            disabled={importing}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-400/20 text-primary-400 hover:bg-primary-400/30 transition-colors disabled:opacity-50"
+          >
+            <Download className="w-3.5 h-3.5" />
+            {importing ? 'Importing from T212...' : 'Import from Trading 212'}
+          </button>
+          <p className="text-[10px]">Or wait for your first trade to close naturally.</p>
         </div>
       </div>
     );

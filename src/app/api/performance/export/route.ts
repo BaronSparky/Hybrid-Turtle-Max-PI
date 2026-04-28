@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
       exitPrice: t.exitPrice ?? '',
       shares: t.shares,
       initialRisk: t.initialRisk,
-      realisedPnl: t.realisedPnl ?? '',
+      realisedPnlGbp: t.realisedPnlGbp ?? '',
       realisedPnlR: t.realisedPnlR ?? '',
       protectionLevel: t.protectionLevel ?? '',
       holdDays: t.exitDate && t.entryDate

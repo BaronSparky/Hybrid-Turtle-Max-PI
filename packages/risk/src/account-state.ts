@@ -5,9 +5,8 @@
  * Risk-sensitive: NO — read-only query, does not modify positions or stops
  * Last modified: 2026-03-08
  */
-import { prisma } from '../../data/src/prisma';
+import { prisma, round } from '../../data/src/prisma';
 import type { AccountRiskState, PositionConcentration } from './types';
-import { round } from './sizing';
 
 /**
  * Loads the unified account risk state from the latest portfolio snapshot and open broker positions.

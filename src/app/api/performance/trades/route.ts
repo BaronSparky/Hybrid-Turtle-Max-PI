@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
         entryDate: true,
         exitDate: true,
         realisedPnlR: true,
-        realisedPnl: true,
+        realisedPnlGbp: true,
         shares: true,
         protectionLevel: true,
         stock: { select: { ticker: true, sleeve: true } },
@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
       entryDate: t.entryDate.toISOString().split('T')[0],
       exitDate: t.exitDate?.toISOString().split('T')[0] ?? null,
       rMultiple: t.realisedPnlR ?? 0,
-      pnl: t.realisedPnl ?? 0,
+      pnl: t.realisedPnlGbp ?? 0,
       holdDays: t.exitDate && t.entryDate
         ? Math.round((t.exitDate.getTime() - t.entryDate.getTime()) / (24 * 60 * 60 * 1000))
         : null,
