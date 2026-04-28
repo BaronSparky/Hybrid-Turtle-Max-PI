@@ -29,7 +29,10 @@ export default function MigrationBanner() {
 
   useEffect(() => {
     fetch('/api/db-status')
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) return { status: 'ok' as const, pending: 0 };
+        return res.json();
+      })
       .then((data: DbStatus) => setDbStatus(data))
       .catch(() => {
         setDbStatus({

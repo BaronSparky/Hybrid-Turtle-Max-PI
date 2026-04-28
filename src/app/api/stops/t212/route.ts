@@ -141,8 +141,13 @@ export async function GET(request: NextRequest) {
       const t212Stop = matchedOrder?.stopPrice ?? 0;
 
       // If T212 has a higher stop than the DB, sync the DB UP (monotonic)
+      // SAFETY: reject if T212 stop is above entry price while the DB protection level
+      // is INITIAL. This indicates stale/bad data on T212 (e.g. from before an entry
+      // price correction). Legitimate lock-level stops above entry are allowed through
+      // since those positions have already been validated through the R-multiple ladder.
       let dbSyncedUp = false;
-      if (t212Stop > pos.currentStop) {
+      const isStaleAboveEntry = t212Stop >= pos.entryPrice && pos.protectionLevel === 'INITIAL';
+      if (t212Stop > pos.currentStop && !isStaleAboveEntry) {
         try {
           await updateStopLoss(
             pos.id,

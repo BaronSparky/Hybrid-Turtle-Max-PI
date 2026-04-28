@@ -375,3 +375,43 @@ describe('calculateTrailingATRStop regressions', () => {
     ).rejects.toThrow('atrMultiplier must be a positive number');
   });
 });
+
+describe('inferLevelFromStop with TRAILING_ATR', () => {
+  it('infers INITIAL for stop well below entry', () => {
+    expect(inferLevelFromStop(90, 100, 10)).toBe('INITIAL');
+  });
+
+  it('infers BREAKEVEN for stop near entry', () => {
+    expect(inferLevelFromStop(99.5, 100, 10)).toBe('BREAKEVEN');
+  });
+
+  it('infers LOCK_08R for stop 0.5R above entry', () => {
+    expect(inferLevelFromStop(105, 100, 10)).toBe('LOCK_08R');
+  });
+
+  it('infers LOCK_1R_TRAIL for stop 1R above entry', () => {
+    expect(inferLevelFromStop(108, 100, 10)).toBe('LOCK_1R_TRAIL');
+  });
+});
+
+describe('TRAILING_ATR in level order', () => {
+  it('does not recommend upgrade from TRAILING_ATR to BREAKEVEN', () => {
+    // Position at 1.6R with TRAILING_ATR level — should NOT recommend BREAKEVEN (lower rank)
+    const rec = calculateStopRecommendation(116, 100, 10, 95, 'TRAILING_ATR' as ProtectionLevel);
+    expect(rec).toBeNull();
+  });
+
+  it('recommends upgrade from TRAILING_ATR to LOCK_08R', () => {
+    // Position at 2.5R with TRAILING_ATR level — should recommend LOCK_08R (higher rank)
+    const rec = calculateStopRecommendation(125, 100, 10, 95, 'TRAILING_ATR' as ProtectionLevel);
+    expect(rec).not.toBeNull();
+    expect(rec?.newLevel).toBe('LOCK_08R');
+  });
+
+  it('recommends upgrade from TRAILING_ATR to LOCK_1R_TRAIL', () => {
+    // Position at 3.0R with TRAILING_ATR level — should recommend LOCK_1R_TRAIL
+    const rec = calculateStopRecommendation(130, 100, 10, 95, 'TRAILING_ATR' as ProtectionLevel);
+    expect(rec).not.toBeNull();
+    expect(rec?.newLevel).toBe('LOCK_1R_TRAIL');
+  });
+});

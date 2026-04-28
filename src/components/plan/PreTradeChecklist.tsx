@@ -52,7 +52,7 @@ export default function PreTradeChecklist({
 
   const overallHealth = healthReport?.overall || healthStatus;
   const allHealthGreen = healthReport?.results?.every((r) => r.status === 'GREEN') ?? false;
-  const dataFresh = healthReport?.results?.find((r) => r.id === 'A1')?.status === 'GREEN' ?? false;
+  const dataFresh = healthReport?.results?.find((r) => r.id === 'A1')?.status === 'GREEN';
   const openRiskOk = riskBudget
     ? riskBudget.usedRiskPercent <= riskBudget.maxRiskPercent
     : false;

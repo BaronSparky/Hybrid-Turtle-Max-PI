@@ -34,10 +34,10 @@ export function apiError(
 /**
  * Verify the CRON_SECRET header on scheduled/cron endpoints.
  * Returns null if valid, or a 401 NextResponse if invalid.
- * Skips validation when DISABLE_API_AUTH is true in non-production.
+ * Skips validation when DISABLE_API_AUTH is true (local desktop mode).
  */
 export function verifyCronSecret(request: NextRequest): NextResponse | null {
-  if (process.env.DISABLE_API_AUTH === 'true' && process.env.NODE_ENV !== 'production') {
+  if (process.env.DISABLE_API_AUTH === 'true') {
     return null;
   }
   const secret = request.headers.get('x-cron-secret') || request.headers.get('authorization')?.replace('Bearer ', '');

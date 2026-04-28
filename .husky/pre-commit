@@ -1,0 +1,5 @@
+# Skip in CI environments (CI already runs lint + typecheck)
+[ -n "$CI" ] && exit 0
+
+npx lint-staged
+npm run typecheck

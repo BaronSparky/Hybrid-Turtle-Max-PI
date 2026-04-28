@@ -1,8 +1,8 @@
 /**
- * Re-encrypt API keys when NEXTAUTH_SECRET changes.
+ * Re-encrypt API keys when ENCRYPTION_SECRET (or NEXTAUTH_SECRET) changes.
  *
  * Decrypts all encrypted fields using the OLD secret, then re-encrypts
- * them with the CURRENT secret (from .env / NEXTAUTH_SECRET).
+ * them with the CURRENT secret (from .env / ENCRYPTION_SECRET).
  *
  * Usage:
  *   npx tsx scripts/reencrypt-keys.ts --old-secret="previous-secret-value"
@@ -66,9 +66,9 @@ function getOldSecret(): string {
 
 async function main() {
   const oldSecret = getOldSecret();
-  const newSecret = process.env.NEXTAUTH_SECRET;
+  const newSecret = process.env.ENCRYPTION_SECRET || process.env.NEXTAUTH_SECRET;
   if (!newSecret) {
-    console.error('ERROR: NEXTAUTH_SECRET must be set in .env (this is the NEW secret).');
+    console.error('ERROR: ENCRYPTION_SECRET (or NEXTAUTH_SECRET) must be set in .env (this is the NEW secret).');
     process.exit(1);
   }
   if (oldSecret === newSecret) {

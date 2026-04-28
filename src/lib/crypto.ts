@@ -1,10 +1,10 @@
 /**
  * DEPENDENCIES
  * Consumed by: /api/trading212/connect/route.ts, secrets.ts, auto-trade.ts, /api/positions/execute/route.ts
- * Consumes: Node crypto, NEXTAUTH_SECRET env var
+ * Consumes: Node crypto, ENCRYPTION_SECRET or NEXTAUTH_SECRET env var
  * Risk-sensitive: YES — protects broker API keys at rest
  * Notes: AES-256-GCM encryption for sensitive fields stored in SQLite.
- *        Key is derived from NEXTAUTH_SECRET using PBKDF2.
+ *        Key is derived from ENCRYPTION_SECRET (preferred) or NEXTAUTH_SECRET (fallback) using PBKDF2.
  *        Encrypted values are prefixed with 'enc:' for detection.
  */
 
@@ -13,13 +13,13 @@ import { createCipheriv, createDecipheriv, randomBytes, pbkdf2Sync } from 'crypt
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
-const SALT = 'hybridturtle-key-encryption'; // Static salt — key uniqueness comes from NEXTAUTH_SECRET
+const SALT = 'hybridturtle-key-encryption'; // Static salt — key uniqueness comes from the secret
 const ENC_PREFIX = 'enc:';
 
 function getDerivedKey(): Buffer {
-  const secret = process.env.NEXTAUTH_SECRET;
+  const secret = process.env.ENCRYPTION_SECRET || process.env.NEXTAUTH_SECRET;
   if (!secret) {
-    throw new Error('NEXTAUTH_SECRET is required for credential encryption');
+    throw new Error('ENCRYPTION_SECRET or NEXTAUTH_SECRET is required for credential encryption');
   }
   return pbkdf2Sync(secret, SALT, 100_000, 32, 'sha256');
 }

@@ -115,6 +115,13 @@ timeout /t 1 /nobreak >nul
 :: Ensure production build exists (install.bat pre-builds; this catches edge cases)
 :: Check for BUILD_ID which next start specifically requires — a stale .next dir without it will fail
 if not exist ".next\BUILD_ID" (
+    echo  Type-checking before build...
+    call npm run typecheck
+    if %errorlevel% neq 0 (
+        echo  !! Type errors found. Fix the errors above before the dashboard can start.
+        pause
+        exit /b 1
+    )
     echo  Building dashboard ^(this may take a few minutes^)...
     call npx next build
     if %errorlevel% neq 0 (

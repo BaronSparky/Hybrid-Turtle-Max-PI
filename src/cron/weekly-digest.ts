@@ -67,7 +67,7 @@ async function runWeeklyDigest() {
   const weekWins = closedThisWeek.filter(p => (p.realisedPnlR ?? 0) > 0);
   const weekLosses = closedThisWeek.filter(p => (p.realisedPnlR ?? 0) <= 0);
   const weekTotalR = closedThisWeek.reduce((sum, p) => sum + (p.realisedPnlR ?? 0), 0);
-  const weekPnl = closedThisWeek.reduce((sum, p) => sum + (p.realisedPnl ?? 0), 0);
+  const weekPnl = closedThisWeek.reduce((sum, p) => sum + (p.realisedPnlGbp ?? 0), 0);
 
   // Equity change
   const startEquity = snapshots.length > 0 ? snapshots[0].equity : null;

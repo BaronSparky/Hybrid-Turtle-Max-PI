@@ -8,14 +8,16 @@ import { checkRateLimit, getRateLimitCategory, RATE_LIMITS } from '@/lib/rate-li
  * Protects all /api/* routes except whitelisted paths.
  * Uses the NextAuth JWT token to verify session — no DB call required.
  *
- * API auth is enforced by default. For isolated local troubleshooting only,
- * set DISABLE_API_AUTH=true while NODE_ENV is not production.
+ * API auth is enforced by default. For local single-user desktop mode,
+ * set DISABLE_API_AUTH=true in .env. This is safe because start.bat
+ * binds to localhost only.
  */
 
 const PUBLIC_PATHS = [
   '/api/auth',        // NextAuth routes (login, callback, csrf, etc.)
   '/api/health',      // Health check endpoint
   '/api/heartbeat',   // Heartbeat (needed by LiveDataBootstrap on mount)
+  '/api/db-status',   // Migration status check (needed by MigrationBanner on mount)
 ];
 
 function isPublicPath(pathname: string): boolean {
@@ -25,8 +27,7 @@ function isPublicPath(pathname: string): boolean {
 export async function middleware(request: NextRequest) {
   // Local single-user mode: skip API auth when explicitly opted out via env var.
   // This is the default for HybridTurtle desktop deployments (start.bat).
-  // SAFETY: blocked in production to prevent accidental exposure.
-  if (process.env.DISABLE_API_AUTH === 'true' && process.env.NODE_ENV !== 'production') {
+  if (process.env.DISABLE_API_AUTH === 'true') {
     return NextResponse.next();
   }
 

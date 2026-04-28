@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
     "db:verify": "node scripts/db-verify.mjs",
     "refresh:daily-bars": "tsx scripts/refresh-universe-daily-bars.ts",
     "market-data:scheduler": "tsx scripts/start-market-data-scheduler.ts",
@@ -33,7 +34,8 @@
     "fix:account-types": "tsx scripts/fix-account-types.ts",
     "system:check": "tsx scripts/system-check.ts",
     "test:e2e": "tsx scripts/test-telegram.ts && tsx scripts/test-e2e-market.ts && tsx scripts/test-e2e-system.ts",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "prepare": "husky"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.0.0",
@@ -72,6 +74,7 @@
     "zustand": "^4.5.0"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.5",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20.11.0",
     "@types/node-cron": "^3.0.11",
@@ -79,17 +82,23 @@
     "@types/react-dom": "^18.2.0",
     "autoprefixer": "^10.4.17",
     "better-sqlite3": "^12.6.2",
-    "eslint": "^8.56.0",
+    "eslint": "^9.39.4",
     "eslint-config-next": "^15.5.15",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
     "postcss": "8.5.10",
     "prisma": "^6.19.3",
     "tailwindcss": "^3.4.1",
     "tsx": "^4.21.0",
-    "typescript": "5.3.3",
+    "typescript": "^5.7.3",
     "vitest": "^4.0.18"
   },
   "overrides": {
     "postcss": "8.5.10"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": "eslint --no-warn-ignored",
+    "*.{js,jsx,mjs}": "eslint --no-warn-ignored"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

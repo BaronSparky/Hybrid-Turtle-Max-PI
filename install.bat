@@ -120,6 +120,7 @@ for /f "tokens=*" %%i in ('powershell -NoProfile -Command "$b = New-Object byte[
 > ".env" echo DATABASE_URL=file:./dev.db
 >> ".env" echo NEXTAUTH_URL=http://localhost:3000
 >> ".env" echo NEXTAUTH_SECRET=!NEXTAUTH_SECRET!
+>> ".env" echo ENCRYPTION_SECRET=!NEXTAUTH_SECRET!
 >> ".env" echo CRON_SECRET=!CRON_SECRET!
 >> ".env" echo DISABLE_API_AUTH=true
 >> ".env" echo.

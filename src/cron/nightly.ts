@@ -233,7 +233,6 @@ async function runNightlyProcess() {
     }
     console.log('  [2/9] Fetching positions and live prices...');
     startStep('2', 'Live prices');
-    log.info('Step 2: Live prices', { positionCount: positions.length });
     let positions: Awaited<ReturnType<typeof prisma.position.findMany<{ include: { stock: true } }>>> = [];
     try {
       positions = await prisma.position.findMany({
@@ -244,6 +243,7 @@ async function runNightlyProcess() {
       hadFailure = true;
       console.error('  [2] Position fetch failed:', (error as Error).message);
     }
+    log.info('Step 2: Live prices', { positionCount: positions.length });
 
     const openTickers = positions.map((p) => p.stock.ticker);
     let livePrices: Record<string, number> = {};
@@ -379,7 +379,7 @@ async function runNightlyProcess() {
       const trailingRecs = await generateTrailingStopRecommendations(userId);
       for (const rec of trailingRecs) {
         try {
-          await updateStopLoss(rec.positionId, rec.trailingStop, rec.reason);
+          await updateStopLoss(rec.positionId, rec.trailingStop, rec.reason, 'TRAILING_ATR');
           trailingStopChanges.push({
             ticker: rec.ticker,
             oldStop: rec.currentStop,
@@ -397,6 +397,19 @@ async function runNightlyProcess() {
       console.warn('  [3b] Trailing stop calculation failed:', (error as Error).message);
     }
     console.log(`        ${stopRecs.length} R-based, ${trailingStopChanges.length} trailing ATR`);
+
+    // Re-fetch positions from DB so all downstream code (T212 push, stop-hit detection,
+    // near-stop alerts, position details, Telegram) uses the updated stop values.
+    if (stopChanges.length > 0 || trailingStopChanges.length > 0) {
+      try {
+        positions = await prisma.position.findMany({
+          where: { userId, status: 'OPEN' },
+          include: { stock: true },
+        });
+      } catch (err) {
+        console.warn('  [3] Position re-fetch after stop updates failed:', (err as Error).message);
+      }
+    }
 
     // Clear near-stop alert flag for positions whose stop just moved
     // (so the alert can fire again if price approaches the new, higher stop)
@@ -1677,7 +1690,7 @@ async function runNightlyProcess() {
       healthStatus: healthReport.overall,
       regime: snapshotSync.synced ? 'SYNCED' : 'UNKNOWN',
       openPositions: positions.length,
-      stopsUpdated: stopRecs.length,
+      stopsUpdated: stopChanges.length + trailingStopChanges.length,
       readyCandidates: readyToBuy.length,
       alerts,
       // Portfolio value in GBP for multi-currency consistency
@@ -1766,9 +1779,9 @@ async function runNightlyProcess() {
       log.warn('Slow steps detected', { slowSteps: slowList, thresholdMs: STEP_SLOW_THRESHOLD_MS });
       alerts.push(`⏱ ${slowSteps.length} step(s) took >5 min: ${slowList}`);
     }
-    const failedSteps = stepResults.filter(s => s.status === 'FAILED');
-    if (failedSteps.length > 0) {
-      const failList = failedSteps.map(s => `${s.name}: ${s.error ?? 'unknown'}`).join('; ');
+    const failedStepsFinal = stepResults.filter(s => s.status === 'FAILED');
+    if (failedStepsFinal.length > 0) {
+      const failList = failedStepsFinal.map(s => `${s.name}: ${s.error ?? 'unknown'}`).join('; ');
       log.warn('Failed steps in nightly', { failedSteps: failList });
     }
 

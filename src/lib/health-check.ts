@@ -21,6 +21,8 @@ interface HealthCheckPosition {
   shares: number;
   currentStop: number;
   stopLoss: number;
+  initialRisk: number;
+  protectionLevel: string;
   status: string;
   stock: { ticker: string; sleeve: string; currency: string | null; cluster?: string | null; sector?: string | null };
   stopHistory: { oldStop: number; newStop: number }[];
@@ -84,6 +86,9 @@ export async function runHealthCheck(userId: string): Promise<HealthCheckReport>
 
   // ---- D: Stop Monotonicity ----
   results.push(await checkStopMonotonicity(user.positions));
+
+  // ---- D2: Stop Integrity ----
+  results.push(checkStopIntegrity(user.positions));
 
   // ---- E: State File Currency ----
   results.push(await checkStateCurrency(userId));
@@ -206,7 +211,7 @@ async function checkColumnPopulation(): Promise<HealthCheckResult> {
   }
 }
 
-function checkEquityPositive(equity: number): HealthCheckResult {
+export function checkEquityPositive(equity: number): HealthCheckResult {
   if (equity <= 0) {
     return { id: 'C1', label: 'Equity > £0', category: 'Risk', status: 'RED', message: `Equity is ${equity}. Must be positive.` };
   }
@@ -298,6 +303,30 @@ async function checkStopMonotonicity(positions: HealthCheckPosition[]): Promise<
   return { id: 'D', label: 'Stop Monotonicity', category: 'Logic', status: 'GREEN', message: 'All stops monotonically increasing' };
 }
 
+export function checkStopIntegrity(positions: HealthCheckPosition[]): HealthCheckResult {
+  const issues: string[] = [];
+  for (const p of positions) {
+    if (!p.stock?.ticker) continue;
+    const ticker = p.stock.ticker;
+    // Stop above entry on INITIAL level is always wrong
+    if (p.protectionLevel === 'INITIAL' && p.currentStop >= p.entryPrice) {
+      issues.push(`${ticker}: INITIAL stop ($${p.currentStop.toFixed(2)}) >= entry ($${p.entryPrice.toFixed(2)})`);
+    }
+    // Zero or negative stop on an open position
+    if (p.currentStop <= 0) {
+      issues.push(`${ticker}: stop is $${p.currentStop.toFixed(2)}`);
+    }
+    // Zero or negative initial risk
+    if (p.initialRisk <= 0) {
+      issues.push(`${ticker}: initialRisk is ${p.initialRisk}`);
+    }
+  }
+  if (issues.length > 0) {
+    return { id: 'D2', label: 'Stop Integrity', category: 'Logic', status: 'RED', message: issues.join('; ') };
+  }
+  return { id: 'D2', label: 'Stop Integrity', category: 'Logic', status: 'GREEN', message: 'All stops consistent with protection levels' };
+}
+
 async function checkStateCurrency(userId: string): Promise<HealthCheckResult> {
   try {
     const snapshot = await prisma.equitySnapshot.findFirst({
@@ -321,7 +350,7 @@ async function checkStateCurrency(userId: string): Promise<HealthCheckResult> {
   }
 }
 
-function checkConfigCoherence(riskProfile: RiskProfileType): HealthCheckResult {
+export function checkConfigCoherence(riskProfile: RiskProfileType): HealthCheckResult {
   const profile = RISK_PROFILES[riskProfile];
   const theoreticalMax = profile.maxPositions * profile.riskPerTrade;
   if (theoreticalMax > profile.maxOpenRisk * 1.5) {
@@ -330,7 +359,7 @@ function checkConfigCoherence(riskProfile: RiskProfileType): HealthCheckResult {
   return { id: 'F', label: 'Config Coherence', category: 'Logic', status: 'GREEN', message: `Config is coherent for ${profile.name} profile` };
 }
 
-function checkSleeveLimits(positions: HealthCheckPosition[], _equity: number): HealthCheckResult {
+export function checkSleeveLimits(positions: HealthCheckPosition[], _equity: number): HealthCheckResult {
   if (positions.length === 0) {
     return { id: 'G1', label: 'Sleeve Limits', category: 'Allocation', status: 'GREEN', message: 'No open positions' };
   }

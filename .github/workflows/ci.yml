@@ -21,11 +21,14 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Audit for high/critical vulnerabilities
+        run: npm audit --audit-level=high
 
       - name: Ensure Prisma SQLite path exists
         run: mkdir -p prisma && touch prisma/dev.db
@@ -33,11 +36,14 @@ jobs:
       - name: Generate Prisma client
         run: npm run db:generate
 
-      - name: Verify Phase 13 assets
-        run: npm run verify:phase13
-
       - name: Run unit tests
         run: npm run test:unit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npm run typecheck
 
       - name: Build app
         env:

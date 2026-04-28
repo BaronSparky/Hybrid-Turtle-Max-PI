@@ -2,14 +2,17 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { encryptField, decryptField, isEncrypted } from './crypto';
 
 describe('crypto field encryption', () => {
-  const originalEnv = process.env.NEXTAUTH_SECRET;
+  const originalEncSecret = process.env.ENCRYPTION_SECRET;
+  const originalAuthSecret = process.env.NEXTAUTH_SECRET;
 
   beforeEach(() => {
-    process.env.NEXTAUTH_SECRET = 'test-secret-for-unit-tests-32chars!';
+    process.env.ENCRYPTION_SECRET = 'test-secret-for-unit-tests-32chars!';
+    delete process.env.NEXTAUTH_SECRET;
   });
 
   afterEach(() => {
-    process.env.NEXTAUTH_SECRET = originalEnv;
+    process.env.ENCRYPTION_SECRET = originalEncSecret;
+    process.env.NEXTAUTH_SECRET = originalAuthSecret;
   });
 
   it('encrypts and decrypts a string correctly', () => {
@@ -49,7 +52,7 @@ describe('crypto field encryption', () => {
 
   it('fails to decrypt with wrong secret', () => {
     const encrypted = encryptField('secret-key');
-    process.env.NEXTAUTH_SECRET = 'different-secret-for-wrong-key!!';
+    process.env.ENCRYPTION_SECRET = 'different-secret-for-wrong-key!!';
     expect(() => decryptField(encrypted)).toThrow();
   });
 

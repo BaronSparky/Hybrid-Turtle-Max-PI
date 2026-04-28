@@ -107,7 +107,8 @@ export function calculateStopRecommendation(
   const recommendedLevel = getProtectionLevel(rMultiple);
 
   // Only upgrade protection, never downgrade
-  const levelOrder: ProtectionLevel[] = ['INITIAL', 'BREAKEVEN', 'LOCK_08R', 'LOCK_1R_TRAIL'];
+  // TRAILING_ATR sits between BREAKEVEN and LOCK_08R in the hierarchy
+  const levelOrder: ProtectionLevel[] = ['INITIAL', 'BREAKEVEN', 'TRAILING_ATR', 'LOCK_08R', 'LOCK_1R_TRAIL'];
   const currentIdx = levelOrder.indexOf(currentLevel);
   const recommendedIdx = levelOrder.indexOf(recommendedLevel);
 

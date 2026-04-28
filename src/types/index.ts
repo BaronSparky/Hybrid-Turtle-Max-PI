@@ -234,7 +234,7 @@ export function getProfileCaps(profile: RiskProfileType): {
 export type Sleeve = 'CORE' | 'HIGH_RISK' | 'ETF' | 'HEDGE';
 export type PositionStatus = 'OPEN' | 'CLOSED';
 /** Historical naming: LOCK_08R originally used a +0.8R formula. Actual formula is entry + 0.5 × initialRisk. Name kept for DB compatibility. */
-export type ProtectionLevel = 'INITIAL' | 'BREAKEVEN' | 'LOCK_08R' | 'LOCK_1R_TRAIL';
+export type ProtectionLevel = 'INITIAL' | 'BREAKEVEN' | 'LOCK_08R' | 'LOCK_1R_TRAIL' | 'TRAILING_ATR';
 export type MarketRegime = 'BULLISH' | 'SIDEWAYS' | 'BEARISH' | 'NEUTRAL';
 export type VolRegime = 'LOW_VOL' | 'NORMAL_VOL' | 'HIGH_VOL';
 
@@ -365,6 +365,12 @@ export const PROTECTION_LEVELS: Record<ProtectionLevel, {
     stopFormula: 'Entry + 1.0 × Initial Risk',
     color: '#22c55e',
   },
+  TRAILING_ATR: {
+    label: 'Trailing ATR',
+    threshold: 0,
+    stopFormula: 'Highest Close − 1.5 × ATR(14)',
+    color: '#8b5cf6',
+  },
 };
 
 // ---- Health Check Types ----
@@ -384,6 +390,7 @@ export const HEALTH_CHECK_ITEMS: { id: string; label: string; category: string }
   { id: 'C2', label: 'Open Risk Within Cap', category: 'Risk' },
   { id: 'C3', label: 'Valid Position Sizes', category: 'Risk' },
   { id: 'D', label: 'Stop Monotonicity', category: 'Logic' },
+  { id: 'D2', label: 'Stop Integrity', category: 'Logic' },
   { id: 'E', label: 'State File Currency', category: 'Logic' },
   { id: 'F', label: 'Config Coherence', category: 'Logic' },
   // Extended checks for robustness
