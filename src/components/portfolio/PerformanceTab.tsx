@@ -58,14 +58,29 @@ function formatGBP(value: number): string {
   return `${value < 0 ? '-' : ''}£${abs.toFixed(2)}`;
 }
 
+interface BenchmarkPoint {
+  date: string;
+  returnPct: number;
+}
+
+interface BenchmarkData {
+  data: BenchmarkPoint[];
+  summary?: { ticker: string; returnPct: number };
+}
+
 export default function PerformanceTab() {
   const [data, setData] = useState<PerformanceData | null>(null);
+  const [benchmark, setBenchmark] = useState<BenchmarkData | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
     try {
-      const res = await apiRequest<PerformanceData & { ok: boolean }>('/api/performance/summary');
+      const [res, bench] = await Promise.all([
+        apiRequest<PerformanceData & { ok: boolean }>('/api/performance/summary'),
+        apiRequest<BenchmarkData>('/api/performance/benchmark?days=90').catch(() => null),
+      ]);
       setData(res);
+      if (bench) setBenchmark(bench);
     } catch {
       // Graceful degradation
     } finally {
@@ -186,19 +201,32 @@ export default function PerformanceTab() {
       <div className="card-surface p-5">
         <h2 className="text-sm font-semibold text-foreground mb-3">Your account value over time</h2>
         {hasChartData ? (
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={data.equityCurve}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-              <XAxis dataKey="date" tick={{ fill: '#94a3b8', fontSize: 11 }} tickLine={false} axisLine={{ stroke: 'rgba(255,255,255,0.1)' }} />
-              <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} tickLine={false} axisLine={{ stroke: 'rgba(255,255,255,0.1)' }} tickFormatter={(v: number) => `£${v}`} />
-              <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#f1f5f9', fontSize: '12px' }} formatter={(value: number) => [`£${value.toFixed(2)}`, 'Equity']} />
-              <Line type="monotone" dataKey="value" stroke="#6366f1" strokeWidth={2} dot={false} activeDot={{ r: 4, fill: '#6366f1' }} />
-            </LineChart>
-          </ResponsiveContainer>
+          <>
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={data.equityCurve}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                <XAxis dataKey="date" tick={{ fill: '#94a3b8', fontSize: 11 }} tickLine={false} axisLine={{ stroke: 'rgba(255,255,255,0.1)' }} />
+                <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} tickLine={false} axisLine={{ stroke: 'rgba(255,255,255,0.1)' }} tickFormatter={(v: number) => `£${v}`} />
+                <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#f1f5f9', fontSize: '12px' }} formatter={(value: number) => [`£${value.toFixed(2)}`, 'Equity']} />
+                <Line type="monotone" dataKey="value" stroke="#6366f1" strokeWidth={2} dot={false} activeDot={{ r: 4, fill: '#6366f1' }} />
+              </LineChart>
+            </ResponsiveContainer>
+            {benchmark?.summary && (
+              <p className="text-xs text-muted-foreground mt-2">
+                Benchmark (SPY): <span className={cn(benchmark.summary.returnPct >= 0 ? 'text-gain' : 'text-loss', 'font-medium')}>
+                  {benchmark.summary.returnPct >= 0 ? '+' : ''}{benchmark.summary.returnPct.toFixed(1)}%
+                </span> over same period
+                {data.totalGainLossPct != null && (
+                  <> · Your portfolio: <span className={cn(data.totalGainLossPct >= 0 ? 'text-gain' : 'text-loss', 'font-medium')}>
+                    {data.totalGainLossPct >= 0 ? '+' : ''}{data.totalGainLossPct.toFixed(1)}%
+                  </span></>
+                )}
+              </p>
+            )}
+          </>
         ) : (
           <div className="text-center py-8 text-muted-foreground text-sm">Chart will appear after 1 week of data.</div>
         )}
-        {/* TODO: Add "Benchmark (SPY): +X.X% over same period" line here when SPY perf data is readily available */}
       </div>
 
       {/* Trade list */}
