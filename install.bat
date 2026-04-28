@@ -352,15 +352,22 @@ echo   This sets up scheduled tasks that automatically scan for
 echo   breakout candidates, buy stocks that meet all criteria,
 echo   and place protective stops — all without the dashboard.
 echo.
+echo   IMPORTANT: Auto-trading is OFF by default. To enable:
+echo     1. Connect Trading 212 in the dashboard Settings
+echo     2. Set ENABLE_AUTO_TRADING=true in .env
+echo     3. Toggle the kill switch ON in Settings ^> Safety Controls
+echo.
 echo   Schedule:
 echo     20:00  Evening scan (candidates for tomorrow)
 echo     08:15  UK/EU entries
 echo     14:45  US entries (early session)
 echo     20:30  US near-close entries
+echo     08:00  UK pre-session Telegram briefing
+echo     14:30  US pre-session Telegram briefing
+echo     07:30  Monday morning briefing
+echo     18:00  Sunday weekly performance digest
 echo.
 echo   You will receive Telegram updates for every trade.
-echo   Safety: requires ENABLE_AUTO_TRADING=true in .env
-echo           + Trading 212 connected + kill switch off
 echo.
 set /p SETUP_AUTOTRADE="  Set up automated trading? (Y/N): "
 if /i not "%SETUP_AUTOTRADE%"=="Y" if /i not "%SETUP_AUTOTRADE%"=="N" (
@@ -386,9 +393,10 @@ if !errorlevel! neq 0 (
 findstr /c:"ENABLE_AUTO_TRADING" ".env" >nul 2>&1
 if !errorlevel! neq 0 (
     >> ".env" echo.
-    >> ".env" echo # Automated trading - set to true to enable auto-buy
-    >> ".env" echo ENABLE_AUTO_TRADING=true
-    echo         Added ENABLE_AUTO_TRADING=true to .env
+    >> ".env" echo # Automated trading - set to true ONLY after connecting T212 and testing
+    >> ".env" echo ENABLE_AUTO_TRADING=false
+    echo         Added ENABLE_AUTO_TRADING=false to .env ^(safe default^)
+    echo         Change to true after connecting Trading 212 and reviewing Settings
 ) else (
     echo         ENABLE_AUTO_TRADING already in .env
 )
@@ -417,7 +425,41 @@ schtasks /Delete /TN "HybridTurtle-HourlyStatus" /F >> "%LOG%" 2>&1
 schtasks /Create /TN "HybridTurtle-HourlyStatus" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 08:00 /RI 60 /DU 13:00 /TR "\"%HS_BAT%\" --scheduled" /RL HIGHEST /F >> "%LOG%" 2>&1
 echo         Hourly Telegram status: 08:00-21:00 Mon-Fri
 
->> "%LOG%" echo [%date% %time%] Auto-trade scheduled tasks created
+:: Midday sync (position detection)
+set "MS_BAT=%SCRIPT_DIR%midday-sync-task.bat"
+schtasks /Delete /TN "HybridTurtle-MiddaySync" /F >> "%LOG%" 2>&1
+schtasks /Create /TN "HybridTurtle-MiddaySync" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 12:00 /TR "\"%MS_BAT%\"" /RL HIGHEST /F >> "%LOG%" 2>&1
+echo         Midday sync: 12:00 Mon-Fri
+
+:: Watchdog (missed heartbeat detection)
+set "WD_BAT=%SCRIPT_DIR%watchdog-task.bat"
+schtasks /Delete /TN "HybridTurtle-Watchdog" /F >> "%LOG%" 2>&1
+schtasks /Create /TN "HybridTurtle-Watchdog" /SC DAILY /ST 10:00 /TR "\"%WD_BAT%\"" /RL HIGHEST /F >> "%LOG%" 2>&1
+echo         Watchdog: daily 10:00
+
+:: Pre-session briefings (Telegram)
+set "UK_BAT=%SCRIPT_DIR%uk-briefing-task.bat"
+set "US_BAT=%SCRIPT_DIR%us-briefing-task.bat"
+set "MB_BAT=%SCRIPT_DIR%monday-briefing-task.bat"
+set "WK_BAT=%SCRIPT_DIR%weekly-digest-task.bat"
+
+schtasks /Delete /TN "HybridTurtle-UKBriefing" /F >> "%LOG%" 2>&1
+schtasks /Create /TN "HybridTurtle-UKBriefing" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 08:00 /TR "\"%UK_BAT%\"" /RL HIGHEST /F >> "%LOG%" 2>&1
+echo         UK briefing: 08:00 Mon-Fri
+
+schtasks /Delete /TN "HybridTurtle-USBriefing" /F >> "%LOG%" 2>&1
+schtasks /Create /TN "HybridTurtle-USBriefing" /SC WEEKLY /D TUE,WED,THU,FRI /ST 14:30 /TR "\"%US_BAT%\"" /RL HIGHEST /F >> "%LOG%" 2>&1
+echo         US briefing: 14:30 Tue-Fri
+
+schtasks /Delete /TN "HybridTurtle-MondayBriefing" /F >> "%LOG%" 2>&1
+schtasks /Create /TN "HybridTurtle-MondayBriefing" /SC WEEKLY /D MON /ST 07:30 /TR "\"%MB_BAT%\"" /RL HIGHEST /F >> "%LOG%" 2>&1
+echo         Monday briefing: 07:30 Monday
+
+schtasks /Delete /TN "HybridTurtle-WeeklyDigest" /F >> "%LOG%" 2>&1
+schtasks /Create /TN "HybridTurtle-WeeklyDigest" /SC WEEKLY /D SUN /ST 18:00 /TR "\"%WK_BAT%\"" /RL HIGHEST /F >> "%LOG%" 2>&1
+echo         Weekly digest: 18:00 Sunday
+
+>> "%LOG%" echo [%date% %time%] Auto-trade + briefing scheduled tasks created
 
 :skip_autotrade
 
@@ -440,9 +482,13 @@ if /i "%SETUP_TELEGRAM%"=="Y" (
 )
 if /i "%SETUP_AUTOTRADE%"=="Y" (
     echo.
-    echo   Auto-Trade: Scan 20:00, UK 08:15, US 14:45, US-Close 20:30
-    echo   Hourly Telegram status: every hour 08:00-21:00
-    echo   Disable anytime: toggle in Settings or set ENABLE_AUTO_TRADING=false
+    echo   Auto-Trade:
+    echo     Scan 20:00, UK 08:15, US 14:45, US-Close 20:30
+    echo     Midday sync 12:00, Watchdog 10:00
+    echo     Hourly Telegram status: every hour 08:00-21:00
+    echo     UK briefing 08:00, US briefing 14:30
+    echo     Monday briefing 07:30, Weekly digest Sunday 18:00
+    echo     Disable anytime: toggle in Settings or set ENABLE_AUTO_TRADING=false
 )
 echo.
 echo   Full install log: install.log
