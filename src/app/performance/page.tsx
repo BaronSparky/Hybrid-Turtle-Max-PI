@@ -7,7 +7,7 @@ import TradeHistoryChart from '@/components/dashboard/TradeHistoryChart';
 import RegimeHistoryChart from '@/components/dashboard/RegimeHistoryChart';
 import { apiRequest } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
-import { BarChart3, TrendingUp, Award, Loader2 } from 'lucide-react';
+import { BarChart3, TrendingUp, Award, Loader2, Download } from 'lucide-react';
 
 interface Scoreboard {
   totalClosedTrades: number;
@@ -54,9 +54,19 @@ export default function PerformancePage() {
     <div className="min-h-screen bg-background">
       <Navbar />
       <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
-        <div className="flex items-center gap-3">
-          <BarChart3 className="w-6 h-6 text-primary-400" />
-          <h1 className="text-2xl font-bold text-foreground">Performance</h1>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <BarChart3 className="w-6 h-6 text-primary-400" />
+            <h1 className="text-2xl font-bold text-foreground">Performance</h1>
+          </div>
+          <a
+            href="/api/performance/export?format=csv"
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground bg-navy-700/50 px-3 py-1.5 rounded-lg transition-colors"
+            download
+          >
+            <Download className="w-3.5 h-3.5" />
+            Export CSV
+          </a>
         </div>
 
         {/* Scoreboard */}
