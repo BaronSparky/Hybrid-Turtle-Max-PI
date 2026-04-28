@@ -52,4 +52,4 @@ export function computeAtr(bars: SignalBar[], period: number) {
   }
 
   return average(trueRanges.slice(-period));
-}\n
+}
