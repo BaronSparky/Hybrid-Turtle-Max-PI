@@ -15,7 +15,9 @@ import type {
   RegimePrediction,
 } from './types';
 
-import { round } from '../../data/src/prisma';\n\nconst DEFAULT_BLEND_WEIGHT = 0.35;
+import { round } from '../../data/src/prisma';
+
+const DEFAULT_BLEND_WEIGHT = 0.35;
 
 export const MODEL_VERSIONS: ModelVersionManifest = {
   candidateModelVersion: 'boosted-candidate-v1',

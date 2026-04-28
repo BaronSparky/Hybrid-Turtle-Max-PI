@@ -1,0 +1,68 @@
+{
+  "tickers": {
+    "DPLMl": [
+      {
+        "sentiment": "NEUTRAL",
+        "confidence": "LOW",
+        "timestamp": 1777374183927,
+        "date": "2026-04-28"
+      }
+    ],
+    "GEV": [
+      {
+        "sentiment": "NEUTRAL",
+        "confidence": "LOW",
+        "timestamp": 1777374183927,
+        "date": "2026-04-28"
+      }
+    ],
+    "SLAB": [
+      {
+        "sentiment": "NEUTRAL",
+        "confidence": "LOW",
+        "timestamp": 1777374183927,
+        "date": "2026-04-28"
+      }
+    ],
+    "APLS": [
+      {
+        "sentiment": "NEUTRAL",
+        "confidence": "LOW",
+        "timestamp": 1777374183927,
+        "date": "2026-04-28"
+      }
+    ],
+    "AMD": [
+      {
+        "sentiment": "NEUTRAL",
+        "confidence": "LOW",
+        "timestamp": 1777374183927,
+        "date": "2026-04-28"
+      }
+    ],
+    "CEVA": [
+      {
+        "sentiment": "NEUTRAL",
+        "confidence": "LOW",
+        "timestamp": 1777374183927,
+        "date": "2026-04-28"
+      }
+    ],
+    "ARM": [
+      {
+        "sentiment": "NEUTRAL",
+        "confidence": "LOW",
+        "timestamp": 1777374183927,
+        "date": "2026-04-28"
+      }
+    ],
+    "UNH": [
+      {
+        "sentiment": "NEUTRAL",
+        "confidence": "LOW",
+        "timestamp": 1777374183927,
+        "date": "2026-04-28"
+      }
+    ]
+  }
+}
