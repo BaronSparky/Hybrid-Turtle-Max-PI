@@ -78,14 +78,15 @@ async function runMondayBriefing() {
   const todayEarlyClose = isEarlyCloseDay(todayStr);
 
   // Ready candidates from latest scan
-  const latestScan = await prisma.scanResult.findFirst({
-    orderBy: { scannedAt: 'desc' },
-    select: { scannedAt: true },
+  const latestScan = await prisma.scan.findFirst({
+    where: { userId },
+    orderBy: { runDate: 'desc' },
+    select: { id: true },
   });
   const readyCandidates = latestScan
     ? await prisma.scanResult.findMany({
-        where: { status: 'READY', scannedAt: latestScan.scannedAt },
-        select: { ticker: true, entryTrigger: true, currentPrice: true },
+        where: { status: 'READY', scanId: latestScan.id },
+        select: { entryTrigger: true, price: true, stock: { select: { ticker: true } } },
         orderBy: { rankScore: 'desc' },
         take: 5,
       })
@@ -145,7 +146,7 @@ async function runMondayBriefing() {
   if (readyCandidates.length > 0) {
     lines.push(`<b>READY Candidates (${readyCandidates.length})</b>`);
     for (const c of readyCandidates) {
-      lines.push(`  📌 ${c.ticker} — trigger ${c.entryTrigger?.toFixed(2) ?? '?'}, price ${c.currentPrice?.toFixed(2) ?? '?'}`);
+      lines.push(`  📌 ${c.stock.ticker} — trigger ${c.entryTrigger?.toFixed(2) ?? '?'}, price ${c.price?.toFixed(2) ?? '?'}`);
     }
     lines.push('');
   } else {

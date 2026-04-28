@@ -17,6 +17,7 @@ import FearGreedGauge from '@/components/dashboard/FearGreedGauge';
 import WeeklyPhaseIndicator from '@/components/dashboard/WeeklyPhaseIndicator';
 import HealthTrafficLight from '@/components/dashboard/HealthTrafficLight';
 import HeartbeatMonitor from '@/components/dashboard/HeartbeatMonitor';
+import ScheduledTasksPanel from '@/components/dashboard/ScheduledTasksPanel';
 import DataSourceTile from '@/components/dashboard/DataSourceTile';
 import ModuleStatusPanel from '@/components/dashboard/ModuleStatusPanel';
 import ActionCardWidget from '@/components/dashboard/ActionCardWidget';
@@ -250,6 +251,7 @@ export default function DashboardPage() {
           </div>
           <HeartbeatMonitor />
           <DataSourceTile />
+          <ScheduledTasksPanel />
         </div>
 
         <EveningReviewSummary />
