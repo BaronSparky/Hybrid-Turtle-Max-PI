@@ -34,6 +34,7 @@ export type TelegramCommand =
   | '/feedback'
   | '/briefing'
   | '/backtest'
+  | '/equity'
   | '/help'
   | 'unknown';
 
@@ -101,6 +102,7 @@ export function parseCommand(text: string): TelegramCommand {
     case '/feedback': return '/feedback';
     case '/briefing': return '/briefing';
     case '/backtest': return '/backtest';
+    case '/equity': return '/equity';
     case '/help': case '/start': return '/help';
     default: return 'unknown';
   }
@@ -127,6 +129,7 @@ export async function handleCommand(command: TelegramCommand, rawText?: string):
       case '/feedback': return await cmdFeedback();
       case '/briefing': return await cmdBriefing();
       case '/backtest': return await cmdBacktest();
+      case '/equity': return await cmdEquity();
       case '/help': return cmdHelp();
       case 'unknown':
       default:
@@ -620,6 +623,61 @@ async function cmdBacktest(): Promise<CommandResponse> {
   }
 }
 
+// ── /equity — quick equity + trend ──
+
+async function cmdEquity(): Promise<CommandResponse> {
+  try {
+    const snapshots = await prisma.equitySnapshot.findMany({
+      orderBy: { capturedAt: 'desc' },
+      take: 14,
+      select: { equity: true, capturedAt: true, openRiskPercent: true },
+    });
+
+    if (snapshots.length === 0) {
+      return { text: '💰 <b>Equity</b>\nNo equity snapshots recorded yet.', parseMode: 'HTML' };
+    }
+
+    const current = snapshots[0];
+    const weekAgo = snapshots.find(s =>
+      (Date.now() - s.capturedAt.getTime()) >= 6 * 24 * 60 * 60 * 1000
+    );
+
+    const lines = [
+      `💰 <b>Equity — £${current.equity.toFixed(2)}</b>`,
+      '',
+    ];
+
+    if (current.openRiskPercent !== null) {
+      lines.push(`Open risk: ${current.openRiskPercent.toFixed(1)}%`);
+    }
+
+    if (weekAgo) {
+      const change = current.equity - weekAgo.equity;
+      const pct = weekAgo.equity > 0 ? (change / weekAgo.equity) * 100 : 0;
+      lines.push(`7d change: ${change >= 0 ? '+' : '-'}£${Math.abs(change).toFixed(2)} (${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%)`);
+    }
+
+    // Mini sparkline: last 7 values
+    const recent = snapshots.slice(0, 7).reverse();
+    if (recent.length >= 3) {
+      const min = Math.min(...recent.map(s => s.equity));
+      const max = Math.max(...recent.map(s => s.equity));
+      const range = max - min || 1;
+      const bars = recent.map(s => {
+        const level = Math.round(((s.equity - min) / range) * 4);
+        return ['▁', '▂', '▃', '▅', '█'][level] || '▃';
+      });
+      lines.push(`Trend: ${bars.join('')}`);
+    }
+
+    lines.push('', `<i>Last snapshot: ${current.capturedAt.toISOString().split('T')[0]}</i>`);
+
+    return { text: lines.join('\n'), parseMode: 'HTML' };
+  } catch (err) {
+    return { text: `❌ Equity failed: ${(err as Error).message}`, parseMode: 'HTML' };
+  }
+}
+
 // ── /help ──
 
 function cmdHelp(): CommandResponse {
@@ -632,7 +690,8 @@ function cmdHelp(): CommandResponse {
 /risk — risk budget
 /candidates — ready candidates
 /briefing — current session briefing
-/backtest — latest backtest results
+/backtest — system performance grade
+/equity — equity + P&L trend
 /watchlist — watchlist news + sentiment + earnings
 /feedback — AI analyst feedback stats
 /analyst — AI system summary (Ollama)

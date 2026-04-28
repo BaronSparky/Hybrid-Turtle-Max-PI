@@ -963,6 +963,25 @@ async function runNightlyProcess() {
         }, 0);
       openRiskPercent = equity > 0 ? (openRisk / equity) * 100 : 0;
       await recordEquitySnapshot(userId, equity, openRiskPercent);
+
+      // Equity drawdown alert: warn if equity drops >5% from all-time peak
+      try {
+        const peakSnapshot = await prisma.equitySnapshot.findFirst({
+          where: { userId },
+          orderBy: { equity: 'desc' },
+          select: { equity: true, capturedAt: true },
+        });
+        if (peakSnapshot && peakSnapshot.equity > 0 && equity < peakSnapshot.equity) {
+          const drawdownPct = ((peakSnapshot.equity - equity) / peakSnapshot.equity) * 100;
+          if (drawdownPct >= 5) {
+            const peakDate = peakSnapshot.capturedAt.toISOString().split('T')[0];
+            alerts.push(`⚠️ Equity drawdown: ${drawdownPct.toFixed(1)}% below peak £${peakSnapshot.equity.toFixed(2)} (${peakDate}). Current: £${equity.toFixed(2)}. Consider CAPITAL_PRESERVATION mode.`);
+            log.warn('Equity drawdown alert', { drawdownPct: drawdownPct.toFixed(1), peak: peakSnapshot.equity, current: equity });
+          }
+        }
+      } catch (err) {
+        console.warn('  [6] Equity drawdown check failed:', (err as Error).message);
+      }
     } catch {
       hadFailure = true;
       await recordEquitySnapshot(userId, equity);

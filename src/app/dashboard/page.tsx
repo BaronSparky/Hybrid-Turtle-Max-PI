@@ -19,6 +19,7 @@ import HealthTrafficLight from '@/components/dashboard/HealthTrafficLight';
 import HeartbeatMonitor from '@/components/dashboard/HeartbeatMonitor';
 import ScheduledTasksPanel from '@/components/dashboard/ScheduledTasksPanel';
 import EquityCurveChart from '@/components/dashboard/EquityCurveChart';
+import TradeHistoryChart from '@/components/dashboard/TradeHistoryChart';
 import DataSourceTile from '@/components/dashboard/DataSourceTile';
 import ModuleStatusPanel from '@/components/dashboard/ModuleStatusPanel';
 import ActionCardWidget from '@/components/dashboard/ActionCardWidget';
@@ -256,6 +257,8 @@ export default function DashboardPage() {
         </div>
 
         <EquityCurveChart />
+
+        <TradeHistoryChart />
 
         <EveningReviewSummary />
 
