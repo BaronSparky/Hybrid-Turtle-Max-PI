@@ -796,7 +796,9 @@ export async function POST(request: NextRequest) {
           details: JSON.stringify({ error: (error as Error).message }),
         },
       });
-    } catch {}
+    } catch (hbErr) {
+      console.error('Failed to write FAILED heartbeat — watchdog may not detect this failure:', (hbErr as Error).message);
+    }
 
     return apiError(500, 'NIGHTLY_FAILED', 'Nightly process failed', (error as Error).message, true);
   }
