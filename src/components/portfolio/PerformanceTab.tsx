@@ -98,6 +98,22 @@ export default function PerformanceTab() {
   const combinedTotal = realisedTotal + unrealisedTotal;
   const hasChartData = (data?.equityCurve?.length ?? 0) >= 7;
 
+  // Build merged return comparison data for dual-axis chart
+  const returnComparisonData = (() => {
+    if (!hasChartData || !data?.equityCurve || !benchmark?.data?.length) return null;
+    const firstEquity = data.equityCurve[0]?.value;
+    if (!firstEquity || firstEquity <= 0) return null;
+
+    // Index benchmark returns by date for lookup
+    const benchByDate = new Map(benchmark.data.map(b => [b.date, b.returnPct]));
+
+    return data.equityCurve.map(e => ({
+      date: e.date,
+      portfolio: Math.round(((e.value - firstEquity) / firstEquity) * 1000) / 10,
+      spy: benchByDate.get(e.date) ?? null,
+    })).filter(d => d.spy !== null);
+  })();
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16 text-muted-foreground">
@@ -228,6 +244,30 @@ export default function PerformanceTab() {
           <div className="text-center py-8 text-muted-foreground text-sm">Chart will appear after 1 week of data.</div>
         )}
       </div>
+
+      {/* Returns vs Benchmark chart */}
+      {returnComparisonData && returnComparisonData.length >= 7 && (
+        <div className="card-surface p-5">
+          <h2 className="text-sm font-semibold text-foreground mb-3">Returns vs Benchmark (SPY)</h2>
+          <ResponsiveContainer width="100%" height={250}>
+            <LineChart data={returnComparisonData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+              <XAxis dataKey="date" tick={{ fill: '#94a3b8', fontSize: 11 }} tickLine={false} axisLine={{ stroke: 'rgba(255,255,255,0.1)' }} />
+              <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} tickLine={false} axisLine={{ stroke: 'rgba(255,255,255,0.1)' }} tickFormatter={(v: number) => `${v}%`} />
+              <Tooltip
+                contentStyle={{ backgroundColor: '#1e293b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#f1f5f9', fontSize: '12px' }}
+                formatter={(value: number, name: string) => [`${value >= 0 ? '+' : ''}${value.toFixed(1)}%`, name === 'portfolio' ? 'Portfolio' : 'SPY']}
+              />
+              <Line type="monotone" dataKey="portfolio" stroke="#6366f1" strokeWidth={2} dot={false} name="portfolio" />
+              <Line type="monotone" dataKey="spy" stroke="#f59e0b" strokeWidth={1.5} dot={false} strokeDasharray="4 2" name="spy" />
+            </LineChart>
+          </ResponsiveContainer>
+          <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-indigo-500 inline-block" /> Portfolio</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-amber-500 inline-block border-dashed" /> SPY</span>
+          </div>
+        </div>
+      )}
 
       {/* Trade list */}
       <div className="card-surface p-5">
