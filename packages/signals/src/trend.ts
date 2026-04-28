@@ -1,5 +1,6 @@
 import { env } from '../../config/src/env';
-import { average, ema, round, slope } from './math';
+import { average, ema, slope } from './math';
+import { round } from '../../data/src/prisma';
 import type { SignalBar, TrendAnalysis } from './types';
 
 export function analyzeTrend(bars: SignalBar[]): TrendAnalysis {

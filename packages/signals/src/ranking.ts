@@ -1,4 +1,5 @@
-import { computeAtr, round } from './math';
+import { computeAtr } from './math';
+import { round } from '../../data/src/prisma';
 import type { BreakoutAnalysis, RankedCandidate, RiskFilterAnalysis, SignalBar, TrendAnalysis } from './types';
 
 export function analyzeRiskFilter(bars: SignalBar[], breakout: BreakoutAnalysis): RiskFilterAnalysis {

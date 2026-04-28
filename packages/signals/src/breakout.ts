@@ -1,5 +1,6 @@
 import { env } from '../../config/src/env';
-import { average, highest, round } from './math';
+import { average, highest } from './math';
+import { round } from '../../data/src/prisma';
 import type { BreakoutAnalysis, SignalBar } from './types';
 
 export function analyzeBreakout(bars: SignalBar[]): BreakoutAnalysis {
