@@ -108,7 +108,7 @@ async function runWeeklyDigest() {
   if (equityChange !== null && equityChangePct !== null) {
     lines.push('');
     lines.push('<b>Equity</b>');
-    lines.push(`  Change: ${equityChange >= 0 ? '+' : ''}£${equityChange.toFixed(2)} (${equityChangePct >= 0 ? '+' : ''}${equityChangePct.toFixed(1)}%)`);
+    lines.push(`  Change: ${equityChange >= 0 ? '+' : '-'}£${Math.abs(equityChange).toFixed(2)} (${equityChangePct >= 0 ? '+' : ''}${equityChangePct.toFixed(1)}%)`);
     lines.push(`  Current: £${(endEquity ?? 0).toFixed(2)}`);
   }
 

@@ -32,6 +32,7 @@ export type TelegramCommand =
   | '/explain'
   | '/watchlist'
   | '/feedback'
+  | '/briefing'
   | '/help'
   | 'unknown';
 
@@ -97,6 +98,7 @@ export function parseCommand(text: string): TelegramCommand {
     case '/explain': return '/explain';
     case '/watchlist': return '/watchlist';
     case '/feedback': return '/feedback';
+    case '/briefing': return '/briefing';
     case '/help': case '/start': return '/help';
     default: return 'unknown';
   }
@@ -121,6 +123,7 @@ export async function handleCommand(command: TelegramCommand, rawText?: string):
       case '/explain': return await cmdExplain(rawText || '');
       case '/watchlist': return await cmdWatchlist();
       case '/feedback': return await cmdFeedback();
+      case '/briefing': return await cmdBriefing();
       case '/help': return cmdHelp();
       case 'unknown':
       default:
@@ -454,6 +457,106 @@ async function cmdCandidates(): Promise<CommandResponse> {
   };
 }
 
+// ── /briefing — on-demand session briefing ──
+
+async function cmdBriefing(): Promise<CommandResponse> {
+  try {
+    const { getUKHour } = await import('@/lib/uk-time');
+    const { isTodayMarketHoliday, isEarlyCloseDay } = await import('@/lib/market-holidays');
+
+    const ukHour = getUKHour();
+    const { isHoliday, holiday } = isTodayMarketHoliday();
+    const earlyClose = isEarlyCloseDay();
+
+    // Determine which session we're in
+    const session = ukHour < 8 ? 'pre-UK' : ukHour < 14 ? 'UK' : ukHour < 20 ? 'US' : 'post-market';
+
+    const [regime, user, positions, latestScan] = await Promise.all([
+      getMarketRegime().catch(() => 'UNKNOWN' as const),
+      prisma.user.findUnique({
+        where: { id: DEFAULT_USER_ID },
+        select: { riskProfile: true, equity: true, operatingMode: true },
+      }),
+      prisma.position.findMany({
+        where: { userId: DEFAULT_USER_ID, status: 'OPEN' },
+        include: { stock: { select: { ticker: true, sleeve: true } } },
+      }),
+      prisma.scan.findFirst({
+        where: { userId: DEFAULT_USER_ID },
+        orderBy: { runDate: 'desc' },
+        select: { id: true },
+      }),
+    ]);
+
+    const equity = user?.equity || 0;
+    const riskProfile = (user?.riskProfile || 'BALANCED') as RiskProfileType;
+
+    const budget = getRiskBudget(
+      positions.map(p => ({
+        id: p.id,
+        ticker: p.stock.ticker,
+        sleeve: (p.stock.sleeve || 'CORE') as Sleeve,
+        sector: 'Unknown',
+        cluster: 'General',
+        value: p.shares * p.entryPrice,
+        riskDollars: p.shares * (p.entryPrice - p.currentStop),
+        shares: p.shares,
+        entryPrice: p.entryPrice,
+        currentStop: p.currentStop,
+        currentPrice: p.entryPrice,
+      })),
+      equity,
+      riskProfile
+    );
+
+    // Get session-appropriate candidates
+    const isUKSession = session === 'pre-UK' || session === 'UK';
+    const candidates = latestScan
+      ? await prisma.scanResult.findMany({
+          where: {
+            status: 'READY',
+            scanId: latestScan.id,
+            stock: { ticker: isUKSession ? { endsWith: '.L' } : { not: { endsWith: '.L' } } },
+          },
+          select: { entryTrigger: true, price: true, stock: { select: { ticker: true, sleeve: true } } },
+          orderBy: { rankScore: 'desc' },
+          take: 5,
+        })
+      : [];
+
+    const regimeEmoji = regime === 'BULLISH' ? '🟢' : regime === 'SIDEWAYS' ? '🟡' : regime === 'BEARISH' ? '🔴' : '⚪';
+    const flag = isUKSession ? '🇬🇧' : '🇺🇸';
+
+    const lines = [
+      `${flag} <b>${session} Session Briefing</b>`,
+      '',
+    ];
+
+    if (isHoliday) lines.push(`🚫 Market Holiday: ${holiday?.label}`, '');
+    if (earlyClose) lines.push(`📅 Early close: ${earlyClose} ET`, '');
+
+    lines.push(`${regimeEmoji} Regime: ${regime} | Risk: ${budget.usedRiskPercent.toFixed(1)}%/${budget.maxRiskPercent}%`);
+    lines.push(`Positions: ${budget.usedPositions}/${budget.maxPositions} | Mode: ${user?.operatingMode || 'NORMAL'}`);
+    lines.push('');
+
+    if (candidates.length > 0) {
+      lines.push(`<b>READY (${candidates.length})</b>`);
+      for (const c of candidates) {
+        lines.push(`  📌 ${c.stock.ticker} — ${c.price.toFixed(2)} → ${c.entryTrigger.toFixed(2)}`);
+      }
+    } else {
+      lines.push(`No ${isUKSession ? 'UK' : 'US'} READY candidates.`);
+    }
+
+    if (regime !== 'BULLISH') lines.push('', '⚠ Regime not BULLISH — buying blocked.');
+    if (budget.availableRiskPercent <= 0) lines.push('⚠ Risk budget full.');
+
+    return { text: lines.join('\n'), parseMode: 'HTML' };
+  } catch (err) {
+    return { text: `❌ Briefing failed: ${(err as Error).message}`, parseMode: 'HTML' };
+  }
+}
+
 // ── /help ──
 
 function cmdHelp(): CommandResponse {
@@ -465,6 +568,7 @@ function cmdHelp(): CommandResponse {
 /regime — market regime detail
 /risk — risk budget
 /candidates — ready candidates
+/briefing — current session briefing
 /watchlist — watchlist news + sentiment + earnings
 /feedback — AI analyst feedback stats
 /analyst — AI system summary (Ollama)

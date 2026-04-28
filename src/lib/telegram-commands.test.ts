@@ -25,6 +25,7 @@ describe('parseCommand', () => {
     expect(parseCommand('/explain AAPL')).toBe('/explain');
     expect(parseCommand('/scorecard')).toBe('/scorecard');
     expect(parseCommand('/earnings')).toBe('/earnings');
+    expect(parseCommand('/briefing')).toBe('/briefing');
   });
 
   it('returns unknown for unrecognized commands', () => {

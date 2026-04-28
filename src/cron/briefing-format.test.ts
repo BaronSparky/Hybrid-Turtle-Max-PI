@@ -193,4 +193,97 @@ describe('briefing message formatting', () => {
       expect(lines.join('\n')).toContain('Early close today');
     });
   });
+
+  describe('weekly digest formatting', () => {
+    function buildWeeklyDigest(data: {
+      date: string;
+      closedTrades: Array<{ ticker: string; realisedR: number }>;
+      openedCount: number;
+      weekPnl: number;
+      equityChange: number | null;
+      equityChangePct: number | null;
+      currentEquity: number;
+      grade: string;
+      expectancy: number;
+      winRate: number;
+      totalTrades: number;
+      openCount: number;
+    }): string[] {
+      const lines = [`📊 <b>Weekly Performance Digest — ${data.date}</b>`, ''];
+      lines.push('<b>This Week</b>');
+      lines.push(`  Opened: ${data.openedCount} | Closed: ${data.closedTrades.length}`);
+      if (data.closedTrades.length > 0) {
+        const wins = data.closedTrades.filter(t => t.realisedR > 0);
+        const weekTotalR = data.closedTrades.reduce((sum, t) => sum + t.realisedR, 0);
+        lines.push(`  Wins: ${wins.length} | Losses: ${data.closedTrades.length - wins.length} | Win rate: ${((wins.length / data.closedTrades.length) * 100).toFixed(0)}%`);
+        lines.push(`  Total R: ${weekTotalR >= 0 ? '+' : ''}${weekTotalR.toFixed(1)}R`);
+        lines.push(`  P&L: ${data.weekPnl >= 0 ? '+' : ''}£${data.weekPnl.toFixed(2)}`);
+        lines.push('', '  <b>Closed trades:</b>');
+        for (const t of data.closedTrades.slice(0, 8)) {
+          lines.push(`  ${t.realisedR > 0 ? '✅' : '❌'} ${t.ticker}: ${t.realisedR >= 0 ? '+' : ''}${t.realisedR.toFixed(1)}R`);
+        }
+      }
+      if (data.equityChange !== null) {
+        lines.push('', '<b>Equity</b>');
+        lines.push(`  Change: ${data.equityChange >= 0 ? '+' : '-'}£${Math.abs(data.equityChange).toFixed(2)} (${data.equityChangePct! >= 0 ? '+' : ''}${data.equityChangePct!.toFixed(1)}%)`);
+      }
+      lines.push('', '<b>All-Time System</b>');
+      lines.push(`  Grade: ${data.grade} | Expectancy: ${data.expectancy >= 0 ? '+' : ''}${data.expectancy.toFixed(2)}R/trade`);
+      lines.push(`  Win rate: ${data.winRate.toFixed(0)}% | Trades: ${data.totalTrades}`);
+      lines.push('', `<b>Current:</b> ${data.openCount} open position(s)`);
+      return lines;
+    }
+
+    it('includes header with date', () => {
+      const lines = buildWeeklyDigest({
+        date: '2026-04-26', closedTrades: [], openedCount: 0, weekPnl: 0,
+        equityChange: null, equityChangePct: null, currentEquity: 5000,
+        grade: 'B', expectancy: 0.25, winRate: 55, totalTrades: 20, openCount: 3,
+      });
+      expect(lines[0]).toContain('Weekly Performance Digest');
+      expect(lines[0]).toContain('2026-04-26');
+    });
+
+    it('shows winning trades with check marks', () => {
+      const lines = buildWeeklyDigest({
+        date: '2026-04-26',
+        closedTrades: [
+          { ticker: 'AAPL', realisedR: 2.5 },
+          { ticker: 'MSFT', realisedR: -0.8 },
+        ],
+        openedCount: 1, weekPnl: 85.50,
+        equityChange: 85.50, equityChangePct: 1.7, currentEquity: 5085.50,
+        grade: 'B', expectancy: 0.25, winRate: 55, totalTrades: 22, openCount: 4,
+      });
+      const text = lines.join('\n');
+      expect(text).toContain('✅ AAPL: +2.5R');
+      expect(text).toContain('❌ MSFT: -0.8R');
+      expect(text).toContain('Win rate: 50%'); // 1 out of 2 this week
+      expect(text).toContain('+£85.50');
+    });
+
+    it('shows equity change with percentage', () => {
+      const lines = buildWeeklyDigest({
+        date: '2026-04-26', closedTrades: [], openedCount: 0, weekPnl: 0,
+        equityChange: -120, equityChangePct: -2.4, currentEquity: 4880,
+        grade: 'C', expectancy: -0.1, winRate: 40, totalTrades: 15, openCount: 2,
+      });
+      const text = lines.join('\n');
+      expect(text).toContain('-£120.00');
+      expect(text).toContain('-2.4%');
+    });
+
+    it('shows system grade and expectancy', () => {
+      const lines = buildWeeklyDigest({
+        date: '2026-04-26', closedTrades: [], openedCount: 0, weekPnl: 0,
+        equityChange: null, equityChangePct: null, currentEquity: 5000,
+        grade: 'A', expectancy: 0.5, winRate: 60, totalTrades: 50, openCount: 5,
+      });
+      const text = lines.join('\n');
+      expect(text).toContain('Grade: A');
+      expect(text).toContain('+0.50R/trade');
+      expect(text).toContain('60%');
+      expect(text).toContain('5 open position(s)');
+    });
+  });
 });
