@@ -5,6 +5,7 @@ import {
   calculateStopRecommendation,
   getProtectionLevel,
   inferLevelFromStop,
+  shouldSyncBrokerStop,
 } from './stop-manager';
 import * as marketData from './market-data';
 import type { ProtectionLevel } from '@/types';
@@ -413,5 +414,47 @@ describe('TRAILING_ATR in level order', () => {
     const rec = calculateStopRecommendation(130, 100, 10, 95, 'TRAILING_ATR' as ProtectionLevel);
     expect(rec).not.toBeNull();
     expect(rec?.newLevel).toBe('LOCK_1R_TRAIL');
+  });
+});
+
+describe('shouldSyncBrokerStop', () => {
+  it('allows sync when T212 stop is higher and below entry on INITIAL', () => {
+    // T212: 95 > DB: 90, entry: 100, level: INITIAL → below entry, allow
+    expect(shouldSyncBrokerStop(95, 90, 100, 'INITIAL')).toBe(true);
+  });
+
+  it('rejects sync when T212 stop is above entry on INITIAL level (GEV bug)', () => {
+    // T212: 1099.85 > DB: 1039.29, entry: 1093.99, level: INITIAL → stale!
+    expect(shouldSyncBrokerStop(1099.85, 1039.29, 1093.99, 'INITIAL')).toBe(false);
+  });
+
+  it('rejects sync when T212 stop equals entry on INITIAL', () => {
+    expect(shouldSyncBrokerStop(100, 90, 100, 'INITIAL')).toBe(false);
+  });
+
+  it('allows sync when T212 stop is above entry on LOCK_08R (legitimate)', () => {
+    // LOCK_08R positions can have stops above entry
+    expect(shouldSyncBrokerStop(105, 100, 100, 'LOCK_08R')).toBe(true);
+  });
+
+  it('allows sync when T212 stop is above entry on TRAILING_ATR', () => {
+    expect(shouldSyncBrokerStop(102, 98, 100, 'TRAILING_ATR')).toBe(true);
+  });
+
+  it('allows sync when T212 stop is above entry on LOCK_1R_TRAIL', () => {
+    expect(shouldSyncBrokerStop(110, 105, 100, 'LOCK_1R_TRAIL')).toBe(true);
+  });
+
+  it('rejects sync when T212 stop is not higher than DB stop', () => {
+    expect(shouldSyncBrokerStop(90, 95, 100, 'INITIAL')).toBe(false);
+  });
+
+  it('rejects sync when T212 stop equals DB stop', () => {
+    expect(shouldSyncBrokerStop(90, 90, 100, 'INITIAL')).toBe(false);
+  });
+
+  it('allows sync on BREAKEVEN with T212 above entry', () => {
+    // BREAKEVEN has already been validated through the ladder
+    expect(shouldSyncBrokerStop(101, 100, 100, 'BREAKEVEN')).toBe(true);
   });
 });

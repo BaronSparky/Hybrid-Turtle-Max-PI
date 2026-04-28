@@ -5,7 +5,7 @@ import prisma from '@/lib/prisma';
 import { Trading212Client, Trading212Error } from '@/lib/trading212';
 import type { T212AccountType } from '@/lib/trading212-dual';
 import { ensureDefaultUser } from '@/lib/default-user';
-import { updateStopLoss, StopLossError } from '@/lib/stop-manager';
+import { updateStopLoss, StopLossError, shouldSyncBrokerStop } from '@/lib/stop-manager';
 import { apiError } from '@/lib/api-response';
 import { z } from 'zod';
 import { parseJsonBody } from '@/lib/request-validation';
@@ -141,13 +141,9 @@ export async function GET(request: NextRequest) {
       const t212Stop = matchedOrder?.stopPrice ?? 0;
 
       // If T212 has a higher stop than the DB, sync the DB UP (monotonic)
-      // SAFETY: reject if T212 stop is above entry price while the DB protection level
-      // is INITIAL. This indicates stale/bad data on T212 (e.g. from before an entry
-      // price correction). Legitimate lock-level stops above entry are allowed through
-      // since those positions have already been validated through the R-multiple ladder.
+      // SAFETY: reject stale T212 stops above entry on INITIAL-level positions
       let dbSyncedUp = false;
-      const isStaleAboveEntry = t212Stop >= pos.entryPrice && pos.protectionLevel === 'INITIAL';
-      if (t212Stop > pos.currentStop && !isStaleAboveEntry) {
+      if (shouldSyncBrokerStop(t212Stop, pos.currentStop, pos.entryPrice, pos.protectionLevel)) {
         try {
           await updateStopLoss(
             pos.id,

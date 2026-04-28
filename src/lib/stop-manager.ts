@@ -54,6 +54,22 @@ export function inferLevelFromStop(newStop: number, entryPrice: number, initialR
 }
 
 /**
+ * Check whether a broker-reported stop should be synced into the DB.
+ * Rejects stale T212 stops that are above entry price on INITIAL-level positions,
+ * which indicates the stop predates an entry price correction.
+ */
+export function shouldSyncBrokerStop(
+  t212Stop: number,
+  dbStop: number,
+  entryPrice: number,
+  protectionLevel: string
+): boolean {
+  if (t212Stop <= dbStop) return false; // not an upgrade — skip
+  const isStaleAboveEntry = t212Stop >= entryPrice && protectionLevel === 'INITIAL';
+  return !isStaleAboveEntry;
+}
+
+/**
  * Calculate the recommended stop price for a given protection level
  * For LOCK_1R_TRAIL: max(Entry + 1R, Close − 2×ATR)
  */
