@@ -1,27 +1,26 @@
 /**
  * DEPENDENCIES
  * Consumed by: TodayPanel, BuyConfirmationModal, /api/positions, /api/dashboard/today-directive
- * Consumes: @/types (ExecutionMode, OPPORTUNISTIC_GATES)
+ * Consumes: @/types (ExecutionMode)
  * Risk-sensitive: YES — determines whether entries are allowed
- * Last modified: 2026-03-04
- * Notes: Single source of truth for phase-based entry logic.
- *        Monday is ALWAYS blocked. Tuesday is PLANNED. Wed-Fri is OPPORTUNISTIC (BULLISH only).
+ * Last modified: 2026-04-29
+ * Notes: Single source of truth for entry logic.
+ *        Mon-Fri are all execution days (regime-gated). Weekends are blocked.
  */
 
-import type { ExecutionMode, OpportunisticGates } from '@/types';
-import { OPPORTUNISTIC_GATES } from '@/types';
+import type { ExecutionMode } from '@/types';
 
 export interface ExecutionModeResult {
   mode: ExecutionMode;
   canEnter: boolean;
   reason: string;
-  gates: OpportunisticGates | null;
-  isOpportunistic: boolean;
   isPlanned: boolean;
 }
 
 /**
  * Determines the current execution mode based on day and regime.
+ * Mon-Fri: entries allowed unless regime is BEARISH.
+ * Sat-Sun: no entries (markets closed / planning).
  * @param dayOfWeek 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
  * @param regime Current market regime
  */
@@ -29,69 +28,27 @@ export function getExecutionMode(
   dayOfWeek: number,
   regime: string
 ): ExecutionModeResult {
-  // Sunday
-  if (dayOfWeek === 0) {
+  // Weekend — markets closed
+  if (dayOfWeek === 0 || dayOfWeek === 6) {
     return {
       mode: 'PLANNING',
       canEnter: false,
-      reason: 'Planning day. Run the scan and prepare for Tuesday.',
-      gates: null,
-      isOpportunistic: false,
+      reason: dayOfWeek === 0
+        ? 'Planning day. Run the scan and prepare for the week.'
+        : 'Weekend. Markets closed.',
       isPlanned: false,
     };
   }
 
-  // Monday — hard block, no exceptions
-  if (dayOfWeek === 1) {
-    return {
-      mode: 'BLOCKED',
-      canEnter: false,
-      reason: 'Observation day. No entries on Monday — ever.',
-      gates: null,
-      isOpportunistic: false,
-      isPlanned: false,
-    };
-  }
-
-  // Tuesday — planned execution
-  if (dayOfWeek === 2) {
-    return {
-      mode: 'PLANNED',
-      canEnter: regime !== 'BEARISH',
-      reason: regime === 'BEARISH'
-        ? 'Regime is BEARISH. Planned entries blocked.'
-        : 'Execution day. Execute planned trades.',
-      gates: null,
-      isOpportunistic: false,
-      isPlanned: true,
-    };
-  }
-
-  // Wednesday, Thursday, Friday — opportunistic
-  if (dayOfWeek >= 3 && dayOfWeek <= 5) {
-    const canEnter = regime === 'BULLISH';
-    return {
-      mode: 'OPPORTUNISTIC',
-      canEnter,
-      reason: !canEnter
-        ? regime === 'BEARISH'
-          ? 'Regime is BEARISH. Mid-week entries blocked.'
-          : 'Regime is SIDEWAYS. Opportunistic entries require BULLISH regime.'
-        : 'Opportunistic execution. Auto-Yes candidates only.',
-      gates: canEnter ? OPPORTUNISTIC_GATES : null,
-      isOpportunistic: true,
-      isPlanned: false,
-    };
-  }
-
-  // Saturday
+  // Monday–Friday — execution allowed, regime-gated
+  const blocked = regime === 'BEARISH';
   return {
-    mode: 'PLANNING',
-    canEnter: false,
-    reason: 'Weekend. System is resting.',
-    gates: null,
-    isOpportunistic: false,
-    isPlanned: false,
+    mode: 'PLANNED',
+    canEnter: !blocked,
+    reason: blocked
+      ? 'Regime is BEARISH. Entries blocked.'
+      : 'Execution day. Trade when candidates are ready.',
+    isPlanned: true,
   };
 }
 

@@ -17,13 +17,13 @@
 'use client';
 
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
-import { apiRequest } from '@/lib/api-client';
+import {apiRequest, formatApiError } from '@/lib/api-client';
 import { formatPrice, formatCurrency, cn } from '@/lib/utils';
 import { getBuyButtonState } from '@/lib/ready-to-buy';
 import { getDayOfWeek } from '@/lib/utils';
 import type { TriggerMetCandidate } from '@/lib/ready-to-buy';
 import type { PositionSizingResult } from '@/types';
-import { OPPORTUNISTIC_GATES, RISK_PROFILES, type ExecutionMode, type RiskProfileType } from '@/types';
+import { RISK_PROFILES, type ExecutionMode, type RiskProfileType } from '@/types';
 import type { CorrelationScalarResult } from '@/lib/correlation-scalar';
 import { applyCorrelationScalar } from '@/lib/correlation-scalar';
 import { useStore } from '@/store/useStore';
@@ -462,7 +462,7 @@ export default function BuyConfirmationModal({
         await onConfirm();
       }, 800);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to create position';
+      const message = formatApiError(err, 'Failed to create position');
       setError(message);
     } finally {
       setSubmitting(false);
@@ -598,19 +598,6 @@ export default function BuyConfirmationModal({
           {modalPhase === 'checklist' ? (
             <WhyCardProvider>
             <div className="space-y-4">
-              {/* Opportunistic mode banner */}
-              {executionMode === 'OPPORTUNISTIC' && (
-                <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-                  <div className="flex items-center gap-2 text-amber-400 text-sm font-semibold mb-1">
-                    <Zap className="w-4 h-4" />
-                    Mid-week opportunistic entry
-                  </div>
-                  <p className="text-xs text-amber-400/70">
-                    Higher bar applied: NCS ≥ {OPPORTUNISTIC_GATES.minNCS} · FWS ≤ {OPPORTUNISTIC_GATES.maxFWS} · Auto-Yes only · Max {OPPORTUNISTIC_GATES.maxNewPositions} position today
-                  </p>
-                </div>
-              )}
-
               {/* Auto-verified items (system checks) */}
               <div>
                 <div className="flex items-center gap-2 mb-2">

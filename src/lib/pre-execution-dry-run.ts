@@ -273,8 +273,8 @@ function checkExecutionMode(regime?: string): DryRunCheck {
       passed: false,
       severity: 'HARD_BLOCK',
       message: `${mode.mode}: ${mode.reason}`,
-      recovery: mode.mode === 'BLOCKED'
-        ? 'Monday is an observation day. Wait until Tuesday.'
+      recovery: mode.mode === 'PLANNING'
+        ? 'Planning day. Markets reopen on Monday.'
         : 'Wait for a valid execution day.',
     };
   }

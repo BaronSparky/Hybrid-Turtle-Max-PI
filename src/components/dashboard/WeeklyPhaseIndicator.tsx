@@ -4,12 +4,12 @@ import { useStore } from '@/store/useStore';
 import { PHASE_CONFIG } from '@/types';
 import type { WeeklyPhase } from '@/types';
 import { cn } from '@/lib/utils';
-import { Calendar, Eye, Zap, Wrench } from 'lucide-react';
+import { Calendar, Zap, Wrench } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 const phaseIcons: Record<WeeklyPhase, LucideIcon> = {
   PLANNING: Calendar,
-  OBSERVATION: Eye,
+  OBSERVATION: Zap,  // Legacy key — mapped to Execution
   EXECUTION: Zap,
   MAINTENANCE: Wrench,
 };
@@ -56,14 +56,6 @@ export default function WeeklyPhaseIndicator() {
             {config.description}
           </p>
         </div>
-
-        {weeklyPhase === 'OBSERVATION' && (
-          <div className="flex-shrink-0">
-            <div className="px-3 py-1.5 bg-loss/20 border border-loss/30 rounded-lg text-loss text-xs font-bold uppercase">
-              ⚠️ DO NOT TRADE
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

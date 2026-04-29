@@ -43,14 +43,13 @@ const DECISIONS = [
 type Decision = (typeof DECISIONS)[number];
 
 // ── Phase (derived from UK day-of-week) ─────────────────────
-type Phase = 'PLANNING' | 'OBSERVATION' | 'EXECUTION' | 'MAINTENANCE';
+type Phase = 'PLANNING' | 'EXECUTION' | 'MAINTENANCE';
 
 function getPhaseForDay(day: number): Phase {
   switch (day) {
     case 0: return 'PLANNING';
-    case 1: return 'OBSERVATION';
-    case 2: return 'EXECUTION';
-    default: return 'MAINTENANCE';
+    case 6: return 'MAINTENANCE';
+    default: return 'EXECUTION'; // Mon-Fri
   }
 }
 
@@ -85,7 +84,6 @@ interface DirectiveContext {
   t212Connected: boolean;
   dataStale: boolean;
   canEnter: boolean;
-  isOpportunistic: boolean;
 }
 
 // ── Decision tree ────────────────────────────────────────────
@@ -131,20 +129,13 @@ function resolveDecision(ctx: DirectiveContext): { decision: Decision; blockers:
   if (ctx.phase === 'PLANNING') {
     return { decision: 'PREPARE_PLAN', blockers };
   }
-  if (ctx.phase === 'OBSERVATION') {
-    // Monday: manage only, never buy
-    if (ctx.stopsPending > 0) return { decision: 'UPDATE_STOPS', blockers };
-    if (ctx.laggardCount > 0) return { decision: 'EXIT_REVIEW', blockers };
-    if (ctx.openPositionCount > 0) return { decision: 'MANAGE_EXISTING', blockers };
-    return { decision: 'NO_ACTION', blockers };
-  }
 
   // Layer 3: Regime / risk blockers (affect buying only)
   // Kill switch is handled in Layer 0 as SYSTEM_BLOCKED.
   if (ctx.regime === 'BEARISH') {
     blockers.push({ code: 'REGIME_BEARISH', label: 'Market regime is BEARISH', severity: 'hard' });
   }
-  if (ctx.regime === 'SIDEWAYS' && !ctx.isOpportunistic) {
+  if (ctx.regime === 'SIDEWAYS') {
     blockers.push({ code: 'REGIME_SIDEWAYS', label: 'Market regime is SIDEWAYS', severity: 'hard' });
   }
   if (ctx.openPositionCount >= ctx.maxPositions) {
@@ -244,10 +235,10 @@ function buildContent(
 
     case 'PREPARE_PLAN':
       return {
-        headline: 'Planning day. Review the scan and prepare for Tuesday.',
+        headline: 'Planning day. Review the scan and prepare for the week.',
         explanation: ctx.scanAgeHours > 24
-          ? 'Run a fresh scan first, then review candidates for Tuesday execution.'
-          : `${ctx.readyCandidateCount} candidate${ctx.readyCandidateCount === 1 ? '' : 's'} from last scan. Review and shortlist for Tuesday.`,
+          ? 'Run a fresh scan first, then review candidates.'
+          : `${ctx.readyCandidateCount} candidate${ctx.readyCandidateCount === 1 ? '' : 's'} from last scan. Review and shortlist.`,
         action: { label: 'Run Scan', href: '/scan' },
         urgency: 'low',
       };
@@ -504,7 +495,6 @@ export async function GET(_request: NextRequest) {
       t212Connected,
       dataStale: marketDataStatus.isStale,
       canEnter: execMode.canEnter,
-      isOpportunistic: execMode.isOpportunistic,
     };
 
     // ── Resolve decision ──
@@ -547,7 +537,6 @@ export async function GET(_request: NextRequest) {
         t212Connected,
         dataStale: marketDataStatus.isStale,
         canEnter: execMode.canEnter,
-        isOpportunistic: execMode.isOpportunistic,
       },
     });
   } catch (error) {

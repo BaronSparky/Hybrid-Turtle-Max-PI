@@ -210,10 +210,10 @@ describe('getBuyButtonState', () => {
     expect(state.color).toBe('grey');
   });
 
-  it('Monday: disabled red (observation — hard block)', () => {
+  it('Monday: enabled green (execution)', () => {
     const state = getBuyButtonState(1);
-    expect(state.enabled).toBe(false);
-    expect(state.color).toBe('red');
+    expect(state.enabled).toBe(true);
+    expect(state.color).toBe('green');
   });
 
   it('Tuesday: enabled green (execution)', () => {
@@ -222,22 +222,22 @@ describe('getBuyButtonState', () => {
     expect(state.color).toBe('green');
   });
 
-  it('Wednesday: enabled amber (maintenance advisory)', () => {
+  it('Wednesday: enabled green (execution)', () => {
     const state = getBuyButtonState(3);
     expect(state.enabled).toBe(true);
-    expect(state.color).toBe('amber');
+    expect(state.color).toBe('green');
   });
 
-  it('Thursday: enabled amber', () => {
+  it('Thursday: enabled green', () => {
     const state = getBuyButtonState(4);
     expect(state.enabled).toBe(true);
-    expect(state.color).toBe('amber');
+    expect(state.color).toBe('green');
   });
 
-  it('Friday: enabled amber', () => {
+  it('Friday: enabled green', () => {
     const state = getBuyButtonState(5);
     expect(state.enabled).toBe(true);
-    expect(state.color).toBe('amber');
+    expect(state.color).toBe('green');
   });
 
   it('Saturday: disabled grey (markets closed)', () => {

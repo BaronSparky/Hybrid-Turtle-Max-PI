@@ -3,18 +3,18 @@
 import { PHASE_CONFIG } from '@/types';
 import { cn } from '@/lib/utils';
 import { useStore } from '@/store/useStore';
-import { Check, Eye, Zap, Shield, Loader2 } from 'lucide-react';
+import { Check, Zap, Shield, Loader2 } from 'lucide-react';
 
 const phaseIcons: Record<string, React.ElementType> = {
-  PLANNING: Eye,
-  OBSERVATION: Loader2,
+  PLANNING: Loader2,
+  OBSERVATION: Zap,  // Legacy key — treated as Execution
   EXECUTION: Zap,
   MAINTENANCE: Shield,
 };
 
 const phaseColors: Record<string, string> = {
   PLANNING: 'text-primary-400 border-primary/40 bg-primary/10',
-  OBSERVATION: 'text-warning border-warning/40 bg-warning/10',
+  OBSERVATION: 'text-profit border-profit/40 bg-profit/10',
   EXECUTION: 'text-profit border-profit/40 bg-profit/10',
   MAINTENANCE: 'text-blue-400 border-blue-400/40 bg-blue-500/10',
 };

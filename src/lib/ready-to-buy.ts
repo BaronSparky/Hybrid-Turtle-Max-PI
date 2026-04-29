@@ -181,9 +181,7 @@ export function getClusterWarnings(
  * | Day       | Phase       | Button State             |
  * |-----------|-------------|--------------------------|
  * | Sunday    | PLANNING    | disabled (grey)          |
- * | Monday    | OBSERVATION | disabled (red) — HARD    |
- * | Tuesday   | EXECUTION   | enabled (green)          |
- * | Wed–Fri   | MAINTENANCE | enabled (amber advisory) |
+ * | Mon–Fri   | EXECUTION   | enabled (green)          |
  * | Saturday  | MAINTENANCE | disabled (grey)          |
  */
 export function getBuyButtonState(dayOfWeek: number): {
@@ -194,13 +192,9 @@ export function getBuyButtonState(dayOfWeek: number): {
   switch (dayOfWeek) {
     case 0: // Sunday
       return { enabled: false, color: 'grey', tooltip: 'Planning day — review only' };
-    case 1: // Monday
-      return { enabled: false, color: 'red', tooltip: 'Monday observation day — no trading' };
-    case 2: // Tuesday
-      return { enabled: true, color: 'green', tooltip: 'Execution day — ready to trade' };
     case 6: // Saturday
       return { enabled: false, color: 'grey', tooltip: 'Markets closed' };
-    default: // Wed-Fri
-      return { enabled: true, color: 'amber', tooltip: 'Mid-week entry — confirm this was pre-planned' };
+    default: // Mon-Fri
+      return { enabled: true, color: 'green', tooltip: 'Execution day — ready to trade' };
   }
 }

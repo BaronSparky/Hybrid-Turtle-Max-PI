@@ -256,7 +256,7 @@ export type WeeklyPhase = 'PLANNING' | 'OBSERVATION' | 'EXECUTION' | 'MAINTENANC
 export type HealthStatus = 'GREEN' | 'YELLOW' | 'RED';
 
 // ---- Execution Mode (phase + regime → what entries are allowed) ----
-export type ExecutionMode = 'PLANNED' | 'OPPORTUNISTIC' | 'BLOCKED' | 'PLANNING';
+export type ExecutionMode = 'PLANNED' | 'PLANNING';
 
 export interface OpportunisticGates {
   minNCS: number;
@@ -284,9 +284,8 @@ export function getCurrentWeeklyPhase(): WeeklyPhase {
   });
   switch (ukDay) {
     case 'Sun': return 'PLANNING';
-    case 'Mon': return 'OBSERVATION';
-    case 'Tue': return 'EXECUTION';
-    default:    return 'MAINTENANCE';   // Wed-Sat
+    case 'Sat': return 'MAINTENANCE';
+    default:    return 'EXECUTION';   // Mon-Fri
   }
 }
 
@@ -307,28 +306,28 @@ export const PHASE_CONFIG: Record<WeeklyPhase, {
     description: 'Review health checks, run scans, prepare execution plan',
   },
   OBSERVATION: {
-    label: 'Observation Phase',
-    dayLabel: 'Monday',
-    color: '#f59e0b',
-    bgColor: 'rgba(245, 158, 11, 0.15)',
-    icon: '👁️',
-    description: 'DO NOT TRADE — Observe market, review nightly summary',
-  },
-  EXECUTION: {
     label: 'Execution Phase',
-    dayLabel: 'Tuesday',
+    dayLabel: 'Mon–Fri',
     color: '#22c55e',
     bgColor: 'rgba(34, 197, 94, 0.15)',
     icon: '⚡',
-    description: 'Execute planned trades with pre-trade validation',
+    description: 'Execute trades when candidates are ready (regime-gated)',
+  },
+  EXECUTION: {
+    label: 'Execution Phase',
+    dayLabel: 'Mon–Fri',
+    color: '#22c55e',
+    bgColor: 'rgba(34, 197, 94, 0.15)',
+    icon: '⚡',
+    description: 'Execute trades when candidates are ready (regime-gated)',
   },
   MAINTENANCE: {
     label: 'Maintenance Phase',
-    dayLabel: 'Wed-Fri',
+    dayLabel: 'Saturday',
     color: '#3b82f6',
     bgColor: 'rgba(59, 130, 246, 0.15)',
     icon: '🔧',
-    description: 'Monitor positions, update stops, review nightly summaries',
+    description: 'Markets closed — review positions and prepare',
   },
 };
 

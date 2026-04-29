@@ -48,7 +48,6 @@ interface DirectiveContext {
   t212Connected: boolean;
   dataStale: boolean;
   canEnter: boolean;
-  isOpportunistic: boolean;
 }
 
 interface DirectiveData {

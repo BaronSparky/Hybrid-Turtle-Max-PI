@@ -156,7 +156,7 @@ export default function ReadyToBuyPanel({
   const [selectedCandidate, setSelectedCandidate] = useState<TriggerMetCandidate | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
 
-  const { canPlaceNewTrades, isObserveOnly } = useWeeklyPhase();
+  const { canPlaceNewTrades } = useWeeklyPhase();
   const { sizePosition } = useRiskProfile();
   const dayOfWeek = getDayOfWeek();
   const buttonState = getBuyButtonState(dayOfWeek);

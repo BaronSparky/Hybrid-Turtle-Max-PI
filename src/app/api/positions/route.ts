@@ -13,7 +13,6 @@ import { getLivePrices, getTickerFreshness } from '@/lib/live-prices';
 import { clearScanCache } from '@/lib/scan-cache';
 import { clearModulesCache } from '@/lib/modules-cache';
 import { getCurrentWeeklyPhase } from '@/types';
-import { OPPORTUNISTIC_GATES } from '@/types';
 import { getCurrentExecutionMode } from '@/lib/execution-mode';
 import type { Sleeve } from '@/types';
 import { z } from 'zod';
@@ -275,40 +274,16 @@ export async function POST(request: NextRequest) {
 
     // Hard pre-trade gates
     const phase = getCurrentWeeklyPhase();
-    if (phase === 'OBSERVATION') {
-      return apiError(400, 'PHASE_BLOCKED', 'New entries are blocked on Monday (OBSERVATION phase)');
+    if (phase === 'PLANNING' || phase === 'MAINTENANCE') {
+      return apiError(400, 'PHASE_BLOCKED', 'Markets are closed. New entries are only allowed Monday–Friday.');
     }
 
     const regime = await getMarketRegime();
 
-    // Opportunistic mode enforcement (Wed-Fri)
+    // Execution mode check (regime gate)
     const execMode = getCurrentExecutionMode(regime);
-    if (execMode.mode === 'OPPORTUNISTIC') {
-      if (!execMode.canEnter) {
-        return apiError(400, 'REGIME_BLOCKED', execMode.reason);
-      }
-      // Daily limit check — count non-HEDGE positions opened today
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      const todayEntryCount = await prisma.position.count({
-        where: {
-          userId,
-          entryDate: { gte: todayStart },
-          stock: { sleeve: { not: 'HEDGE' } },
-        },
-      });
-      if (todayEntryCount >= OPPORTUNISTIC_GATES.maxNewPositions) {
-        return apiError(400, 'DAILY_LIMIT', `Mid-week daily limit reached. Maximum ${OPPORTUNISTIC_GATES.maxNewPositions} new position per day on Wednesday–Friday.`);
-      }
-      // Verify candidate meets opportunistic bar (server-side safety net)
-      if (typeof bqsScore === 'number' && typeof fwsScore === 'number' && typeof ncsScore === 'number') {
-        if (ncsScore < OPPORTUNISTIC_GATES.minNCS) {
-          return apiError(400, 'OPPORTUNISTIC_NCS', `NCS ${ncsScore.toFixed(0)} does not meet mid-week minimum of ${OPPORTUNISTIC_GATES.minNCS}.`);
-        }
-        if (fwsScore > OPPORTUNISTIC_GATES.maxFWS) {
-          return apiError(400, 'OPPORTUNISTIC_FWS', `FWS ${fwsScore.toFixed(0)} exceeds mid-week maximum of ${OPPORTUNISTIC_GATES.maxFWS}.`);
-        }
-      }
+    if (!execMode.canEnter) {
+      return apiError(400, 'REGIME_BLOCKED', execMode.reason);
     }
 
     if (regime !== 'BULLISH') {

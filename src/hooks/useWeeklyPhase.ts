@@ -16,14 +16,11 @@ export function useWeeklyPhase() {
       case 0: // Sunday
         phase = 'PLANNING';
         break;
-      case 1: // Monday
-        phase = 'OBSERVATION';
-        break;
-      case 2: // Tuesday
-        phase = 'EXECUTION';
-        break;
-      default: // Wed-Fri
+      case 6: // Saturday
         phase = 'MAINTENANCE';
+        break;
+      default: // Mon-Fri
+        phase = 'EXECUTION';
         break;
     }
 
@@ -31,7 +28,7 @@ export function useWeeklyPhase() {
   }, [setWeeklyPhase]);
 
   const isTradingDay = weeklyPhase === 'EXECUTION';
-  const isObserveOnly = weeklyPhase === 'OBSERVATION';
+  const isObserveOnly = false; // No observation-only days — Mon-Fri are all execution days
   const isPlanningDay = weeklyPhase === 'PLANNING';
   const isManageDay = weeklyPhase === 'MAINTENANCE';
 

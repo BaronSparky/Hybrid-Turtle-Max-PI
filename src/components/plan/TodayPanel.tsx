@@ -27,11 +27,8 @@ import {
   statusIcon,
   type SignalLabel,
 } from '@/lib/signal-translations';
-import type { MarketRegime, WeeklyPhase, OpportunisticGates } from '@/types';
-import { OPPORTUNISTIC_GATES } from '@/types';
+import type { MarketRegime, WeeklyPhase } from '@/types';
 import { ChevronDown, ChevronUp, ExternalLink, Zap } from 'lucide-react';
-import { getExecutionMode } from '@/lib/execution-mode';
-import { filterOpportunisticCandidates } from '@/lib/opportunistic-filter';
 import GlossaryTerm from '@/components/GlossaryTerm';
 import NCSIntervalBadge from '@/components/NCSIntervalBadge';
 import { useNCSIntervals, type NCSIntervalResult } from '@/hooks/useNCSIntervals';
@@ -124,29 +121,9 @@ interface TodayPanelProps {
 
 // ── State Determination ──────────────────────────────────────
 
-type PanelState = 'NOT_TRADING_DAY' | 'MARKET_NOT_READY' | 'PORTFOLIO_FULL' | 'WATCHING' | 'TIME_TO_ACT' | 'OPPORTUNISTIC_AVAILABLE' | 'OPPORTUNISTIC_NONE' | 'OPPORTUNISTIC_BLOCKED';
+type PanelState = 'NOT_TRADING_DAY' | 'MARKET_NOT_READY' | 'PORTFOLIO_FULL' | 'WATCHING' | 'TIME_TO_ACT';
 
 function determinePanelState(props: TodayPanelProps): PanelState {
-  // Check for opportunistic mode on Wed-Fri
-  if (props.weeklyPhase === 'MAINTENANCE') {
-    const ukDay = new Date().toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'Europe/London' });
-    const dayNum = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }[ukDay] ?? 6;
-    if (dayNum >= 3 && dayNum <= 5) {
-      const execMode = getExecutionMode(dayNum, props.marketRegime);
-      if (!execMode.canEnter) return 'OPPORTUNISTIC_BLOCKED';
-      // Filter candidates for opportunistic eligibility
-      const triggered = props.candidates.filter(
-        c => c.price > 0 && c.entryTrigger > 0 && c.price >= c.entryTrigger
-      );
-      const { eligible } = filterOpportunisticCandidates(
-        triggered.map(c => ({ ticker: c.ticker, dualNCS: c.dualNCS, dualFWS: c.dualFWS, dualAction: c.dualNCS != null && (c.dualNCS ?? 0) >= 70 && (c.dualFWS ?? 100) <= 30 ? 'Auto-Yes' : 'Conditional' })),
-        0 // todayEntryCount — TodayPanel doesn't have this, approximation is OK for display
-      );
-      return eligible.length > 0 ? 'OPPORTUNISTIC_AVAILABLE' : 'OPPORTUNISTIC_NONE';
-    }
-    return 'NOT_TRADING_DAY'; // Saturday
-  }
-
   if (props.weeklyPhase !== 'EXECUTION') return 'NOT_TRADING_DAY';
 
   const regime = props.marketRegime.toUpperCase();
@@ -332,92 +309,7 @@ function NotTradingDayCard({ phase }: { phase: WeeklyPhase }) {
   );
 }
 
-// ── STATE 1b: Opportunistic — candidates available ───────────
-
-function OpportunisticAvailableCard({ candidateCount }: { candidateCount: number }) {
-  return (
-    <div className="rounded-2xl bg-navy-800/60 border-l-4 border-l-amber-500 border border-border/40 px-6 py-10 sm:py-14">
-      <div className="max-w-lg mx-auto space-y-4">
-        <div className="flex items-center gap-3">
-          <Zap className="w-8 h-8 text-amber-400" />
-          <h2 className="text-2xl font-bold text-foreground">Opportunistic Window</h2>
-        </div>
-        <p className="text-muted-foreground">
-          Auto-Yes candidates available for mid-week entry.
-        </p>
-        <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-          <span className="px-2 py-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400">NCS ≥ {OPPORTUNISTIC_GATES.minNCS}</span>
-          <span className="px-2 py-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400">FWS ≤ {OPPORTUNISTIC_GATES.maxFWS}</span>
-          <span className="px-2 py-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400">Auto-Yes only</span>
-          <span className="px-2 py-1 rounded bg-navy-700 text-muted-foreground">Max {OPPORTUNISTIC_GATES.maxNewPositions} new position today</span>
-        </div>
-        <div className="flex items-center justify-between pt-2">
-          <span className="text-sm text-foreground font-medium">{candidateCount} eligible candidate{candidateCount !== 1 ? 's' : ''}</span>
-          <a href="/portfolio/positions" className="text-sm text-primary-400 hover:text-primary-300 transition-colors flex items-center gap-1">
-            View Candidates <ExternalLink className="w-3.5 h-3.5" />
-          </a>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── STATE 1c: Opportunistic — no candidates pass the bar ─────
-
-function OpportunisticNoneCard() {
-  return (
-    <div className="rounded-2xl bg-navy-800/60 border border-border/40 px-6 py-10 sm:py-14">
-      <div className="max-w-lg mx-auto space-y-4">
-        <div className="flex items-center gap-3">
-          <Zap className="w-8 h-8 text-muted-foreground/40" />
-          <h2 className="text-2xl font-bold text-foreground">Opportunistic Window — No Eligible Candidates</h2>
-        </div>
-        <p className="text-muted-foreground">
-          Regime is BULLISH but no candidates meet the mid-week bar.
-        </p>
-        <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-          <span className="px-2 py-1 rounded bg-navy-700">NCS ≥ {OPPORTUNISTIC_GATES.minNCS}</span>
-          <span className="px-2 py-1 rounded bg-navy-700">FWS ≤ {OPPORTUNISTIC_GATES.maxFWS}</span>
-          <span className="px-2 py-1 rounded bg-navy-700">Auto-Yes required</span>
-        </div>
-        <p className="text-sm text-muted-foreground">
-          Next planned execution: <strong className="text-foreground">Tuesday</strong>
-        </p>
-      </div>
-    </div>
-  );
-}
-
-// ── STATE 1d: Opportunistic — blocked by regime ──────────────
-
-function OpportunisticBlockedCard({ regime }: { regime: MarketRegime }) {
-  const isBearish = regime === 'BEARISH';
-  return (
-    <div className="rounded-2xl bg-navy-800/60 border border-border/40 px-6 py-10 sm:py-14">
-      <div className="max-w-lg mx-auto space-y-4">
-        <div className="text-5xl">{isBearish ? '🛑' : '🌙'}</div>
-        <h2 className="text-2xl font-bold text-foreground">
-          Maintenance Day{isBearish ? ' — Entries Blocked' : ''}
-        </h2>
-        <p className="text-muted-foreground">
-          {isBearish
-            ? 'Regime is BEARISH. No new entries mid-week or on Tuesday.'
-            : 'Regime is SIDEWAYS — opportunistic entries require BULLISH.'}
-        </p>
-        <p className="text-sm text-muted-foreground">
-          {isBearish
-            ? 'Focus on stop management and protecting open positions.'
-            : 'The system is watching everything for you.'}
-        </p>
-        <div className="pt-2">
-          <a href="/portfolio" className="text-sm text-muted-foreground hover:text-foreground transition-colors underline underline-offset-4">
-            See my open positions
-          </a>
-        </div>
-      </div>
-    </div>
-  );
-}
+// ── Best Candidate Selection ─────────────────────────────────
 
 // ── STATE 2: Tuesday, nothing to buy ─────────────────────────
 
@@ -954,15 +846,6 @@ export default function TodayPanel(props: TodayPanelProps) {
       {state === 'TIME_TO_ACT' && bestCandidate && (
         <TimeToActCard candidate={bestCandidate} regime={props.marketRegime} advancedView={advancedView} getIntervalForNCS={getIntervalForNCS} fmData={fmData} signalWeightData={signalWeightData} stressTestData={stressTestData} />
       )}
-      {state === 'OPPORTUNISTIC_AVAILABLE' && <OpportunisticAvailableCard candidateCount={
-        filterOpportunisticCandidates(
-          props.candidates.filter(c => c.price > 0 && c.entryTrigger > 0 && c.price >= c.entryTrigger)
-            .map(c => ({ ticker: c.ticker, dualNCS: c.dualNCS, dualFWS: c.dualFWS, dualAction: c.dualNCS != null && (c.dualNCS ?? 0) >= 70 && (c.dualFWS ?? 100) <= 30 ? 'Auto-Yes' : 'Conditional' })),
-          0
-        ).eligible.length
-      } />}
-      {state === 'OPPORTUNISTIC_NONE' && <OpportunisticNoneCard />}
-      {state === 'OPPORTUNISTIC_BLOCKED' && <OpportunisticBlockedCard regime={props.marketRegime} />}
 
       {/* ── Signal Summary Strip (advanced view only) ── */}
       {advancedView && (
