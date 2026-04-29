@@ -13,6 +13,7 @@
 
 import { useState, useRef } from 'react';
 import { BrainCircuit, Loader2, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { formatApiError } from '@/lib/api-client';
 
 interface AnalyticsExplainCardProps {
   title: string;
@@ -99,7 +100,7 @@ export default function AnalyticsExplainCard({ title, contextSummary, question }
       setStreaming(false);
     } catch (err) {
       if ((err as Error).name === 'AbortError') return;
-      setError(err instanceof Error ? err.message : 'Failed to get explanation');
+      setError(formatApiError(err, 'Failed to get explanation'));
       setStreaming(false);
     }
   };

@@ -9,7 +9,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Flame, TrendingUp, AlertTriangle, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { apiRequest } from '@/lib/api-client';
+import {apiRequest, formatApiError } from '@/lib/api-client';
 
 interface SystemHeatData {
   ok: boolean;
@@ -72,7 +72,7 @@ export default function SystemHeatWidget() {
       const result = await apiRequest<SystemHeatData>('/api/system-heat');
       setData(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load');
+      setError(formatApiError(err, 'Failed to load'));
     } finally {
       setLoading(false);
     }

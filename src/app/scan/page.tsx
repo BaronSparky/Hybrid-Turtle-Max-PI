@@ -17,7 +17,7 @@ const CrossRefTab = lazy(() => import('@/components/scan/CrossRefTab'));
 import StatusBadge from '@/components/shared/StatusBadge';
 import RegimeBadge from '@/components/shared/RegimeBadge';
 import { cn, formatPrice } from '@/lib/utils';
-import { apiRequest, ApiClientError } from '@/lib/api-client';
+import { apiRequest, ApiClientError, formatApiError } from '@/lib/api-client';
 import { useStore } from '@/store/useStore';
 import { Search, Play, Filter, Check, X, AlertTriangle, BarChart3, GitMerge, RefreshCw, XCircle } from 'lucide-react';
 
@@ -296,10 +296,13 @@ function ScanPageInner() {
       setFetchError(null);
     } catch (err) {
       const isStale = err instanceof ApiClientError && err.code === 'SCANS_DISABLED_STALE_DATA';
+      const isYahooRL = err instanceof ApiClientError && err.code === 'YAHOO_RATE_LIMITED';
       setIsStaleError(isStale);
       setFetchError(isStale
         ? 'Market data needs to be downloaded before your first scan.'
-        : err instanceof Error ? err.message : 'Scan failed. Check your connection and try again.');
+        : isYahooRL
+        ? 'Yahoo Finance rate limit hit. Wait 2–3 minutes for the limit to reset, then retry.'
+        : formatApiError(err, 'Scan failed. Check your connection and try again.'));
     } finally {
       clearInterval(pollInterval);
       setScanProgress(null);

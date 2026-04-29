@@ -76,6 +76,27 @@ async function runWatchdog(): Promise<void> {
     }
   }
 
+  // Check dashboard server on weekdays during market hours (8AM-5PM UK)
+  if (isWeekday && now.getHours() >= 8 && now.getHours() < 17) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch('http://localhost:3000/api/system-status', {
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (!res.ok) {
+        alerts.push(
+          `⚠️ WATCHDOG: Dashboard responded with HTTP ${res.status}. It may need a restart (run start.bat).`
+        );
+      }
+    } catch {
+      alerts.push(
+        '🚨 WATCHDOG: Dashboard server is not responding on port 3000. Run start.bat to bring it back up.'
+      );
+    }
+  }
+
   if (alerts.length === 0) {
     log.info('All heartbeats within expected window', { alertCount: 0 });
     return;

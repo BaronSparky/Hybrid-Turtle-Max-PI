@@ -10,7 +10,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { apiRequest } from '@/lib/api-client';
+import {apiRequest, formatApiError } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { Database, Eye, EyeOff, Check, Save, Loader2 } from 'lucide-react';
 
@@ -51,7 +51,7 @@ export default function DataPanel() {
       setDirty(false);
       setTimeout(() => setSaveResult(null), 2000);
     } catch (err) {
-      setSaveResult({ ok: false, message: err instanceof Error ? err.message : 'Save failed' });
+      setSaveResult({ ok: false, message: formatApiError(err, 'Save failed') });
     } finally {
       setSaving(false);
     }

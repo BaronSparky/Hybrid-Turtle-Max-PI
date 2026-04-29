@@ -52,7 +52,23 @@ function parseErrorPayload(payload: unknown): {
 }
 
 export async function apiRequest<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
-  const response = await fetch(input, init);
+  let response: Response;
+  try {
+    response = await fetch(input, init);
+  } catch (networkErr) {
+    // fetch() rejects with TypeError when the origin is unreachable, DNS fails,
+    // CORS blocks the request, or the request is aborted before any response.
+    // Surface this distinctly from server-side failures so callers can show
+    // "server unreachable" rather than mis-attributing it to the API.
+    const aborted = networkErr instanceof DOMException && networkErr.name === 'AbortError';
+    throw new ApiClientError(
+      aborted ? 'Request aborted' : 'Dashboard server unreachable',
+      0,
+      aborted ? 'REQUEST_ABORTED' : 'NETWORK_UNREACHABLE',
+      networkErr instanceof Error ? networkErr.message : undefined,
+      true,
+    );
+  }
 
   let payload: unknown = null;
   try {
@@ -67,4 +83,23 @@ export async function apiRequest<T>(input: RequestInfo | URL, init?: RequestInit
   }
 
   return payload as T;
+}
+
+/**
+ * Format an error from apiRequest into a user-friendly message string.
+ * Centralises NETWORK_UNREACHABLE / REQUEST_ABORTED handling so every
+ * catch block that calls this shows consistent guidance.
+ */
+export function formatApiError(err: unknown, fallback = 'Something went wrong. Try again.'): string {
+  if (err instanceof ApiClientError) {
+    if (err.code === 'NETWORK_UNREACHABLE') {
+      return 'Dashboard server is not reachable. Make sure start.bat is running, then retry.';
+    }
+    if (err.code === 'REQUEST_ABORTED') {
+      return 'Request was cancelled.';
+    }
+    return err.message;
+  }
+  if (err instanceof Error) return err.message;
+  return fallback;
 }

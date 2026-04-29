@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useStore } from '@/store/useStore';
-import { apiRequest } from '@/lib/api-client';
+import {apiRequest, formatApiError } from '@/lib/api-client';
 
 interface Position {
   id: string;
@@ -53,7 +53,7 @@ export function usePositions(statusFilter?: string) {
 
       return list;
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Unknown error';
+      const msg = formatApiError(err, 'Unknown error');
       setError(msg);
       return [];
     } finally {
@@ -73,7 +73,7 @@ export function usePositions(statusFilter?: string) {
       await fetchPositions();
       return true;
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Unknown error';
+      const msg = formatApiError(err, 'Unknown error');
       setError(msg);
       return false;
     }
@@ -95,7 +95,7 @@ export function usePositions(statusFilter?: string) {
       await fetchPositions();
       return true;
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Unknown error';
+      const msg = formatApiError(err, 'Unknown error');
       setError(msg);
       return false;
     }

@@ -12,7 +12,7 @@
 import { Suspense, useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Navbar from '@/components/shared/Navbar';
-import { apiRequest } from '@/lib/api-client';
+import {apiRequest, formatApiError } from '@/lib/api-client';
 import { formatDate, cn } from '@/lib/utils';
 import {
   BookOpen, Pencil, Star, TrendingUp, TrendingDown, X,
@@ -70,7 +70,7 @@ function EntryNoteModal({
       });
       onSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save');
+      setError(formatApiError(err, 'Failed to save'));
     } finally {
       setSaving(false);
     }
@@ -166,7 +166,7 @@ function CloseNoteModal({
       });
       onSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save');
+      setError(formatApiError(err, 'Failed to save'));
     } finally {
       setSaving(false);
     }

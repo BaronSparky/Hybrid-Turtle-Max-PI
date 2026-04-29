@@ -9,7 +9,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { apiRequest } from '@/lib/api-client';
+import {apiRequest, formatApiError } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import {
   Webhook,
@@ -84,7 +84,7 @@ export default function TelegramWebhookPanel() {
     } catch (err) {
       setRegisterResult({
         ok: false,
-        message: err instanceof Error ? err.message : 'Registration failed',
+        message: formatApiError(err, 'Registration failed'),
       });
     } finally {
       setRegistering(false);
@@ -104,7 +104,7 @@ export default function TelegramWebhookPanel() {
       setTestResult(data);
       setShowTestResult(true);
     } catch (err) {
-      setTestError(err instanceof Error ? err.message : 'Test failed');
+      setTestError(formatApiError(err, 'Test failed'));
     } finally {
       setTesting(false);
     }

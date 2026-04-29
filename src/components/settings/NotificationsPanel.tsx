@@ -11,7 +11,7 @@
  */
 
 import { useState, useCallback, useEffect } from 'react';
-import { apiRequest } from '@/lib/api-client';
+import {apiRequest, formatApiError } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { Bell, TestTube, Eye, EyeOff, Loader2, Check, Save } from 'lucide-react';
 import TelegramWebhookPanel from '@/components/settings/TelegramWebhookPanel';
@@ -104,7 +104,7 @@ export default function NotificationsPanel() {
       });
       setTelegramTestResult({ success: true, message: `Test sent via ${data.botName}` });
     } catch (err) {
-      setTelegramTestResult({ success: false, message: err instanceof Error ? err.message : 'Network error' });
+      setTelegramTestResult({ success: false, message: formatApiError(err, 'Network error') });
     } finally {
       setTelegramTesting(false);
       setTimeout(() => setTelegramTestResult(null), 5000);

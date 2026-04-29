@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { apiRequest } from '@/lib/api-client';
+import {apiRequest, formatApiError } from '@/lib/api-client';
 import { Loader2, BrainCircuit, WifiOff, RefreshCw, ChevronDown, ChevronUp, Settings2, Newspaper, Search } from 'lucide-react';
 
 interface OllamaHealthResponse {
@@ -82,7 +82,7 @@ export default function AnalystCard() {
       const data = await res.json();
       setBatchData(data);
     } catch (err) {
-      setBatchError(err instanceof Error ? err.message : 'Batch news fetch failed');
+      setBatchError(formatApiError(err, 'Batch news fetch failed'));
     } finally {
       setBatchLoading(false);
     }
@@ -111,7 +111,7 @@ export default function AnalystCard() {
       const data = await res.json();
       setNewsData(data);
     } catch (err) {
-      setNewsError(err instanceof Error ? err.message : 'News fetch failed');
+      setNewsError(formatApiError(err, 'News fetch failed'));
     } finally {
       setNewsLoading(false);
     }
@@ -134,7 +134,7 @@ export default function AnalystCard() {
       return true;
     } catch (err) {
       setState('offline');
-      setError(err instanceof Error ? err.message : 'Failed to reach analyst');
+      setError(formatApiError(err, 'Failed to reach analyst'));
       return false;
     }
   }, [selectedModel]);
@@ -222,7 +222,7 @@ export default function AnalystCard() {
     } catch (err) {
       if ((err as Error).name === 'AbortError') return;
       setState('error');
-      setError(err instanceof Error ? err.message : 'Stream failed');
+      setError(formatApiError(err, 'Stream failed'));
     }
   }, [selectedModel]);
 

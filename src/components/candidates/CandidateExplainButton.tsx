@@ -11,6 +11,7 @@
 
 import { useState } from 'react';
 import { BrainCircuit, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
+import { formatApiError } from '@/lib/api-client';
 
 export default function CandidateExplainButton({ ticker }: { ticker: string }) {
   const [explanation, setExplanation] = useState<string | null>(null);
@@ -62,7 +63,7 @@ export default function CandidateExplainButton({ ticker }: { ticker: string }) {
         if (news.headlines?.length) setHeadlines(news.headlines.slice(0, 2));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed');
+      setError(formatApiError(err, 'Failed'));
     } finally {
       setLoading(false);
     }

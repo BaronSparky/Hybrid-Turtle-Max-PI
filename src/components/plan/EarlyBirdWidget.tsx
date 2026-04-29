@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { cn, formatCurrency } from '@/lib/utils';
-import { apiRequest } from '@/lib/api-client';
+import {apiRequest, formatApiError } from '@/lib/api-client';
 import { Bird, Loader2, AlertTriangle, TrendingUp, Volume2, Download, ArrowUpDown } from 'lucide-react';
 
 const EB_STORAGE_KEY = 'earlyBird_cache';
@@ -129,7 +129,7 @@ export default function EarlyBirdWidget() {
       setData(result);
       saveToLocal(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Scan failed');
+      setError(formatApiError(err, 'Scan failed'));
     } finally {
       setLoading(false);
     }

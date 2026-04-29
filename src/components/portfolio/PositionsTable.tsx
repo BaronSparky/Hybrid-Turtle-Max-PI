@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 import { formatCurrency, formatPrice, formatPercent, formatR, formatDate } from '@/lib/utils';
 import StatusBadge from '@/components/shared/StatusBadge';
 import { canPyramid, PYRAMID_CONFIG } from '@/lib/risk-gates';
-import { apiRequest } from '@/lib/api-client';
+import {apiRequest, formatApiError } from '@/lib/api-client';
 import { Bell, BellOff, Lock, Plus, ArrowUpDown, ChevronDown, X, AlertTriangle, TrendingUp, LogOut, Send, Loader2, CheckCircle, XCircle, RefreshCw, Layers, BookOpen } from 'lucide-react';
 import TradeAdvisorPanel, { useTradeRecommendation } from '@/components/TradeAdvisorPanel';
 
@@ -764,7 +764,7 @@ export default function PositionsTable({ positions, onUpdateStop, onExitPosition
                                 setT212PushMessage(t212Data.message || 'Stop placed on Trading 212');
                               } catch (err) {
                                 setT212PushStatus('error');
-                                const msg = err instanceof Error ? err.message : 'Unknown error';
+                                const msg = formatApiError(err, 'Unknown error');
                                 setT212PushMessage(`T212 push failed: ${msg}`);
                               }
                             }
@@ -1051,7 +1051,7 @@ export default function PositionsTable({ positions, onUpdateStop, onExitPosition
                       setT212PushMessage(t212Data.message || 'Stop placed on Trading 212');
                     } catch (err) {
                       setT212PushStatus('error');
-                      const msg = err instanceof Error ? err.message : 'Unknown error';
+                      const msg = formatApiError(err, 'Unknown error');
                       setT212PushMessage(`T212 push failed: ${msg}`);
                     }
                   }

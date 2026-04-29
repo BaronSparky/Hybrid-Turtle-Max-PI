@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useStore } from '@/store/useStore';
 import type { HealthStatus } from '@/types';
-import { apiRequest } from '@/lib/api-client';
+import {apiRequest, formatApiError } from '@/lib/api-client';
 
 interface HealthCheckReport {
   overall: HealthStatus;
@@ -41,7 +41,7 @@ export function useHealthCheck(autoRun = false, userId = DEFAULT_USER_ID) {
 
       return data;
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Unknown error';
+      const msg = formatApiError(err, 'Unknown error');
       setError(msg);
       return null;
     } finally {

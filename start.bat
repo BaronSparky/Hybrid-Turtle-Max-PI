@@ -142,7 +142,8 @@ echo  ────────────────────────�
 echo.
 
 :: Open browser once server is ready (polls every 2s, max 60s)
-start /min powershell -NoProfile -WindowStyle Hidden -Command "for ($i=0; $i -lt 30; $i++) { Start-Sleep 2; try { $null = Invoke-WebRequest -Uri http://localhost:3000 -UseBasicParsing -TimeoutSec 2; Start-Process http://localhost:3000/dashboard; exit } catch {} }; Write-Host 'Server did not start in time. Open http://localhost:3000 manually.'"
+:: Also prints a readiness confirmation so users know the dashboard is up
+start /min powershell -NoProfile -WindowStyle Hidden -Command "for ($i=0; $i -lt 30; $i++) { Start-Sleep 2; try { $r = Invoke-WebRequest -Uri http://localhost:3000/api/system-status -UseBasicParsing -TimeoutSec 3; if ($r.StatusCode -eq 200) { Write-Host '  Dashboard READY at http://localhost:3000'; Start-Process http://localhost:3000/dashboard; exit } } catch {} }; Write-Host '  WARNING: Server did not respond in 60s. Open http://localhost:3000 manually.'"
 
 :: Start the production server (blocks until user closes)
 call npm start

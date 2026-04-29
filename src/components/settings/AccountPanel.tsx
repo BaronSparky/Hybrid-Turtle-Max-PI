@@ -13,7 +13,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useStore } from '@/store/useStore';
 import { RISK_PROFILES, type RiskProfileType } from '@/types';
-import { apiRequest } from '@/lib/api-client';
+import {apiRequest, formatApiError } from '@/lib/api-client';
 import { cn, formatCurrency, formatPercent } from '@/lib/utils';
 import { DollarSign, Save, Check, Loader2 } from 'lucide-react';
 
@@ -69,7 +69,7 @@ export default function AccountPanel() {
       setDirty(false);
       setTimeout(() => setSaveResult(null), 2000);
     } catch (err) {
-      setSaveResult({ ok: false, message: err instanceof Error ? err.message : 'Save failed' });
+      setSaveResult({ ok: false, message: formatApiError(err, 'Save failed') });
     } finally {
       setSaving(false);
     }

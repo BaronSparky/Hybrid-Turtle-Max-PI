@@ -13,7 +13,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useStore } from '@/store/useStore';
-import { apiRequest } from '@/lib/api-client';
+import {apiRequest, formatApiError } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import {
   TrendingUp, Shield, AlertTriangle, Check, Loader2, Save,
@@ -114,7 +114,7 @@ export default function BrokerPanel() {
       setT212AccountId(data.accountId?.toString());
       setT212Currency(data.currency);
       setT212Success(`Connected! Account: ${data.accountId} (${data.currency})`);
-    } catch (err) { setT212Error(err instanceof Error ? err.message : 'Connection failed'); }
+    } catch (err) { setT212Error(formatApiError(err, 'Connection failed')); }
     finally { setT212Connecting(false); }
   };
 
@@ -138,7 +138,7 @@ export default function BrokerPanel() {
       setT212IsaAccountId(data.accountId?.toString());
       setT212IsaCurrency(data.currency);
       setT212IsaSuccess(`Connected! ISA: ${data.accountId} (${data.currency})`);
-    } catch (err) { setT212IsaError(err instanceof Error ? err.message : 'Connection failed'); }
+    } catch (err) { setT212IsaError(formatApiError(err, 'Connection failed')); }
     finally { setT212IsaConnecting(false); }
   };
 
@@ -166,7 +166,7 @@ export default function BrokerPanel() {
       if (data.sync.isa && (isa.created + isa.updated + isa.closed > 0)) setT212IsaLastSync(data.syncedAt);
       const combined = data.account?.totalValue;
       if (combined && combined > 0) setEquity(combined);
-    } catch (err) { setT212Error(err instanceof Error ? err.message : 'Sync failed'); }
+    } catch (err) { setT212Error(formatApiError(err, 'Sync failed')); }
     finally { setT212Syncing(false); }
   };
 
@@ -189,7 +189,7 @@ export default function BrokerPanel() {
       setGapDirty(false);
       setTimeout(() => setGapSaveResult(null), 2000);
     } catch (err) {
-      setGapSaveResult({ ok: false, message: err instanceof Error ? err.message : 'Save failed' });
+      setGapSaveResult({ ok: false, message: formatApiError(err, 'Save failed') });
     } finally { setGapSaving(false); }
   };
 

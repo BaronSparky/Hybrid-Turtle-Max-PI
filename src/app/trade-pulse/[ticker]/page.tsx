@@ -16,7 +16,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Navbar from '@/components/shared/Navbar';
 import { cn } from '@/lib/utils';
-import { apiRequest } from '@/lib/api-client';
+import {apiRequest, formatApiError } from '@/lib/api-client';
 import { Loader2, ArrowLeft, AlertTriangle, CheckCircle2, BarChart3, BrainCircuit, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { TradePulseDial } from '@/components/TradePulseGrade';
 import { GRADE_STYLES, type TradePulseGrade } from '@/lib/prediction/trade-pulse';
@@ -348,7 +348,7 @@ function AiExplainCard({ data }: { data: TradePulseData }) {
       setStreaming(false);
     } catch (err) {
       if ((err as Error).name === 'AbortError') return;
-      setError(err instanceof Error ? err.message : 'Failed to get explanation');
+      setError(formatApiError(err, 'Failed to get explanation'));
       setStreaming(false);
     }
   };

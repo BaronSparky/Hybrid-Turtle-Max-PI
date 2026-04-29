@@ -13,7 +13,7 @@ import JournalDrawer from '@/components/shared/JournalDrawer';
 import type { JournalPositionContext } from '@/components/shared/JournalDrawer';
 import { formatCurrency, formatPercent } from '@/lib/utils';
 import { cn } from '@/lib/utils';
-import { apiRequest } from '@/lib/api-client';
+import {apiRequest, formatApiError } from '@/lib/api-client';
 import { Loader2, Briefcase, PieChart, BarChart3, XCircle, RefreshCw } from 'lucide-react';
 
 // Dynamic import keeps ~ReadyToBuyPanel out of initial bundle (only loads when visible)
@@ -182,7 +182,7 @@ function PositionsPageInner() {
       setLastPriceRefresh(new Date());
     } catch (err) {
       console.error('Failed to fetch positions:', err);
-      setFetchError(err instanceof Error ? err.message : 'Failed to load positions');
+      setFetchError(formatApiError(err, 'Failed to load positions'));
     }
   }, []);
 

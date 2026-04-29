@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import AcceleratorCard from '@/components/plan/AcceleratorCard';
 import type { AcceleratorRecommendation } from '@/types';
-import { apiRequest } from '@/lib/api-client';
+import {apiRequest, formatApiError } from '@/lib/api-client';
 import { Loader2, Zap, AlertTriangle } from 'lucide-react';
 
 const DEFAULT_USER_ID = 'default-user';
@@ -49,7 +49,7 @@ export default function AcceleratorWidget() {
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to load');
+          setError(formatApiError(err, 'Failed to load'));
         }
       } finally {
         if (!cancelled) setLoading(false);

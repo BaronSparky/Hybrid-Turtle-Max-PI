@@ -9,7 +9,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { apiRequest } from '@/lib/api-client';
+import {apiRequest, formatApiError } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import {
   Database,
@@ -90,7 +90,7 @@ export default function BackupPanel() {
         setResult({ ok: false, message: data.error ?? 'Backup failed' });
       }
     } catch (err) {
-      setResult({ ok: false, message: err instanceof Error ? err.message : 'Backup failed' });
+      setResult({ ok: false, message: formatApiError(err, 'Backup failed') });
     } finally {
       setBacking(false);
     }
@@ -116,7 +116,7 @@ export default function BackupPanel() {
         setResult({ ok: false, message: data.error ?? 'Restore failed' });
       }
     } catch (err) {
-      setResult({ ok: false, message: err instanceof Error ? err.message : 'Restore failed' });
+      setResult({ ok: false, message: formatApiError(err, 'Restore failed') });
     } finally {
       setRestoring(null);
       fetchBackups();

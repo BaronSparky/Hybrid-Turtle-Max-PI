@@ -22,7 +22,7 @@ import {
   CheckCircle,
   RefreshCw,
 } from 'lucide-react';
-import { apiRequest } from '@/lib/api-client';
+import {apiRequest, formatApiError } from '@/lib/api-client';
 
 // Shape returned by GET /api/stops
 interface StopRecommendation {
@@ -104,7 +104,7 @@ export default function StopUpdateQueue({ userId, onApplied, refreshTrigger = 0 
       setRowStates({});
       setHiddenTickers(new Set());
     } catch (err) {
-      setFetchError(err instanceof Error ? err.message : 'Failed to load stop recommendations');
+      setFetchError(formatApiError(err, 'Failed to load stop recommendations'));
     } finally {
       setLoading(false);
     }
@@ -167,7 +167,7 @@ export default function StopUpdateQueue({ userId, onApplied, refreshTrigger = 0 
       }
     } catch (err) {
       // Parse the error response to get the step info
-      const errMsg = err instanceof Error ? err.message : 'Failed to apply stop';
+      const errMsg = formatApiError(err, 'Failed to apply stop');
       patchRow(rec.ticker, { status: 'error', message: errMsg });
     }
   }

@@ -220,11 +220,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ...responseResult, cachedAt: cached.cachedAt });
   } catch (error) {
     console.error('Scan error:', error);
+    const msg = (error as Error).message || '';
+    const isYahooRateLimit = msg.includes('429') || msg.toLowerCase().includes('too many');
     return apiError(
-      500,
-      'SCAN_FAILED',
-      'Scan failed',
-      (error as Error).message,
+      isYahooRateLimit ? 429 : 500,
+      isYahooRateLimit ? 'YAHOO_RATE_LIMITED' : 'SCAN_FAILED',
+      isYahooRateLimit
+        ? 'Yahoo Finance rate limit hit. Wait a few minutes and retry.'
+        : 'Scan failed',
+      msg,
       true
     );
   }

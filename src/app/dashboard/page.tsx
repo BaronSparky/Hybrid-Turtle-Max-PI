@@ -41,7 +41,7 @@ import AnalystCard from '@/components/dashboard/AnalystCard';
 import RegimeBadge from '@/components/shared/RegimeBadge';
 import { useStore } from '@/store/useStore';
 import { formatDate } from '@/lib/utils';
-import { apiRequest } from '@/lib/api-client';
+import {apiRequest, formatApiError } from '@/lib/api-client';
 import type { FearGreedData, MarketRegime } from '@/types';
 import { Bell, Play, FileText, Zap, RefreshCw, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 
@@ -119,7 +119,7 @@ export default function DashboardPage() {
       setFetchError(null);
     } catch (err) {
       console.error('Failed to fetch live market data:', err);
-      setFetchError(err instanceof Error ? err.message : 'Failed to load dashboard data');
+      setFetchError(formatApiError(err, 'Failed to load dashboard data'));
     }
   }, [setMarketIndices, setFearGreed, setMarketRegime]);
 

@@ -11,7 +11,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { apiRequest } from '@/lib/api-client';
+import {apiRequest, formatApiError } from '@/lib/api-client';
 import { formatPrice, formatPercent, cn } from '@/lib/utils';
 import {
   X,
@@ -215,7 +215,7 @@ export default function JournalDrawer({
       flashSaved(setEntrySaveStatus);
     } catch (err) {
       setEntrySaveStatus('error');
-      setEntrySaveError(err instanceof Error ? err.message : 'Save failed');
+      setEntrySaveError(formatApiError(err, 'Save failed'));
     }
   }, [positionId, entryNote, confidence, flashSaved]);
 
@@ -237,7 +237,7 @@ export default function JournalDrawer({
       flashSaved(setCloseSaveStatus);
     } catch (err) {
       setCloseSaveStatus('error');
-      setCloseSaveError(err instanceof Error ? err.message : 'Save failed');
+      setCloseSaveError(formatApiError(err, 'Save failed'));
     }
   }, [positionId, closeNote, learnedNote, flashSaved]);
 

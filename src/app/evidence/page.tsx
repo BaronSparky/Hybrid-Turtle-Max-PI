@@ -13,7 +13,7 @@ import { useEffect, useState, useMemo } from 'react';
 import Navbar from '@/components/shared/Navbar';
 import AnalyticsExplainCard from '@/components/analytics/AnalyticsExplainCard';
 import { cn } from '@/lib/utils';
-import { apiRequest } from '@/lib/api-client';
+import {apiRequest, formatApiError } from '@/lib/api-client';
 import {
   AlertTriangle,
   BarChart3,
@@ -190,7 +190,7 @@ export default function EvidencePage() {
         const res = await apiRequest<EvidenceData>(`/api/analytics/evidence${qs ? '?' + qs : ''}`);
         if (!cancelled) setData(res);
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load');
+        if (!cancelled) setError(formatApiError(err, 'Failed to load'));
       } finally {
         if (!cancelled) setLoading(false);
       }

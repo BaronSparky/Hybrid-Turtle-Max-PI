@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
-import { apiRequest } from '@/lib/api-client';
+import {apiRequest, formatApiError } from '@/lib/api-client';
 import type { ExitIntelligenceResult, ExitAction } from '@/types';
 import {
   Shield,
@@ -136,7 +136,7 @@ export default function ExitIntelligenceCard() {
           setSummary(res.data.summary);
         }
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load');
+        if (!cancelled) setError(formatApiError(err, 'Failed to load'));
       } finally {
         if (!cancelled) setLoading(false);
       }

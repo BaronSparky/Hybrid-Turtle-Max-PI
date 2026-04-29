@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { apiRequest } from '@/lib/api-client';
+import {apiRequest, formatApiError } from '@/lib/api-client';
 
 const DEFAULT_USER_ID = 'default-user';
 
@@ -102,7 +102,7 @@ export function useSessionBriefing(): {
         isHoliday: false, // Would need market-holidays import — keep simple for now
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load briefing');
+      setError(formatApiError(err, 'Failed to load briefing'));
     } finally {
       setLoading(false);
     }

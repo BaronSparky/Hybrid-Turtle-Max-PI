@@ -12,6 +12,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import Navbar from '@/components/shared/Navbar';
 import { Loader2, Newspaper, RefreshCw, AlertTriangle } from 'lucide-react';
+import { formatApiError } from '@/lib/api-client';
 
 interface NewsHeadline {
   title: string;
@@ -80,7 +81,7 @@ export default function WatchlistNewsPage() {
         } catch { /* best-effort */ }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch news');
+      setError(formatApiError(err, 'Failed to fetch news'));
     } finally {
       setLoading(false);
     }
