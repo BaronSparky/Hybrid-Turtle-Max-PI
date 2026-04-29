@@ -46,7 +46,7 @@ import { calculatePositionSize } from '@/lib/position-sizer';
 import { validateRiskGates } from '@/lib/risk-gates';
 import { Trading212Client, Trading212Error, type T212PendingOrder } from '@/lib/trading212';
 import type { T212AccountType } from '@/lib/trading212-dual';
-import { sendTelegramMessage } from '@/lib/telegram';
+import { sendTelegramMessage, sendThrottledTelegramAlert } from '@/lib/telegram';
 import { sendAlert } from '@/lib/alert-service';
 import { assertSubmissionAllowed, SafetyControlError, isAutoTradingEnabled } from '../../packages/workflow/src';
 import { getBatchPrices, normalizeBatchPricesToGBP, getFXRate, getMarketRegime } from '@/lib/market-data';
@@ -618,7 +618,11 @@ async function runAutoTrade(session: Session) {
     const msg = err instanceof SafetyControlError ? err.message : 'Safety control blocked';
     log.info('Gate 2 BLOCKED: kill switch', { message: msg });
     console.log(`  ✗ Kill switch active: ${msg}`);
-    await sendTelegramMessage({ text: `🚫 Auto-Trade blocked by kill switch: ${msg}` });
+    const { ALERT_CATEGORY: AC1, buildAlertKey: BK1 } = await import('@/lib/alert-categories');
+    await sendThrottledTelegramAlert(
+      { text: `🚫 Auto-Trade blocked by kill switch: ${msg}` },
+      BK1(AC1.AUTO_TRADE_BLOCKED, `kill-switch:${session}`)
+    );
     await prisma.heartbeat.create({
       data: { status: 'SKIPPED', details: JSON.stringify({ type: 'auto-trade', session, reason: 'kill-switch', message: msg }) },
     });
@@ -643,7 +647,11 @@ async function runAutoTrade(session: Session) {
   if (session !== 'scan' && modeConfig && !modeConfig.canBuy) {
     log.info('Gate 3a BLOCKED: operating mode', { mode: modeKey });
     console.log(`  ✗ Operating mode ${modeKey} does not allow buying — exiting.`);
-    await sendTelegramMessage({ text: `🚫 Auto-Trade blocked: operating mode ${modeKey} — ${modeConfig.description}` });
+    const { ALERT_CATEGORY: AC2, buildAlertKey: BK2 } = await import('@/lib/alert-categories');
+    await sendThrottledTelegramAlert(
+      { text: `🚫 Auto-Trade blocked: operating mode ${modeKey} — ${modeConfig.description}` },
+      BK2(AC2.AUTO_TRADE_BLOCKED, `mode:${modeKey}:${session}`)
+    );
     await prisma.heartbeat.create({
       data: { status: 'SKIPPED', details: JSON.stringify({ type: 'auto-trade', session, reason: `operating-mode-${modeKey}` }) },
     });
@@ -654,7 +662,11 @@ async function runAutoTrade(session: Session) {
   if (!user.t212Connected && !user.t212IsaConnected) {
     log.info('Gate 3 BLOCKED: no T212 accounts connected');
     console.log('  ✗ No Trading 212 accounts connected — exiting.');
-    await sendTelegramMessage({ text: '🚫 Auto-Trade: No T212 account connected. Configure in Settings.' });
+    const { ALERT_CATEGORY: AC3, buildAlertKey: BK3 } = await import('@/lib/alert-categories');
+    await sendThrottledTelegramAlert(
+      { text: '🚫 Auto-Trade: No T212 account connected. Configure in Settings.' },
+      BK3(AC3.AUTO_TRADE_BLOCKED, `no-t212:${session}`)
+    );
     await prisma.$disconnect();
     return;
   }
@@ -676,7 +688,11 @@ async function runAutoTrade(session: Session) {
   } catch (err) {
     const msg = (err as Error).message;
     console.error(`  ✗ Scan failed: ${msg}`);
-    await sendTelegramMessage({ text: `❌ Auto-Trade scan failed: ${msg}` });
+    const { ALERT_CATEGORY: AC4, buildAlertKey: BK4 } = await import('@/lib/alert-categories');
+    await sendThrottledTelegramAlert(
+      { text: `❌ Auto-Trade scan failed: ${msg}` },
+      BK4(AC4.AUTO_TRADE_SCAN_FAIL, session)
+    );
     await prisma.$disconnect();
     return;
   }
@@ -1034,9 +1050,16 @@ if (!SESSION_CONFIGS[session]) {
   process.exit(1);
 }
 
-runAutoTrade(session).catch((err) => {
+runAutoTrade(session).catch(async (err) => {
   console.error('Fatal error in auto-trade:', err);
-  // Send Telegram alert on fatal crash
-  sendTelegramMessage({ text: `🔥 <b>Auto-Trade CRASHED</b>\n\nSession: ${session}\nError: ${(err as Error).message}\n\nCheck logs immediately.` })
-    .finally(() => process.exit(1));
+  // Send throttled Telegram alert on fatal crash (suppresses repeated identical crashes)
+  try {
+    const { sendThrottledTelegramAlert: sendThrottled } = await import('@/lib/telegram');
+    const { ALERT_CATEGORY: AC, buildAlertKey: BK } = await import('@/lib/alert-categories');
+    await sendThrottled(
+      { text: `🔥 <b>Auto-Trade CRASHED</b>\n\nSession: ${session}\nError: ${(err as Error).message}\n\nCheck logs immediately.`, parseMode: 'HTML' },
+      BK(AC.AUTO_TRADE_CRASH, session)
+    );
+  } catch { /* never block exit */ }
+  process.exit(1);
 });

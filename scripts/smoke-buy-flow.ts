@@ -24,10 +24,21 @@ interface CheckResult {
 async function checkEndpoint(name: string, path: string, validate: (json: unknown) => string | null): Promise<CheckResult> {
   try {
     const res = await fetch(`${BASE_URL}${path}`);
+    // Read body even on non-OK so validators can decide whether the error code is benign
+    let json: unknown = null;
+    try {
+      json = await res.json();
+    } catch {
+      json = null;
+    }
     if (!res.ok) {
+      // Allow validator to accept benign error codes (e.g. SCAN_CACHE_MISS)
+      const errorDetail = validate(json ?? {});
+      if (errorDetail === null) {
+        return { name, ok: true, detail: `OK (HTTP ${res.status} acceptable)` };
+      }
       return { name, ok: false, detail: `HTTP ${res.status} ${res.statusText}` };
     }
-    const json = (await res.json()) as unknown;
     const errorDetail = validate(json);
     if (errorDetail) {
       return { name, ok: false, detail: errorDetail };
@@ -55,14 +66,23 @@ async function main(): Promise<void> {
 
   results.push(
     await checkEndpoint('today-directive', '/api/dashboard/today-directive', (json) => {
-      const j = json as { phase?: string; canEnter?: boolean };
-      if (!j.phase) return 'missing phase field';
+      const j = json as { decision?: string; context?: { phase?: string } };
+      const phase = j.context?.phase;
+      if (!phase) return 'missing context.phase field';
+      // Phase regression check: weekday should be EXECUTION, weekend should be PLANNING
+      const day = new Date().getDay();
+      const isWeekday = day >= 1 && day <= 5;
+      const expected = isWeekday ? 'EXECUTION' : 'PLANNING';
+      if (phase !== expected) {
+        return `phase=${phase} but expected ${expected} for ${isWeekday ? 'weekday' : 'weekend'} (regression in getCurrentWeeklyPhase)`;
+      }
+      if (!j.decision) return 'missing decision field';
       return null;
     })
   );
 
   results.push(
-    await checkEndpoint('positions', '/api/positions', (json) => {
+    await checkEndpoint('positions', '/api/positions?userId=default-user', (json) => {
       if (!Array.isArray(json) && !(json as { positions?: unknown }).positions) {
         return 'positions response is not an array or {positions:[]}';
       }
@@ -71,11 +91,13 @@ async function main(): Promise<void> {
   );
 
   results.push(
-    await checkEndpoint('scan candidates', '/api/scan?dryRun=true', (json) => {
-      const j = json as { error?: string };
-      if (j.error && j.error !== 'SCANS_DISABLED_STALE_DATA') {
-        return `scan error: ${j.error}`;
-      }
+    await checkEndpoint('scan cache', '/api/scan', (json) => {
+      // Cached scan returns { results: [...] } when fresh; benign 404 codes mean
+      // no fresh cache exists yet — that's normal, not a regression.
+      const j = json as { error?: { code?: string }; results?: unknown };
+      const benignCodes = new Set(['SCAN_CACHE_MISS', 'SCAN_CACHE_STALE']);
+      if (j.error?.code && benignCodes.has(j.error.code)) return null;
+      if (j.results === undefined && !Array.isArray(json)) return 'scan response missing results';
       return null;
     })
   );

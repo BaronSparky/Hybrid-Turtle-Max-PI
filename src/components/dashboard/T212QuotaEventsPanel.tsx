@@ -49,6 +49,7 @@ export default function T212QuotaEventsPanel() {
 
   if (loading || !data || data.total === 0) return null;
 
+  const isCritical = data.last24h >= 5;
   const tone = data.last24h === 0
     ? 'text-emerald-500'
     : data.last24h < 5
@@ -56,7 +57,15 @@ export default function T212QuotaEventsPanel() {
       : 'text-red-500';
 
   return (
-    <div className="card-surface p-4">
+    <div className={cn('card-surface p-4', isCritical && 'border border-red-500/50')}>
+      {isCritical ? (
+        <div className="mb-3 rounded-md bg-red-500/10 border border-red-500/30 px-3 py-2 text-xs text-red-400">
+          <strong className="font-semibold">⚠ T212 throttling alert:</strong>{' '}
+          {data.last24h} rate-limit-low events in the last 24h. Consider reducing
+          T212 polling frequency or batch sizes.
+        </div>
+      ) : null}
+
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
           <Activity className={cn('h-4 w-4', tone)} />

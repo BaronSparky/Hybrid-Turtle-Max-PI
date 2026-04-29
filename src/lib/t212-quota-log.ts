@@ -11,7 +11,8 @@ import { promises as fs } from 'fs';
 import path from 'path';
 
 const QUOTA_LOG_FILE = path.resolve(process.cwd(), 'data', 't212-quota-events.json');
-const MAX_EVENTS = 100;
+const RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const HARD_CAP = 1000;
 
 export interface T212QuotaEvent {
   timestamp: string;
@@ -19,6 +20,29 @@ export interface T212QuotaEvent {
   limit: number;
   method: string;
   path: string;
+}
+
+/**
+ * Pure: apply retention rules to an event list.
+ * - Drop entries older than RETENTION_MS
+ * - Cap at HARD_CAP (most recent kept)
+ * Exported for testing.
+ */
+export function applyRetention(
+  events: T212QuotaEvent[],
+  nowMs: number = Date.now(),
+  retentionMs: number = RETENTION_MS,
+  hardCap: number = HARD_CAP
+): T212QuotaEvent[] {
+  const cutoff = nowMs - retentionMs;
+  const fresh = events.filter((e) => {
+    const ts = new Date(e.timestamp).getTime();
+    return Number.isFinite(ts) && ts >= cutoff;
+  });
+  if (fresh.length > hardCap) {
+    return fresh.slice(-hardCap);
+  }
+  return fresh;
 }
 
 /**
@@ -37,9 +61,7 @@ export async function recordT212QuotaEvent(event: T212QuotaEvent): Promise<void>
     }
 
     events.push(event);
-    if (events.length > MAX_EVENTS) {
-      events = events.slice(-MAX_EVENTS);
-    }
+    events = applyRetention(events);
 
     await fs.mkdir(path.dirname(QUOTA_LOG_FILE), { recursive: true });
     await fs.writeFile(QUOTA_LOG_FILE, JSON.stringify(events, null, 2), 'utf-8');

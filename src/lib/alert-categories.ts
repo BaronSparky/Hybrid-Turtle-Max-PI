@@ -15,6 +15,10 @@ export const ALERT_CATEGORY = {
   NIGHTLY_FAIL: 'nightly:fail',
   STOP_TRIGGER: 'stop:trigger',
   T212_QUOTA: 't212:quota',
+  AUTO_TRADE_CRASH: 'auto-trade:crash',
+  AUTO_TRADE_BLOCKED: 'auto-trade:blocked',
+  AUTO_TRADE_SCAN_FAIL: 'auto-trade:scan-fail',
+  HOURLY_STATUS_FAIL: 'hourly-status:fail',
 } as const;
 
 export type AlertCategory = (typeof ALERT_CATEGORY)[keyof typeof ALERT_CATEGORY];

@@ -248,9 +248,14 @@ async function runHourlyStatus() {
 
   } catch (err) {
     console.error('  ✗ Hourly status failed:', err);
-    // Try to send error notification
+    // Try to send error notification (throttled — repeated failures within 1h dedupe)
     try {
-      await sendTelegramMessage({ text: `⚠️ Hourly status failed: ${(err as Error).message}` });
+      const { sendThrottledTelegramAlert } = await import('@/lib/telegram');
+      const { ALERT_CATEGORY } = await import('@/lib/alert-categories');
+      await sendThrottledTelegramAlert(
+        { text: `⚠️ Hourly status failed: ${(err as Error).message}` },
+        ALERT_CATEGORY.HOURLY_STATUS_FAIL
+      );
     } catch { /* give up */ }
   } finally {
     await prisma.$disconnect();

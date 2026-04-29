@@ -1,0 +1,22 @@
+#!/usr/bin/env sh
+
+# Pre-push smoke gate: if the dashboard is running locally, run the backend
+# smoke script before allowing the push. Skipped when no dashboard is up.
+
+[ -n "$CI" ] && exit 0
+
+# Probe localhost:3000 with a short timeout. curl -sfm 2 returns non-zero
+# when the endpoint is unreachable; that's our "skip" signal.
+if curl -sfm 2 http://localhost:3000/api/system-status > /dev/null 2>&1; then
+  echo "[pre-push] Dashboard reachable — running smoke test..."
+  if ! npm run smoke; then
+    echo "[pre-push] Smoke test FAILED. Push aborted."
+    echo "[pre-push] Re-run with --no-verify to override after investigating."
+    exit 1
+  fi
+  echo "[pre-push] Smoke test passed."
+else
+  echo "[pre-push] Dashboard not running on localhost:3000 — skipping smoke test."
+fi
+
+exit 0
