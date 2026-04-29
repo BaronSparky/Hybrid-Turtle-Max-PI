@@ -50,6 +50,7 @@ import { sendTelegramMessage } from '@/lib/telegram';
 import { sendAlert } from '@/lib/alert-service';
 import { assertSubmissionAllowed, SafetyControlError, isAutoTradingEnabled } from '../../packages/workflow/src';
 import { getBatchPrices, normalizeBatchPricesToGBP, getFXRate, getMarketRegime } from '@/lib/market-data';
+import { fetchT212LivePrices } from '@/lib/position-sync';
 import { classifyCandidate, type GradingContext, type CandidateGrade } from '@/lib/candidate-grade';
 import { RISK_PROFILES, type RiskProfileType, type Sleeve, type MarketRegime, OPERATING_MODES, type OperatingMode } from '@/types';
 import { decryptField } from '@/lib/crypto';
@@ -830,7 +831,11 @@ async function runAutoTrade(session: Session) {
 
   // Build existing positions for risk gate checks (GBP-normalised)
   const existingTickers = existingPositions.map(p => p.stock.ticker);
-  const existingPrices = existingTickers.length > 0 ? await getBatchPrices(existingTickers) : {};
+  // T212 real-time prices for existing positions, Yahoo fallback
+  const t212Prices = existingTickers.length > 0 ? await fetchT212LivePrices(userId).catch(() => ({} as Record<string, number>)) : {};
+  const priceMissing = existingTickers.filter(t => !t212Prices[t]);
+  const yahooFallback = priceMissing.length > 0 ? await getBatchPrices(priceMissing) : {};
+  const existingPrices: Record<string, number> = { ...yahooFallback, ...t212Prices };
   const existingCurrencies: Record<string, string | null> = {};
   for (const p of existingPositions) existingCurrencies[p.stock.ticker] = p.stock.currency;
   const existingGbpPrices = existingTickers.length > 0

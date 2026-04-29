@@ -29,6 +29,7 @@ import 'dotenv/config';
 import prisma from '@/lib/prisma';
 import { sendTelegramMessage } from '@/lib/telegram';
 import { getBatchPrices, normalizeBatchPricesToGBP, getMarketRegime } from '@/lib/market-data';
+import { fetchT212LivePrices } from '@/lib/position-sync';
 import { getKillSwitchSettings, isAutoTradingEnabled, getMarketDataSafetyStatus } from '../../packages/workflow/src';
 import { RISK_PROFILES, type RiskProfileType, type Sleeve } from '@/types';
 import { getUKDayOfWeek, getUKHour, getUKTimeString } from '@/lib/uk-time';
@@ -83,7 +84,11 @@ async function runHourlyStatus() {
     });
 
     const tickers = positions.map(p => p.stock.ticker);
-    const prices = tickers.length > 0 ? await getBatchPrices(tickers) : {};
+    // T212 real-time prices as primary, Yahoo as fallback
+    const t212Prices = tickers.length > 0 ? await fetchT212LivePrices(userId) : {};
+    const missingTickers = tickers.filter(t => !t212Prices[t]);
+    const yahooFallback = missingTickers.length > 0 ? await getBatchPrices(missingTickers) : {};
+    const prices: Record<string, number> = { ...yahooFallback, ...t212Prices };
     const currencies: Record<string, string | null> = {};
     for (const p of positions) currencies[p.stock.ticker] = p.stock.currency;
     const gbpPrices = tickers.length > 0 ? await normalizeBatchPricesToGBP(prices, currencies) : {};
