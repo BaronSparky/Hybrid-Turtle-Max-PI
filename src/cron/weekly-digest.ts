@@ -115,6 +115,16 @@ async function runWeeklyDigest() {
   // Overall system stats
   lines.push('');
   lines.push('<b>All-Time System</b>');
+
+  // Trade milestones
+  const milestones = [1, 10, 30, 50, 100];
+  const justReached = milestones.find(m => scoreboard.totalClosedTrades >= m && scoreboard.totalClosedTrades < m + closedThisWeek.length);
+  if (justReached === 1) {
+    lines.push('  🎉 <b>First trade completed!</b> The system is now generating real outcome data.');
+  } else if (justReached) {
+    lines.push(`  🎯 <b>Milestone: ${justReached} trades completed!</b>`);
+  }
+
   lines.push(`  Grade: ${scoreboard.grade} | Expectancy: ${scoreboard.expectancyPerTrade >= 0 ? '+' : ''}${scoreboard.expectancyPerTrade.toFixed(2)}R/trade`);
   lines.push(`  Win rate: ${scoreboard.winRate.toFixed(0)}% | Trades: ${scoreboard.totalClosedTrades}`);
   lines.push(`  Avg win: +${scoreboard.avgWinR.toFixed(1)}R | Avg loss: ${scoreboard.avgLossR.toFixed(1)}R`);
