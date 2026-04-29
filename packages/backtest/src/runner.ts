@@ -133,7 +133,8 @@ function toSnapshotRow(row: Record<string, unknown>): SnapshotRow {
   };
 }
 
-function simulateStopLadder(
+/** @internal Exported for testing — simulates the stop ladder for a position */
+export function simulateStopLadder(
   entryPrice: number,
   initialStop: number,
   forwardCloses: Array<{ date: string; close: number; atr14: number }>,
