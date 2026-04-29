@@ -16,7 +16,7 @@ fi
 
 # If no source/scripts/test files in the push, skip smoke (docs-only).
 if [ -n "$CHANGED" ]; then
-  if ! echo "$CHANGED" | grep -qE '^(src/|scripts/|packages/|services/|tasks/|prisma/|\.husky/|package(-lock)?\.json|tsconfig\.json|next\.config\.js|vitest\.config\.ts|eslint\.config\.mjs)'; then
+  if ! printf '%s\n' "$CHANGED" | npx tsx src/lib/pre-push-source-filter.ts; then
     echo "[pre-push] No source/script changes detected — skipping smoke test."
     echo "[pre-push] Changed files:"
     echo "$CHANGED" | sed 's/^/  /'

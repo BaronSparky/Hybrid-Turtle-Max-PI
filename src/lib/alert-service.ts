@@ -10,7 +10,7 @@
  */
 
 import prisma from '@/lib/prisma';
-import { sendTelegramMessage } from '@/lib/telegram';
+import { sendTelegramMessage, sendThrottledTelegramAlert } from '@/lib/telegram';
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -50,6 +50,10 @@ export interface AlertPayload {
   priority: AlertPriority;
   /** When true, save to DB only — skip Telegram delivery. */
   skipTelegram?: boolean;
+  /** Optional key for suppressing duplicate Telegram delivery. DB notification still saves. */
+  telegramDedupeKey?: string;
+  /** Optional Telegram throttle TTL in milliseconds. Defaults to telegram.ts TTL. */
+  telegramThrottleMs?: number;
 }
 
 // ── Email Placeholder ───────────────────────────────────────────────
@@ -110,7 +114,12 @@ export async function sendAlert(payload: AlertPayload): Promise<void> {
     try {
       const emoji = priorityEmoji(payload.priority);
       const telegramText = `${emoji} <b>${escapeHtml(payload.title)}</b>\n\n${escapeHtml(payload.message)}`;
-      await sendTelegramMessage({ text: telegramText, parseMode: 'HTML' });
+      const telegramMessage = { text: telegramText, parseMode: 'HTML' as const };
+      if (payload.telegramDedupeKey) {
+        await sendThrottledTelegramAlert(telegramMessage, payload.telegramDedupeKey, payload.telegramThrottleMs);
+      } else {
+        await sendTelegramMessage(telegramMessage);
+      }
     } catch (error) {
       // Telegram failed — not critical, in-app alert is already saved
       console.error('[alert-service] Telegram delivery failed:', (error as Error).message);

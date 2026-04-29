@@ -232,13 +232,15 @@ async function runWeeklyDigest() {
       const ts = new Date(e.timestamp).getTime();
       return Number.isFinite(ts) && ts >= weekAgoMs;
     });
-    if (recentQuota.length > 0) {
-      lines.push('');
-      lines.push('<b>🚦 T212 Quota</b>');
+    lines.push('');
+    lines.push('<b>🚦 T212 Quota</b>');
+    if (recentQuota.length === 0) {
+      lines.push('  Rate-limit-low events: 0 (last 7 days) — quota healthy');
+    } else {
       lines.push(`  Rate-limit-low events: ${recentQuota.length} (last 7 days)`);
-      if (recentQuota.length >= 10) {
-        lines.push('  ⚠ Sustained throttling — consider lowering polling frequency or batching T212 calls');
-      }
+    }
+    if (recentQuota.length >= 10) {
+      lines.push('  ⚠ Sustained throttling — consider lowering polling frequency or batching T212 calls');
     }
   } catch {
     // Quota log is advisory — failure doesn't block digest

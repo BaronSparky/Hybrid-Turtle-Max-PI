@@ -95,6 +95,7 @@ async function runMiddaySync() {
         message: `The intra-day T212 position sync failed.\n\nError: ${msg}\n\nYour nightly sync at 9 PM will still run. You can also click Sync manually in the dashboard.`,
         data: { error: msg },
         priority: 'WARNING',
+        telegramDedupeKey: 'midday-sync:failure',
       });
     } catch {
       // Alert itself failed — just log

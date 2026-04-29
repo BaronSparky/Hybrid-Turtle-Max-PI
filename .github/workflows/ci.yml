@@ -3,6 +3,8 @@ name: ci
 on:
   push:
   pull_request:
+  schedule:
+    - cron: '17 5 * * *'
 
 jobs:
   test-and-build:
@@ -49,3 +51,27 @@ jobs:
         env:
           NODE_ENV: production
         run: npm run build
+
+      - name: Run scheduled smoke scan probe
+        if: github.event_name == 'schedule'
+        env:
+          BASE_URL: http://127.0.0.1:3000
+          BROKER_ADAPTER: mock
+          DISABLE_API_AUTH: 'true'
+          NODE_ENV: production
+          SMOKE_TRIGGER_SCAN: '1'
+        run: |
+          npm run db:deploy
+          npm run db:seed
+          npm run start > /tmp/hybridturtle-next.log 2>&1 &
+          for i in {1..60}; do
+            if curl -sfm 2 http://127.0.0.1:3000/api/system-status > /dev/null; then
+              break
+            fi
+            if [ "$i" -eq 60 ]; then
+              cat /tmp/hybridturtle-next.log
+              exit 1
+            fi
+            sleep 2
+          done
+          timeout 25m npm run smoke

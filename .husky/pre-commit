@@ -1,5 +1,18 @@
 # Skip in CI environments (CI already runs lint + typecheck)
 [ -n "$CI" ] && exit 0
 
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACMR)
+SACRED_PATTERN='^(src/lib/(stop-manager|position-sizer|risk-gates|regime-detector|dual-score|scan-engine)\.ts|src/cron/auto-trade\.ts|packages/(data|risk|stops|portfolio|signals)/)'
+
+if [ -n "$STAGED_FILES" ] && echo "$STAGED_FILES" | grep -qE "$SACRED_PATTERN"; then
+	if ! echo "$STAGED_FILES" | grep -q '^docs/SACRED_FILE_CHANGES\.md$'; then
+		echo "[pre-commit] Sacred file change detected without docs/SACRED_FILE_CHANGES.md."
+		echo "[pre-commit] Add an audit entry before committing risk-sensitive changes."
+		echo "[pre-commit] Sacred files staged:"
+		echo "$STAGED_FILES" | grep -E "$SACRED_PATTERN" | sed 's/^/  /'
+		exit 1
+	fi
+fi
+
 npx lint-staged
 npm run typecheck
