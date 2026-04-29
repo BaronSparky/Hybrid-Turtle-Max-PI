@@ -11,6 +11,7 @@
 
 import prisma from '@/lib/prisma';
 import { sendThrottledTelegramAlert } from '@/lib/telegram';
+import { ALERT_CATEGORY, buildAlertKey } from '@/lib/alert-categories';
 import { createCronLogger } from '@/lib/cron-logger';
 import { exec } from 'child_process';
 import path from 'path';
@@ -124,15 +125,14 @@ async function runWatchdog(): Promise<void> {
   const message = alerts.join('\n\n');
   log.warn('Sending watchdog alert', { alertCount: alerts.length });
 
-  // Use a stable dedupe key derived from the alert categories present.
-  // This ensures a repeated identical alert within an hour is suppressed,
-  // but a new condition (different alert mix) will still fire.
-  const dedupeKey =
-    'watchdog:' +
-    alerts
-      .map((a) => a.slice(0, 60).replace(/\s+/g, '_'))
-      .sort()
-      .join('|');
+  // Use a stable dedupe discriminator derived from the alert categories present.
+  // Repeated identical alert mix within an hour is suppressed; a new condition
+  // (different alert mix) produces a different key and still fires.
+  const discriminator = alerts
+    .map((a) => a.slice(0, 60).replace(/\s+/g, '_'))
+    .sort()
+    .join('|');
+  const dedupeKey = buildAlertKey(ALERT_CATEGORY.WATCHDOG_DASHBOARD, discriminator);
 
   const sent = await sendThrottledTelegramAlert(
     {

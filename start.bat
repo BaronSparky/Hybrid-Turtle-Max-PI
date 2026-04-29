@@ -143,7 +143,8 @@ echo.
 
 :: Open browser once server is ready (polls every 2s, max 60s)
 :: Also prints a readiness confirmation so users know the dashboard is up
-start /min powershell -NoProfile -WindowStyle Hidden -Command "for ($i=0; $i -lt 30; $i++) { Start-Sleep 2; try { $r = Invoke-WebRequest -Uri http://localhost:3000/api/system-status -UseBasicParsing -TimeoutSec 3; if ($r.StatusCode -eq 200) { Write-Host '  Dashboard READY at http://localhost:3000'; Start-Process http://localhost:3000/dashboard; exit } } catch {} }; Write-Host '  WARNING: Server did not respond in 60s. Open http://localhost:3000 manually.'"
+:: After readiness, runs the backend smoke test (non-blocking) to flag regressions
+start /min powershell -NoProfile -WindowStyle Hidden -Command "for ($i=0; $i -lt 30; $i++) { Start-Sleep 2; try { $r = Invoke-WebRequest -Uri http://localhost:3000/api/system-status -UseBasicParsing -TimeoutSec 3; if ($r.StatusCode -eq 200) { Write-Host '  Dashboard READY at http://localhost:3000'; Start-Process http://localhost:3000/dashboard; Start-Process -FilePath 'cmd' -ArgumentList '/c','npm run smoke ^> smoke.log 2^>^&1' -WindowStyle Hidden -WorkingDirectory '%CD%'; exit } } catch {} }; Write-Host '  WARNING: Server did not respond in 60s. Open http://localhost:3000 manually.'"
 
 :: Start the production server (blocks until user closes)
 call npm start

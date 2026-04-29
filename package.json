@@ -22,6 +22,7 @@
     "stops:view": "tsx scripts/show-stop-dashboard.ts",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
+    "smoke": "tsx scripts/smoke-buy-flow.ts",
     "audit:harness": "npx tsx scripts/audit_harness.ts",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",

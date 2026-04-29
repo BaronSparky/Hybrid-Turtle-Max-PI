@@ -61,5 +61,12 @@ prisma/backups/
 # persisted caches
 prisma/cache/
 
+# Runtime observability state (ephemeral; rebuilt by app)
+data/alert-throttle.json
+data/t212-quota-events.json
+data/sentiment-trends.json
+smoke.log
+auto-trade.log
+
 # HVE-Core AI workflow artifacts (local only)
 .copilot-tracking/

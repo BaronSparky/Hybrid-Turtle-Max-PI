@@ -99,8 +99,40 @@ import path from 'path';
 const ALERT_THROTTLE_FILE = path.resolve(process.cwd(), 'data', 'alert-throttle.json');
 const DEFAULT_ALERT_TTL_MS = 60 * 60 * 1000; // 1 hour
 
-interface ThrottleStore {
+export interface ThrottleStore {
   [dedupeKey: string]: number; // last-sent epoch ms
+}
+
+/**
+ * Pure: should an alert with this key be sent given current store state?
+ * Exported for testing.
+ */
+export function shouldSendThrottledAlert(
+  store: ThrottleStore,
+  dedupeKey: string,
+  nowMs: number,
+  ttlMs: number
+): boolean {
+  const last = store[dedupeKey];
+  if (!last) return true;
+  return nowMs - last >= ttlMs;
+}
+
+/**
+ * Pure: build a pruned store containing the just-sent key plus any
+ * other entries still within their TTL window. Exported for testing.
+ */
+export function pruneThrottleStore(
+  store: ThrottleStore,
+  dedupeKey: string,
+  nowMs: number,
+  ttlMs: number
+): ThrottleStore {
+  const pruned: ThrottleStore = { [dedupeKey]: nowMs };
+  for (const [key, ts] of Object.entries(store)) {
+    if (key !== dedupeKey && nowMs - ts < ttlMs) pruned[key] = ts;
+  }
+  return pruned;
 }
 
 async function readThrottleStore(): Promise<ThrottleStore> {
@@ -129,20 +161,14 @@ export async function sendThrottledTelegramAlert(
 ): Promise<boolean> {
   const store = await readThrottleStore();
   const now = Date.now();
-  const last = store[dedupeKey];
 
-  if (last && now - last < ttlMs) {
+  if (!shouldSendThrottledAlert(store, dedupeKey, now, ttlMs)) {
     return false; // suppressed within window
   }
 
   const sent = await sendTelegramMessage(message);
   if (sent) {
-    // prune entries older than the TTL to keep the file small
-    const pruned: ThrottleStore = { [dedupeKey]: now };
-    for (const [key, ts] of Object.entries(store)) {
-      if (key !== dedupeKey && now - ts < ttlMs) pruned[key] = ts;
-    }
-    await writeThrottleStore(pruned);
+    await writeThrottleStore(pruneThrottleStore(store, dedupeKey, now, ttlMs));
   }
   return sent;
 }

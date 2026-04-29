@@ -24,6 +24,7 @@ import RegimeHistoryChart from '@/components/dashboard/RegimeHistoryChart';
 import DataSourceTile from '@/components/dashboard/DataSourceTile';
 import PriceAccuracyTile from '@/components/dashboard/PriceAccuracyTile';
 import PredictionReadinessTile from '@/components/dashboard/PredictionReadinessTile';
+import T212QuotaEventsPanel from '@/components/dashboard/T212QuotaEventsPanel';
 import ModuleStatusPanel from '@/components/dashboard/ModuleStatusPanel';
 import ActionCardWidget from '@/components/dashboard/ActionCardWidget';
 import DualRegimeWidget from '@/components/dashboard/DualRegimeWidget';
@@ -258,6 +259,7 @@ export default function DashboardPage() {
           <DataSourceTile />
           <PriceAccuracyTile />
           <PredictionReadinessTile />
+          <T212QuotaEventsPanel />
           <ScheduledTasksPanel />
         </div>
 
