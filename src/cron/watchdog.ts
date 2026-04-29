@@ -17,6 +17,35 @@ import path from 'path';
 
 const log = createCronLogger('watchdog');
 const NIGHTLY_STALE_HOURS = 26;
+const RECOVERY_POLL_INTERVAL_MS = 5000;
+const RECOVERY_TIMEOUT_MS = 60000;
+const RECOVERY_INITIAL_DELAY_MS = 10000;
+
+/**
+ * Polls /api/system-status after auto-restart to confirm the dashboard recovered.
+ * Returns true when the endpoint responds OK before the timeout, false otherwise.
+ */
+async function waitForDashboardRecovery(): Promise<boolean> {
+  // Give start.bat time to spin up Next.js before the first probe
+  await new Promise((resolve) => setTimeout(resolve, RECOVERY_INITIAL_DELAY_MS));
+
+  const deadline = Date.now() + RECOVERY_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      const res = await fetch('http://localhost:3000/api/system-status', {
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (res.ok) return true;
+    } catch {
+      // server not ready yet — keep polling
+    }
+    await new Promise((resolve) => setTimeout(resolve, RECOVERY_POLL_INTERVAL_MS));
+  }
+  return false;
+}
 
 async function runWatchdog(): Promise<void> {
   log.info('Watchdog check starting');
@@ -93,14 +122,24 @@ async function runWatchdog(): Promise<void> {
         );
       }
     } catch {
-      // Attempt auto-restart before alerting
+      // Attempt auto-restart and confirm recovery before alerting
       const rootDir = path.resolve(__dirname, '..', '..');
       const startBat = path.join(rootDir, 'start.bat');
       log.warn('Dashboard not responding — attempting auto-restart via start.bat');
       exec(`start "" /min cmd /c "${startBat}"`, { cwd: rootDir });
-      alerts.push(
-        '🚨 WATCHDOG: Dashboard was not responding on port 3000. Auto-restart initiated via start.bat.'
-      );
+
+      const recovered = await waitForDashboardRecovery();
+      if (recovered) {
+        log.info('Dashboard recovered after auto-restart');
+        alerts.push(
+          '✅ WATCHDOG: Dashboard was not responding on port 3000. Auto-restart succeeded — dashboard recovered.'
+        );
+      } else {
+        log.error('Dashboard auto-restart failed to recover within timeout');
+        alerts.push(
+          '🚨 WATCHDOG: Dashboard was not responding on port 3000. Auto-restart FAILED — manual intervention required (run start.bat).'
+        );
+      }
     }
   }
 
