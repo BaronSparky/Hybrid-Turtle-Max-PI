@@ -258,23 +258,6 @@ export type HealthStatus = 'GREEN' | 'YELLOW' | 'RED';
 // ---- Execution Mode (phase + regime → what entries are allowed) ----
 export type ExecutionMode = 'PLANNED' | 'PLANNING';
 
-export interface OpportunisticGates {
-  minNCS: number;
-  maxFWS: number;
-  requireAutoYes: boolean;
-  requireBullish: boolean;
-  maxNewPositions: number;
-}
-
-/** Mid-week opportunistic entry thresholds — higher bar than Tuesday */
-export const OPPORTUNISTIC_GATES: OpportunisticGates = {
-  minNCS: 70,
-  maxFWS: 30,
-  requireAutoYes: true,
-  requireBullish: true,
-  maxNewPositions: 2,
-};
-
 // ---- Weekly Phase Helpers ----
 export function getCurrentWeeklyPhase(): WeeklyPhase {
   // Use UK time (Europe/London) to match the trading calendar

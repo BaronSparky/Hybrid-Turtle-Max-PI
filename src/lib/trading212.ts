@@ -278,6 +278,17 @@ export class Trading212Client {
         );
       }
 
+      // Log rate-limit quota on successful responses for observability
+      const remaining = response.headers.get('x-ratelimit-remaining');
+      const limit = response.headers.get('x-ratelimit-limit');
+      if (remaining !== null && limit !== null) {
+        const rem = parseInt(remaining);
+        const lim = parseInt(limit);
+        if (rem <= Math.ceil(lim * 0.2)) {
+          console.warn(`[T212] Rate quota low: ${remaining}/${limit} remaining on ${method} ${path}`);
+        }
+      }
+
       return response.json();
     }
 

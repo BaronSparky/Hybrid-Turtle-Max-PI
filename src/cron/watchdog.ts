@@ -12,6 +12,8 @@
 import prisma from '@/lib/prisma';
 import { sendTelegramMessage } from '@/lib/telegram';
 import { createCronLogger } from '@/lib/cron-logger';
+import { exec } from 'child_process';
+import path from 'path';
 
 const log = createCronLogger('watchdog');
 const NIGHTLY_STALE_HOURS = 26;
@@ -91,8 +93,13 @@ async function runWatchdog(): Promise<void> {
         );
       }
     } catch {
+      // Attempt auto-restart before alerting
+      const rootDir = path.resolve(__dirname, '..', '..');
+      const startBat = path.join(rootDir, 'start.bat');
+      log.warn('Dashboard not responding — attempting auto-restart via start.bat');
+      exec(`start "" /min cmd /c "${startBat}"`, { cwd: rootDir });
       alerts.push(
-        '🚨 WATCHDOG: Dashboard server is not responding on port 3000. Run start.bat to bring it back up.'
+        '🚨 WATCHDOG: Dashboard was not responding on port 3000. Auto-restart initiated via start.bat.'
       );
     }
   }
