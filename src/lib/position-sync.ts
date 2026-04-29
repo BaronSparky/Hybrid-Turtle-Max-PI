@@ -210,7 +210,12 @@ function isAnyMarketOpen(): boolean {
  * Returns a ticker → price map. Uses 30s cache to avoid T212 rate limits.
  * Skips T212 API calls outside market hours (serves stale cache instead).
  * Falls back gracefully — returns empty map on failure (caller uses Yahoo fallback).
+ *
+ * CONCURRENCY GUARD: When multiple routes call simultaneously (e.g. dashboard load),
+ * only the first call hits the T212 API. Subsequent callers await the same promise.
  */
+let inflight: Promise<Record<string, number>> | null = null;
+
 export async function fetchT212LivePrices(userId: string = 'default-user'): Promise<Record<string, number>> {
   // Return cached prices if fresh enough
   if (Date.now() - t212PriceCacheAge < T212_PRICE_TTL && t212PriceCache.size > 0) {
@@ -226,6 +231,14 @@ export async function fetchT212LivePrices(userId: string = 'default-user'): Prom
     return result;
   }
 
+  // Concurrency dedup: if another call is already in flight, await it
+  if (inflight) return inflight;
+
+  inflight = fetchT212LivePricesInner(userId).finally(() => { inflight = null; });
+  return inflight;
+}
+
+async function fetchT212LivePricesInner(userId: string): Promise<Record<string, number>> {
   try {
     const user = await prisma.user.findUnique({
       where: { id: userId },
