@@ -50,7 +50,7 @@ interface T212PriceEntry {
 
 const t212PriceCache = new Map<string, T212PriceEntry>();
 let t212PriceCacheAge = 0; // epoch ms of last T212 price fetch
-const T212_PRICE_TTL = 30_000; // 30 seconds — T212 prices are real-time, refresh often
+const T212_PRICE_TTL = 60_000; // 60 seconds — balanced between freshness and T212 rate limits (1 req/1s)
 
 // ── T212 API call rate tracking ──
 // Tracks calls per rolling hour window for rate limit monitoring.
@@ -262,39 +262,39 @@ async function fetchT212LivePricesInner(userId: string): Promise<Record<string, 
     const investCreds = getCredentialsForAccount(user, 'invest');
     const isaCreds = getCredentialsForAccount(user, 'isa');
 
-    const fetchTasks: Promise<T212Position[]>[] = [];
+    // Fetch accounts SEQUENTIALLY with delay to avoid T212 rate limits (1 req/1s per account)
+    const allPositions: T212Position[] = [];
+
     if (investCreds) {
       recordT212ApiCall();
-      fetchTasks.push(
-        new Trading212Client(investCreds.apiKey, investCreds.apiSecret, investCreds.environment)
-          .getPositions()
-          .catch((err) => {
-            if (err instanceof Trading212Error && err.statusCode === 429) {
-              console.warn('[position-sync] T212 Invest rate-limited — serving stale cache');
-              sendRateLimitAlert('Invest');
-            }
-            return [] as T212Position[];
-          })
-      );
-    }
-    // Skip ISA if same API key as Invest (duplicate)
-    if (isaCreds && !(investCreds && investCreds.apiKey === isaCreds.apiKey)) {
-      recordT212ApiCall();
-      fetchTasks.push(
-        new Trading212Client(isaCreds.apiKey, isaCreds.apiSecret, isaCreds.environment)
-          .getPositions()
-          .catch((err) => {
-            if (err instanceof Trading212Error && err.statusCode === 429) {
-              console.warn('[position-sync] T212 ISA rate-limited — serving stale cache');
-              sendRateLimitAlert('ISA');
-            }
-            return [] as T212Position[];
-          })
-      );
+      try {
+        const positions = await new Trading212Client(investCreds.apiKey, investCreds.apiSecret, investCreds.environment)
+          .getPositions();
+        allPositions.push(...positions);
+      } catch (err) {
+        if (err instanceof Trading212Error && err.statusCode === 429) {
+          console.warn('[position-sync] T212 Invest rate-limited — serving stale cache');
+          sendRateLimitAlert('Invest');
+        }
+      }
     }
 
-    const results = await Promise.all(fetchTasks);
-    const allPositions = results.flat();
+    // ISA: skip if same API key as Invest (duplicate), otherwise wait 1.5s
+    if (isaCreds && !(investCreds && investCreds.apiKey === isaCreds.apiKey)) {
+      // T212 rate limit is per-account but same IP — add delay to be safe
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      recordT212ApiCall();
+      try {
+        const positions = await new Trading212Client(isaCreds.apiKey, isaCreds.apiSecret, isaCreds.environment)
+          .getPositions();
+        allPositions.push(...positions);
+      } catch (err) {
+        if (err instanceof Trading212Error && err.statusCode === 429) {
+          console.warn('[position-sync] T212 ISA rate-limited — serving stale cache');
+          sendRateLimitAlert('ISA');
+        }
+      }
+    }
 
     // If T212 returned no positions (rate-limited or error), serve stale cache
     if (allPositions.length === 0 && t212PriceCache.size > 0) {
