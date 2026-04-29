@@ -522,9 +522,9 @@ function checkBackupStatus(heartbeat: HeartbeatData | null): DryRunCheck {
       id: 'BACKUP',
       label: 'Database Backup',
       passed: false,
-      severity: 'SOFT_WARNING',
-      message: `Last nightly (incl. backup) was ${ageHours.toFixed(0)}h ago.`,
-      recovery: 'Run the nightly process to create a fresh backup.',
+      severity: 'HARD_BLOCK',
+      message: `Last nightly (incl. backup) was ${ageHours.toFixed(0)}h ago — execution blocked.`,
+      recovery: 'Run the nightly process to create a fresh backup before trading.',
     };
   }
 

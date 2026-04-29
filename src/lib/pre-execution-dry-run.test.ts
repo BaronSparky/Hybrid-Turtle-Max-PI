@@ -295,4 +295,21 @@ describe('pre-execution-dry-run', () => {
     const modeCheck = result.checks.find(c => c.id === 'OPERATING_MODE');
     expect(modeCheck?.passed).toBe(true);
   });
+
+  it('hard-blocks when backup is older than 48 hours', async () => {
+    const staleDate = new Date(Date.now() - 50 * 60 * 60 * 1000); // 50 hours ago
+    mockHeartbeatFindFirst.mockResolvedValue({
+      timestamp: staleDate,
+      status: 'OK',
+      details: null,
+    });
+
+    const result = await runPreExecutionDryRun(baseInput);
+
+    expect(result.passed).toBe(false);
+    const backupCheck = result.hardFailures.find(c => c.id === 'BACKUP');
+    expect(backupCheck).toBeDefined();
+    expect(backupCheck?.severity).toBe('HARD_BLOCK');
+    expect(backupCheck?.message).toContain('blocked');
+  });
 });
