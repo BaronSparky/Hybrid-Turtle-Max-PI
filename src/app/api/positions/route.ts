@@ -8,6 +8,8 @@ import { buildInitialRiskFields } from '@/lib/risk-fields';
 import { validateRiskGates } from '@/lib/risk-gates';
 import { apiError } from '@/lib/api-response';
 import { logEVRecord } from '@/lib/ev-tracker';
+import { getT212Prices } from '@/lib/position-sync';
+import { getLivePrices, getTickerFreshness } from '@/lib/live-prices';
 import { clearScanCache } from '@/lib/scan-cache';
 import { clearModulesCache } from '@/lib/modules-cache';
 import { getCurrentWeeklyPhase } from '@/types';
@@ -49,6 +51,7 @@ export async function GET(request: NextRequest) {
     const userId = searchParams.get('userId');
     const status = searchParams.get('status'); // OPEN | CLOSED | all
     const source = searchParams.get('source'); // manual | trading212 | all
+    const forceRefresh = searchParams.get('refresh') === 'true';
 
     if (!userId) {
       return apiError(400, 'INVALID_REQUEST', 'userId is required');
@@ -71,13 +74,12 @@ export async function GET(request: NextRequest) {
       orderBy: { updatedAt: 'desc' },
     });
 
-    // Fetch live prices from Yahoo Finance for all open positions
+    // Fetch live prices — T212 is primary (real-time), Yahoo is fallback (delayed)
     const openTickers = positions
       .filter((p) => p.status === 'OPEN')
       .map((p) => p.stock.ticker);
-    const livePrices = openTickers.length > 0
-      ? await getBatchPrices(openTickers)
-      : {};
+
+    const { prices: livePrices, sources: priceSourceMap } = await getLivePrices(openTickers, userId, forceRefresh);
 
     // Build currency map and normalize to GBP
     const stockCurrencies: Record<string, string | null> = {};
@@ -95,7 +97,7 @@ export async function GET(request: NextRequest) {
     if (highRiskOpen.length > 0) {
       try {
         const hrTickers = highRiskOpen.map((p) => p.stock.ticker);
-        const quotes = await getBatchQuotes(hrTickers);
+        const quotes = await getBatchQuotes(hrTickers, forceRefresh);
         // Fetch daily bars and compute ATR in parallel
         const atrResults = await Promise.allSettled(
           hrTickers.map(async (ticker) => {
@@ -135,6 +137,18 @@ export async function GET(request: NextRequest) {
     for (const row of addCounts) {
       if (row.positionId) addsMap.set(row.positionId, row._count.id);
     }
+
+    // Get per-ticker price freshness metadata
+    const freshness = openTickers.length > 0 ? getTickerFreshness(openTickers, priceSourceMap) : {};
+
+    // Get T212 broker price cache entries for cross-reference
+    const t212CacheEntries = openTickers.length > 0 ? getT212Prices(openTickers) : {};
+
+    // Also fetch Yahoo prices for T212-priced tickers (for cross-reference, not display)
+    // This is cheap since getBatchPrices uses cache — just checking for discrepancies
+    const yahooCheckPrices = openTickers.length > 0
+      ? await getBatchPrices(openTickers, false) // never force-refresh for cross-check
+      : {};
 
     // Enrich with calculated fields using GBP-normalised prices
     const enriched = positions.map((p) => {
@@ -198,6 +212,26 @@ export async function GET(request: NextRequest) {
         riskGBP,
         pyramidAdds: addsMap.get(p.id) ?? 0,
         gapRisk: gapRiskMap.get(p.stock.ticker) ?? null,
+        // Price source and freshness
+        priceSource: priceSourceMap[p.stock.ticker] ?? null,
+        priceFreshness: freshness[p.stock.ticker] ?? null,
+        // Cross-reference: compare T212 vs Yahoo for discrepancy detection
+        t212Price: (() => {
+          if (p.status !== 'OPEN') return null;
+          const t212Entry = t212CacheEntries[p.stock.ticker];
+          const yahooPrice = yahooCheckPrices[p.stock.ticker];
+          if (!t212Entry || !yahooPrice) return null;
+          const diff = yahooPrice > 0
+            ? Math.abs(t212Entry.price - yahooPrice) / yahooPrice * 100
+            : 0;
+          return {
+            price: t212Entry.price,
+            yahooPrice,
+            ageMinutes: Math.round((Date.now() - t212Entry.updatedAt) / 60_000),
+            diffPercent: Math.round(diff * 100) / 100,
+            mismatch: diff > 2, // flag >2% discrepancy between sources
+          };
+        })(),
       };
     });
 

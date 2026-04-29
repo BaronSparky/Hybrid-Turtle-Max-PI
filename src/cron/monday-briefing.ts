@@ -65,6 +65,25 @@ async function runMondayBriefing() {
     lines.push('');
   } else { lines.push('No READY candidates from latest scan.', ''); }
 
+  // Last week's price accuracy (T212 vs Yahoo)
+  try {
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const snapshots = await prisma.priceSnapshot.findMany({
+      where: { capturedAt: { gte: weekAgo }, diffPercent: { not: null } },
+      select: { diffPercent: true },
+    });
+    if (snapshots.length > 0) {
+      const avg = snapshots.reduce((s, r) => s + (r.diffPercent ?? 0), 0) / snapshots.length;
+      const max = Math.max(...snapshots.map(r => r.diffPercent ?? 0));
+      const emoji = avg < 0.5 ? '✅' : avg < 2 ? '⚠️' : '🔴';
+      lines.push('<b>Price Sources (last 7d)</b>');
+      lines.push(`  ${emoji} T212 vs Yahoo: avg ${avg.toFixed(2)}% diff, max ${max.toFixed(2)}%`);
+      lines.push(`  ${snapshots.length} snapshots recorded`);
+      if (avg > 2) lines.push('  ⚠ High divergence — check T212 connection');
+      lines.push('');
+    }
+  } catch { /* advisory — don't block briefing */ }
+
   if (ctx.regime !== 'BULLISH') lines.push('⚠ Regime not BULLISH — buying blocked.');
   if (ctx.operatingMode === 'CAPITAL_PRESERVATION' || ctx.operatingMode === 'RESEARCH') {
     lines.push(`⚠ Mode ${ctx.operatingMode} — buying disabled.`);

@@ -9,7 +9,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { ensureDefaultUser } from '@/lib/default-user';
-import { getBatchPrices, getDailyPrices, calculateADX, calculateMA, calculateATR } from '@/lib/market-data';
+import { getDailyPrices, calculateADX, calculateMA, calculateATR } from '@/lib/market-data';
+import { getLivePrices } from '@/lib/live-prices';
 import { calculateRMultiple } from '@/lib/position-sizer';
 import { apiError } from '@/lib/api-response';
 import { evaluateAllPositions, type ExitPosition } from '@/lib/exit-intelligence';
@@ -58,9 +59,9 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // ── Phase 2: Live prices ──
+    // ── Phase 2: Live prices (T212 primary, Yahoo fallback) ──
     const openTickers = openPositions.map((p) => p.stock.ticker);
-    const livePrices = await getBatchPrices(openTickers);
+    const { prices: livePrices } = await getLivePrices(openTickers, userId);
 
     // ── Phase 3: Enrich positions with technicals ──
     const enrichedPositions: ExitPosition[] = await Promise.all(

@@ -18,6 +18,19 @@ vi.mock('@/lib/market-data', () => ({
   getMarketRegime: vi.fn(),
 }));
 
+vi.mock('@/lib/position-sync', () => ({
+  getT212Prices: vi.fn(() => ({})),
+}));
+
+vi.mock('@/lib/live-prices', () => ({
+  getLivePrices: vi.fn(async () => ({
+    prices: { AAA: 110 },
+    sources: { AAA: 'T212' },
+    stats: { t212Count: 1, yahooCount: 0, totalRequested: 1 },
+  })),
+  getTickerFreshness: vi.fn(() => ({})),
+}));
+
 import { GET } from './route';
 
 describe('/api/positions GET risk fields', () => {

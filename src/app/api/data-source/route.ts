@@ -12,6 +12,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { getDataFreshness } from '@/lib/market-data';
+import { getT212ApiStats } from '@/lib/position-sync';
 
 interface DataSourceResponse {
   health: 'LIVE' | 'PARTIAL' | 'DEGRADED' | 'UNKNOWN';
@@ -24,6 +25,12 @@ interface DataSourceResponse {
     ageMinutes: number;
     lastFetchTime: string | null;
   };
+  t212?: {
+    callsLastHour: number;
+    lastCallAt: string | null;
+    cacheSize: number;
+    cacheAgeSeconds: number;
+  };
 }
 
 export async function GET() {
@@ -35,6 +42,15 @@ export async function GET() {
     lastFetchTime: freshness.lastFetchTimestamp > 0
       ? new Date(freshness.lastFetchTimestamp).toISOString()
       : null,
+  };
+
+  // T212 API usage stats
+  const t212Stats = getT212ApiStats();
+  const t212Payload = {
+    callsLastHour: t212Stats.callsLastHour,
+    lastCallAt: t212Stats.lastCallAt ? new Date(t212Stats.lastCallAt).toISOString() : null,
+    cacheSize: t212Stats.cacheSize,
+    cacheAgeSeconds: t212Stats.cacheAge,
   };
 
   try {
@@ -52,6 +68,7 @@ export async function GET() {
         summary: 'No heartbeat data available',
         lastYahooSuccess: null,
         freshness: freshnessPayload,
+      t212: t212Payload,
       });
     }
 
@@ -66,6 +83,7 @@ export async function GET() {
         summary: 'Heartbeat details unparseable',
         lastYahooSuccess: null,
         freshness: freshnessPayload,
+      t212: t212Payload,
       });
     }
 
@@ -85,6 +103,7 @@ export async function GET() {
         summary: 'Pre-upgrade heartbeat — assumed live',
         lastYahooSuccess: heartbeat.timestamp.toISOString(),
         freshness: freshnessPayload,
+      t212: t212Payload,
       });
     }
 
@@ -124,6 +143,7 @@ export async function GET() {
       summary: ds.summary ?? '',
       lastYahooSuccess,
       freshness: freshnessPayload,
+      t212: t212Payload,
     });
   } catch (error) {
     console.error('[API] Data source status error:', (error as Error).message);
@@ -134,6 +154,7 @@ export async function GET() {
       summary: 'API error',
       lastYahooSuccess: null,
       freshness: freshnessPayload,
+      t212: t212Payload,
     });
   }
 }

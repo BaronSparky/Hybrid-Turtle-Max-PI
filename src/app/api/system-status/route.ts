@@ -15,6 +15,7 @@ import { apiError } from '@/lib/api-response';
 import { ensureDefaultUser } from '@/lib/default-user';
 import { OPERATING_MODES, type OperatingMode } from '@/types';
 import { getPredictionReadiness } from '@/lib/prediction/readiness-gate';
+import { getT212ApiStats } from '@/lib/position-sync';
 
 type SystemReadiness = 'READY' | 'WARNING' | 'BLOCKED';
 
@@ -67,6 +68,19 @@ export async function GET() {
       { id: 'broker', label: 'T212 Connected', ok: !!(user?.t212Connected || user?.t212IsaConnected), value: user?.t212Connected ? 'Invest' : user?.t212IsaConnected ? 'ISA' : 'Not connected' },
       { id: 'broker_sync', label: 'T212 Sync', ok: t212SyncAgeH != null && t212SyncAgeH < 24, value: t212SyncAgeH != null ? `${t212SyncAgeH.toFixed(0)}h ago` : 'Never' },
       { id: 'health_age', label: 'Health Check Age', ok: healthAge < 36, value: `${healthAge.toFixed(0)}h ago` },
+      // T212 live price health — warn if cache is stale (>5min) or empty
+      (() => {
+        const t212Stats = getT212ApiStats();
+        const cacheOk = t212Stats.cacheSize > 0 && t212Stats.cacheAge < 300;
+        return {
+          id: 't212_prices',
+          label: 'T212 Prices',
+          ok: cacheOk,
+          value: t212Stats.cacheSize > 0
+            ? `${t212Stats.cacheSize} tickers, ${t212Stats.cacheAge}s old`
+            : 'No cache',
+        };
+      })(),
     ];
 
     const failCount = checks.filter(c => !c.ok).length;

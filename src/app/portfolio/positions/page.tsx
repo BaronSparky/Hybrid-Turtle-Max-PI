@@ -14,7 +14,7 @@ import type { JournalPositionContext } from '@/components/shared/JournalDrawer';
 import { formatCurrency, formatPercent } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import { apiRequest } from '@/lib/api-client';
-import { Loader2, Briefcase, PieChart, BarChart3, XCircle } from 'lucide-react';
+import { Loader2, Briefcase, PieChart, BarChart3, XCircle, RefreshCw } from 'lucide-react';
 
 // Dynamic import keeps ~ReadyToBuyPanel out of initial bundle (only loads when visible)
 const ReadyToBuyPanel = dynamic(() => import('@/components/portfolio/ReadyToBuyPanel'), { ssr: false });
@@ -70,6 +70,9 @@ interface PositionData {
   priceCurrency: string;
   source: string;
   stock?: { ticker: string; name: string; sleeve: string };
+  priceFreshness?: { source: string; ageSeconds: number } | null;
+  priceSource?: 'T212' | 'YAHOO' | null;
+  t212Price?: { price: number; yahooPrice: number; ageMinutes: number; diffPercent: number; mismatch: boolean } | null;
 }
 
 interface PositionApiResponse {
@@ -93,6 +96,9 @@ interface PositionApiResponse {
   riskGBP?: number;
   priceCurrency?: string;
   source?: string;
+  priceFreshness?: { source: string; ageSeconds: number } | null;
+  priceSource?: 'T212' | 'YAHOO' | null;
+  t212Price?: { price: number; yahooPrice: number; ageMinutes: number; diffPercent: number; mismatch: boolean } | null;
 }
 
 interface AccountData {
@@ -130,16 +136,19 @@ function PositionsPageInner() {
   const [lastSync, setLastSync] = useState<string | null>(null);
   const [currency, setCurrency] = useState<string>('GBP');
   const [stopRefreshKey, setStopRefreshKey] = useState(0);
+  const [refreshingPrices, setRefreshingPrices] = useState(false);
+  const [lastPriceRefresh, setLastPriceRefresh] = useState<Date | null>(null);
 
   // Journal drawer state
   const [journalPositionId, setJournalPositionId] = useState<string | null>(null);
   const [journalInitialTab, setJournalInitialTab] = useState<'entry' | 'trade' | 'close'>('entry');
 
   // Fetch T212 positions from the database (enriched with live Yahoo prices)
-  const fetchPositions = useCallback(async () => {
+  const fetchPositions = useCallback(async (forceRefresh = false) => {
     try {
+      const refreshParam = forceRefresh ? '&refresh=true' : '';
       const data = await apiRequest<PositionApiResponse[]>(
-        `/api/positions?userId=${DEFAULT_USER_ID}&source=trading212&status=OPEN`
+        `/api/positions?userId=${DEFAULT_USER_ID}&source=trading212&status=OPEN${refreshParam}`
       );
 
       // Map API response to table format
@@ -164,9 +173,13 @@ function PositionsPageInner() {
         riskGBP: p.riskGBP,
         priceCurrency: p.priceCurrency || 'GBP',
         source: p.source || 'trading212',
+        priceFreshness: p.priceFreshness ?? null,
+        priceSource: p.priceSource ?? null,
+        t212Price: p.t212Price ?? null,
       }));
 
       setPositions(mapped);
+      setLastPriceRefresh(new Date());
     } catch (err) {
       console.error('Failed to fetch positions:', err);
       setFetchError(err instanceof Error ? err.message : 'Failed to load positions');
@@ -202,11 +215,44 @@ function PositionsPageInner() {
     load();
   }, [fetchPositions, fetchAccount]);
 
+  // Auto-refresh prices every 20 minutes during market hours (Mon-Fri, 8am-9pm UK)
+  useEffect(() => {
+    const REFRESH_INTERVAL_MS = 20 * 60 * 1000; // 20 minutes
+
+    function isMarketHours(): boolean {
+      const now = new Date();
+      const day = now.getDay(); // 0=Sun, 6=Sat
+      if (day === 0 || day === 6) return false;
+      // UK hours: 8:00 – 21:00 (covers LSE 8-16:30 + US 14:30-21:00)
+      const hour = now.getHours();
+      return hour >= 8 && hour < 21;
+    }
+
+    const interval = setInterval(() => {
+      if (isMarketHours()) {
+        fetchPositions(false); // use cache-aware fetch, not force-refresh
+      }
+    }, REFRESH_INTERVAL_MS);
+
+    return () => clearInterval(interval);
+  }, [fetchPositions]);
+
   // When T212 sync completes, refetch positions and account + refresh stop recs
   const handleSyncComplete = useCallback(async () => {
-    await Promise.all([fetchPositions(), fetchAccount()]);
+    await Promise.all([fetchPositions(true), fetchAccount()]);
     setStopRefreshKey((k) => k + 1);
   }, [fetchPositions, fetchAccount]);
+
+  // Force-refresh Yahoo prices without T212 sync (no cooldown)
+  const handleRefreshPrices = useCallback(async () => {
+    setRefreshingPrices(true);
+    try {
+      await fetchPositions(true);
+      setStopRefreshKey((k) => k + 1);
+    } finally {
+      setRefreshingPrices(false);
+    }
+  }, [fetchPositions]);
 
   // ── Action handlers for PositionsTable ──
   const handleUpdateStop = useCallback(async (positionId: string, newStop: number, reason: string): Promise<boolean> => {
@@ -345,7 +391,7 @@ function PositionsPageInner() {
             <XCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
             <p className="text-sm text-red-300 flex-1">{fetchError}</p>
             <button
-              onClick={() => { setFetchError(null); setLoading(true); Promise.all([fetchPositions(), fetchAccount()]).finally(() => setLoading(false)); }}
+              onClick={() => { setFetchError(null); setLoading(true); Promise.all([fetchPositions(true), fetchAccount()]).finally(() => setLoading(false)); }}
               className="px-3 py-1 text-xs font-medium rounded bg-red-500/20 text-red-300 hover:bg-red-500/30 transition-colors"
             >
               Retry
@@ -367,6 +413,12 @@ function PositionsPageInner() {
             { label: 'Invested', value: formatCurrency(invested, currency), prefix: '' },
             { label: 'Open Positions', value: String(openPositions.length), prefix: '' },
             {
+              label: 'Prices Updated',
+              value: lastPriceRefresh
+                ? lastPriceRefresh.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                : 'Never',
+            },
+            {
               label: 'Last Synced',
               value: lastSync
                 ? new Date(lastSync).toLocaleDateString('en-GB', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -379,8 +431,42 @@ function PositionsPageInner() {
         <T212SyncPanel onSyncComplete={handleSyncComplete} />
 
         {/* Manual closed-position sync with T212 */}
-        <div className="flex items-start">
+        <div className="flex items-center gap-3">
           <PositionSyncButton onSyncComplete={handleSyncComplete} />
+          <button
+            onClick={handleRefreshPrices}
+            disabled={refreshingPrices}
+            className={cn(
+              'inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+              'bg-navy-800 border border-border/50 hover:bg-navy-700 text-foreground',
+              refreshingPrices && 'opacity-50 cursor-not-allowed'
+            )}
+            title="Force-refresh all prices (T212 real-time + Yahoo fallback)"
+          >
+            <RefreshCw className={cn('w-4 h-4', refreshingPrices && 'animate-spin')} />
+            {refreshingPrices ? 'Refreshing...' : 'Refresh Prices'}
+          </button>
+          {/* T212 connection status badge */}
+          {openPositions.length > 0 && (() => {
+            const t212Count = openPositions.filter(p => p.priceSource === 'T212').length;
+            const total = openPositions.length;
+            const allT212 = t212Count === total;
+            const noT212 = t212Count === 0;
+            return (
+              <span
+                className={cn(
+                  'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border',
+                  allT212 ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                    : noT212 ? 'bg-red-500/10 border-red-500/30 text-red-400'
+                    : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                )}
+                title={`${t212Count}/${total} positions using T212 real-time prices`}
+              >
+                <span className={cn('w-1.5 h-1.5 rounded-full', allT212 ? 'bg-emerald-400' : noT212 ? 'bg-red-400' : 'bg-amber-400')} />
+                {allT212 ? 'T212 Live' : noT212 ? 'Yahoo Only' : `T212 ${t212Count}/${total}`}
+              </span>
+            );
+          })()}
         </div>
 
         {/* Stop-Loss Recommendations — fetches live from /api/stops */}

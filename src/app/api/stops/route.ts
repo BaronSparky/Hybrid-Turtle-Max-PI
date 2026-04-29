@@ -21,6 +21,7 @@ import { parseJsonBody } from '@/lib/request-validation';
 import prisma from '@/lib/prisma';
 import { getBatchPrices } from '@/lib/market-data';
 import { apiError } from '@/lib/api-response';
+import { getLivePrices } from '@/lib/live-prices';
 
 const updateStopSchema = z.object({
   positionId: z.string().min(1, 'positionId is required'),
@@ -54,13 +55,17 @@ export async function GET(request: NextRequest) {
       return apiError(400, 'INVALID_REQUEST', 'userId is required');
     }
 
+    const forceRefresh = request.nextUrl.searchParams.get('refresh') === 'true';
+
     const positions = await prisma.position.findMany({
       where: { userId, status: 'OPEN' },
       include: { stock: { select: { ticker: true, currency: true } } },
     });
 
     const tickers = positions.map((p) => p.stock.ticker);
-    const livePrices = tickers.length > 0 ? await getBatchPrices(tickers) : {};
+
+    const { prices: livePrices } = await getLivePrices(tickers, userId, forceRefresh);
+
     const priceMap = new Map<string, number>(
       tickers.map((ticker) => [ticker, livePrices[ticker] || 0])
     );

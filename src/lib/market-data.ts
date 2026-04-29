@@ -134,7 +134,7 @@ const globalForCache = globalThis as unknown as {
 const quoteCache = globalForCache.__hybridTurtleQuoteCache ??= new Map();
 const historicalCache = globalForCache.__hybridTurtleHistoricalCache ??= new Map();
 const weeklyCache = globalForCache.__hybridTurtleWeeklyCache ??= new Map();
-const QUOTE_TTL = 30 * 60_000;     // 30 minutes — prices fetched once per session, manual refresh available
+const QUOTE_TTL = 5 * 60_000;      // 5 minutes — real-money portfolio display demands fresh prices
 const HISTORICAL_TTL = 86_400_000; // 24 hours (daily bars don't change intraday)
 const FX_TTL = 30 * 60_000;        // 30 minutes — FX rates move slowly
 
@@ -1122,6 +1122,35 @@ export async function getBatchPrices(tickers: string[], forceRefresh = false): P
     prices[ticker] = quote.price;
   });
   return prices;
+}
+
+// ── Per-ticker freshness from the quote cache ──
+export interface TickerFreshness {
+  source: DataSource;
+  ageSeconds: number;
+}
+
+/**
+ * Returns per-ticker freshness metadata from the in-memory quote cache.
+ * Consumed by /api/positions to display freshness indicators.
+ */
+export function getQuoteFreshness(tickers: string[]): Record<string, TickerFreshness> {
+  const result: Record<string, TickerFreshness> = {};
+  const now = Date.now();
+  for (const ticker of tickers) {
+    const entry = quoteCache.get(ticker);
+    if (!entry) {
+      result[ticker] = { source: 'STALE_CACHE', ageSeconds: Infinity };
+      continue;
+    }
+    const ageMs = now - (entry.expiry - QUOTE_TTL); // entry.expiry = setTime + TTL, so setTime = expiry - TTL
+    const isExpired = entry.expiry <= now;
+    result[ticker] = {
+      source: isExpired ? 'STALE_CACHE' : (ageMs < 10_000 ? 'LIVE' : 'CACHE'),
+      ageSeconds: Math.round(ageMs / 1000),
+    };
+  }
+  return result;
 }
 
 // ── Pre-cache historical data for all active tickers ──

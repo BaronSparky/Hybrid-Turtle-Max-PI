@@ -18,12 +18,17 @@ import {
 import {
   mapT212Position,
   type T212HistoricalOrder,
+  type T212Position,
   Trading212Client,
+  Trading212Error,
   type Trading212Environment,
 } from '@/lib/trading212';
 import { getFXRate } from '@/lib/market-data';
 import { sendAlert } from '@/lib/alert-service';
 import { logEVRecord } from '@/lib/ev-tracker';
+import { persistCache, rehydrateCache } from '@/lib/cache-persistence';
+import { CACHE_KEYS } from '@/lib/cache-keys';
+import { recordPriceSnapshots } from '@/lib/price-snapshot';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -33,6 +38,290 @@ export interface PositionSyncResult {
   skipped: number;
   updated: number;
   errors: string[];
+}
+
+// ── T212 Price Cache (in-memory) ─────────────────────────────────────
+// Stores last-known T212 prices from the most recent fetch.
+// Primary price source for portfolio display (real-time, not delayed).
+interface T212PriceEntry {
+  price: number;
+  updatedAt: number; // epoch ms
+}
+
+const t212PriceCache = new Map<string, T212PriceEntry>();
+let t212PriceCacheAge = 0; // epoch ms of last T212 price fetch
+const T212_PRICE_TTL = 30_000; // 30 seconds — T212 prices are real-time, refresh often
+
+// ── T212 API call rate tracking ──
+// Tracks calls per rolling hour window for rate limit monitoring.
+interface T212ApiCallLog {
+  timestamps: number[];
+}
+const t212ApiCallLog: T212ApiCallLog = { timestamps: [] };
+
+function recordT212ApiCall(): void {
+  const now = Date.now();
+  t212ApiCallLog.timestamps.push(now);
+  // Prune entries older than 1 hour
+  const oneHourAgo = now - 3600_000;
+  t212ApiCallLog.timestamps = t212ApiCallLog.timestamps.filter(t => t > oneHourAgo);
+}
+
+// Rate limit alert cooldown — max once per 30 minutes
+let lastRateLimitAlertAt = 0;
+const RATE_LIMIT_ALERT_COOLDOWN = 30 * 60_000;
+
+function sendRateLimitAlert(account: string): void {
+  const now = Date.now();
+  if (now - lastRateLimitAlertAt < RATE_LIMIT_ALERT_COOLDOWN) return;
+  lastRateLimitAlertAt = now;
+  const stats = getT212ApiStats();
+  sendAlert({
+    type: 'BROKER_SYNC_FAILURE',
+    title: 'T212 Rate Limited',
+    message: `Trading 212 ${account} account rate-limited. Portfolio prices falling back to Yahoo Finance (delayed). ${stats.callsLastHour} API calls in the last hour.`,
+    priority: 'WARNING',
+    data: { account, callsLastHour: stats.callsLastHour },
+  }).catch(() => { /* alert delivery is best-effort */ });
+}
+
+// T212 connection drop alert — fires when API returns 0 positions during market hours
+let lastDropAlertAt = 0;
+const DROP_ALERT_COOLDOWN = 60 * 60_000; // max once per hour
+
+function checkT212ConnectionDrop(): void {
+  // Only alert during market hours when we expected prices
+  if (!isAnyMarketOpen()) return;
+  if (t212PriceCache.size > 0) return; // Cache still has data — no drop
+
+  const now = Date.now();
+  if (now - lastDropAlertAt < DROP_ALERT_COOLDOWN) return;
+  lastDropAlertAt = now;
+
+  sendAlert({
+    type: 'BROKER_SYNC_FAILURE',
+    title: 'T212 Prices Unavailable',
+    message: 'Trading 212 returned no position data during market hours. Portfolio prices are using Yahoo Finance (delayed). Check T212 credentials and connection.',
+    priority: 'WARNING',
+  }).catch(() => { /* best-effort */ });
+}
+
+/** Get T212 API usage stats for the last hour. */
+export function getT212ApiStats(): { callsLastHour: number; lastCallAt: number | null; cacheSize: number; cacheAge: number } {
+  const now = Date.now();
+  const oneHourAgo = now - 3600_000;
+  const recentCalls = t212ApiCallLog.timestamps.filter(t => t > oneHourAgo);
+  return {
+    callsLastHour: recentCalls.length,
+    lastCallAt: recentCalls.length > 0 ? recentCalls[recentCalls.length - 1] : null,
+    cacheSize: t212PriceCache.size,
+    cacheAge: t212PriceCacheAge > 0 ? Math.round((now - t212PriceCacheAge) / 1000) : -1,
+  };
+}
+
+/** Update the T212 price cache from a sync or live fetch. */
+export function updateT212PriceCache(prices: Map<string, number>): void {
+  const now = Date.now();
+  for (const [ticker, price] of prices) {
+    if (price > 0) {
+      t212PriceCache.set(ticker, { price, updatedAt: now });
+    }
+  }
+  t212PriceCacheAge = now;
+
+  // Persist to disk (fire-and-forget)
+  if (prices.size > 0) {
+    const diskObj: Record<string, T212PriceEntry> = {};
+    t212PriceCache.forEach((v, k) => { diskObj[k] = v; });
+    persistCache(CACHE_KEYS.T212_PRICES, diskObj).catch((err) => {
+      console.warn('[position-sync] Failed to persist T212 price cache:', (err as Error).message);
+    });
+
+    // Record T212 vs Yahoo price snapshots (fire-and-forget, rate-limited internally)
+    const priceRecord: Record<string, number> = {};
+    prices.forEach((price, ticker) => { priceRecord[ticker] = price; });
+    recordPriceSnapshots(priceRecord).catch(() => { /* swallowed */ });
+  }
+}
+
+/**
+ * Rehydrate the T212 price cache from disk on server startup.
+ * Prevents cold-start staleness — positions immediately show last-known T212 prices.
+ */
+export async function rehydrateT212PriceCache(): Promise<boolean> {
+  if (t212PriceCache.size > 0) return true; // Already warm
+  try {
+    const persisted = await rehydrateCache<Record<string, T212PriceEntry>>(CACHE_KEYS.T212_PRICES);
+    if (persisted && persisted.data) {
+      let count = 0;
+      for (const [ticker, entry] of Object.entries(persisted.data)) {
+        if (entry && typeof entry.price === 'number' && entry.price > 0) {
+          t212PriceCache.set(ticker, entry);
+          count++;
+        }
+      }
+      if (count > 0) {
+        t212PriceCacheAge = Math.max(...[...t212PriceCache.values()].map(e => e.updatedAt));
+        console.log(`[position-sync] Rehydrated ${count} T212 prices from disk (age: ${Math.round(persisted.age / 60000)}m)`);
+        return true;
+      }
+    }
+    return false;
+  } catch (err) {
+    console.warn('[position-sync] Failed to rehydrate T212 price cache:', (err as Error).message);
+    return false;
+  }
+}
+
+/** Get cached T212 price for a ticker (from last sync). */
+export function getT212Price(ticker: string): T212PriceEntry | null {
+  return t212PriceCache.get(ticker) ?? null;
+}
+
+/** Get all cached T212 prices. */
+export function getT212Prices(tickers: string[]): Record<string, T212PriceEntry> {
+  const result: Record<string, T212PriceEntry> = {};
+  for (const t of tickers) {
+    const entry = t212PriceCache.get(t);
+    if (entry) result[t] = entry;
+  }
+  return result;
+}
+
+/**
+ * Check if any major market is currently open or recently closed.
+ * UK: Mon-Fri 8:00-16:35, US: Mon-Fri 14:30-21:05 (UK time).
+ * Returns false on weekends and outside these windows.
+ * Uses a 5-min buffer after close so final prices settle.
+ */
+function isAnyMarketOpen(): boolean {
+  const now = new Date();
+  const day = now.getDay(); // 0=Sun, 6=Sat
+  if (day === 0 || day === 6) return false;
+  const hour = now.getHours();
+  const min = now.getMinutes();
+  const timeMinutes = hour * 60 + min;
+  // UK market: 08:00 – 16:35, US market: 14:30 – 21:05 (UK time)
+  return timeMinutes >= 480 && timeMinutes <= 1265; // 8:00 to 21:05
+}
+
+/**
+ * Fetch live T212 prices for portfolio display.
+ * Returns a ticker → price map. Uses 30s cache to avoid T212 rate limits.
+ * Skips T212 API calls outside market hours (serves stale cache instead).
+ * Falls back gracefully — returns empty map on failure (caller uses Yahoo fallback).
+ */
+export async function fetchT212LivePrices(userId: string = 'default-user'): Promise<Record<string, number>> {
+  // Return cached prices if fresh enough
+  if (Date.now() - t212PriceCacheAge < T212_PRICE_TTL && t212PriceCache.size > 0) {
+    const result: Record<string, number> = {};
+    t212PriceCache.forEach((entry, ticker) => result[ticker] = entry.price);
+    return result;
+  }
+
+  // Outside market hours: serve stale cache to save T212 rate limit budget
+  if (!isAnyMarketOpen() && t212PriceCache.size > 0) {
+    const result: Record<string, number> = {};
+    t212PriceCache.forEach((entry, ticker) => result[ticker] = entry.price);
+    return result;
+  }
+
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        t212ApiKey: true,
+        t212ApiSecret: true,
+        t212Environment: true,
+        t212Connected: true,
+        t212IsaApiKey: true,
+        t212IsaApiSecret: true,
+        t212IsaConnected: true,
+      },
+    });
+
+    if (!user) return {};
+
+    const creds = validateDualCredentials(user);
+    if (!creds.canFetch) return {};
+
+    // Lightweight: only fetch positions (not account summary) for price data
+    const investCreds = getCredentialsForAccount(user, 'invest');
+    const isaCreds = getCredentialsForAccount(user, 'isa');
+
+    const fetchTasks: Promise<T212Position[]>[] = [];
+    if (investCreds) {
+      recordT212ApiCall();
+      fetchTasks.push(
+        new Trading212Client(investCreds.apiKey, investCreds.apiSecret, investCreds.environment)
+          .getPositions()
+          .catch((err) => {
+            if (err instanceof Trading212Error && err.statusCode === 429) {
+              console.warn('[position-sync] T212 Invest rate-limited — serving stale cache');
+              sendRateLimitAlert('Invest');
+            }
+            return [] as T212Position[];
+          })
+      );
+    }
+    // Skip ISA if same API key as Invest (duplicate)
+    if (isaCreds && !(investCreds && investCreds.apiKey === isaCreds.apiKey)) {
+      recordT212ApiCall();
+      fetchTasks.push(
+        new Trading212Client(isaCreds.apiKey, isaCreds.apiSecret, isaCreds.environment)
+          .getPositions()
+          .catch((err) => {
+            if (err instanceof Trading212Error && err.statusCode === 429) {
+              console.warn('[position-sync] T212 ISA rate-limited — serving stale cache');
+              sendRateLimitAlert('ISA');
+            }
+            return [] as T212Position[];
+          })
+      );
+    }
+
+    const results = await Promise.all(fetchTasks);
+    const allPositions = results.flat();
+
+    // If T212 returned no positions (rate-limited or error), serve stale cache
+    if (allPositions.length === 0 && t212PriceCache.size > 0) {
+      console.warn('[position-sync] T212 returned no positions — serving stale cache');
+      checkT212ConnectionDrop();
+      const result: Record<string, number> = {};
+      t212PriceCache.forEach((entry, ticker) => result[ticker] = entry.price);
+      return result;
+    }
+
+    // If T212 returned nothing and no cache exists, alert
+    if (allPositions.length === 0) {
+      checkT212ConnectionDrop();
+    }
+
+    const prices: Record<string, number> = {};
+    const priceMap = new Map<string, number>();
+
+    for (const pos of allPositions) {
+      if (pos.currentPrice > 0) {
+        const mapped = mapT212Position(pos);
+        prices[mapped.ticker] = pos.currentPrice;
+        priceMap.set(mapped.ticker, pos.currentPrice);
+      }
+    }
+
+    // Update the cache
+    updateT212PriceCache(priceMap);
+
+    return prices;
+  } catch (error) {
+    console.warn('[position-sync] T212 live price fetch failed:', (error as Error).message);
+    // Serve stale cache on any failure — stale T212 prices are still better than nothing
+    if (t212PriceCache.size > 0) {
+      const result: Record<string, number> = {};
+      t212PriceCache.forEach((entry, ticker) => result[ticker] = entry.price);
+      return result;
+    }
+    return {};
+  }
 }
 
 interface ClosureCandidate {
@@ -137,13 +426,19 @@ export async function syncClosedPositions(userId: string = 'default-user'): Prom
 
   // Map: t212Ticker → T212 position data (for price updates)
   const t212TickerMap = new Map<string, { currentPrice: number; fullTicker: string }>();
+  const priceMap = new Map<string, number>();
   for (const pos of combinedPositions) {
     // fullTicker is the raw T212 ticker (AME_US_EQ). Use it for matching.
     t212TickerMap.set(pos.fullTicker, {
       currentPrice: pos.currentPrice,
       fullTicker: pos.fullTicker,
     });
+    if (pos.currentPrice > 0) {
+      priceMap.set(pos.ticker, pos.currentPrice);
+    }
   }
+  // Update the shared T212 price cache
+  updateT212PriceCache(priceMap);
 
   // Also build a set of just the T212 full tickers for quick lookups
   const t212OpenTickers = new Set(combinedPositions.map(p => p.fullTicker));

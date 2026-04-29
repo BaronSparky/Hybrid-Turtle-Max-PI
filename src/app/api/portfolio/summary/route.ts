@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { ensureDefaultUser } from '@/lib/default-user';
-import { getBatchPrices, normalizeBatchPricesToGBP } from '@/lib/market-data';
+import { normalizeBatchPricesToGBP } from '@/lib/market-data';
 import { calculateGainDollars, calculateGainPercent } from '@/lib/position-sizer';
 import { apiError } from '@/lib/api-response';
+import { getLivePrices } from '@/lib/live-prices';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,8 +54,10 @@ export async function GET(request: NextRequest) {
       include: { stock: true },
     });
 
+    const forceRefresh = searchParams.get('refresh') === 'true';
     const tickers = positions.map((p) => p.stock.ticker);
-    const livePrices = tickers.length > 0 ? await getBatchPrices(tickers) : {};
+
+    const { prices: livePrices } = await getLivePrices(tickers, userId, forceRefresh);
 
     // Build currency map from stock records
     const stockCurrencies: Record<string, string | null> = {};

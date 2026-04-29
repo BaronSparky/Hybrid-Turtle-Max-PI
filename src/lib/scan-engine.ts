@@ -24,6 +24,7 @@ import { ATR_VOLATILITY_CAP_ALL, ATR_VOLATILITY_CAP_HIGH_RISK, ATR_STOP_MULTIPLI
 
 const FAILED_BREAKOUT_COOLDOWN_DAYS = 5;
 import { getTechnicalData, getMarketRegime, getVolRegime, getQuickPrice, getFXRate, getDailyPrices } from './market-data';
+import { fetchT212LivePrices } from './position-sync';
 import { calculateAdaptiveBuffer } from './modules/adaptive-atr-buffer';
 import { calculatePositionSize } from './position-sizer';
 import { validateRiskGates } from './risk-gates';
@@ -184,6 +185,11 @@ export async function runFullScan(
     include: { stock: true },
   });
 
+  // T212 real-time prices for held positions (more accurate than Yahoo for risk calcs)
+  const t212Prices = existingPositions.length > 0
+    ? await fetchT212LivePrices(userId).catch(() => ({} as Record<string, number>))
+    : {};
+
   const positionResults = await Promise.allSettled(existingPositions.map(async (p) => {
     const currency = (p.stock.currency || 'USD').toUpperCase();
     const isUk = p.stock.ticker.endsWith('.L') || /^[A-Z]{2,5}l$/.test(p.stock.ticker);
@@ -191,7 +197,10 @@ export async function runFullScan(
       ? (currency === 'GBP' ? 1 : 0.01)
       : await getFXRate(currency, 'GBP');
 
-    const currentPriceNative = await getQuickPrice(p.stock.ticker) ?? p.entryPrice;
+    // T212 price preferred (real-time), Yahoo fallback (delayed)
+    const currentPriceNative = t212Prices[p.stock.ticker]
+      ?? await getQuickPrice(p.stock.ticker)
+      ?? p.entryPrice;
     const entryPriceGbp = p.entryPrice * fxToGbp;
     const currentStopGbp = p.currentStop * fxToGbp;
     const currentPriceGbp = currentPriceNative * fxToGbp;

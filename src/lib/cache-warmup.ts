@@ -12,6 +12,7 @@
 import { rehydrateScanCacheFromDisk } from './scan-cache';
 import { rehydrateModulesCacheFromDisk } from './modules-cache';
 import { rehydrateQuoteCacheFromDisk } from './market-data';
+import { rehydrateT212PriceCache, fetchT212LivePrices } from './position-sync';
 
 // Track whether warmup has been called to avoid double-runs
 const globalForWarmup = globalThis as unknown as {
@@ -33,9 +34,10 @@ export async function warmCachesOnStartup(): Promise<void> {
     rehydrateScanCacheFromDisk(),
     rehydrateModulesCacheFromDisk(),
     rehydrateQuoteCacheFromDisk(),
+    rehydrateT212PriceCache(),
   ]);
 
-  const labels = ['Scan', 'Modules', 'Quotes'];
+  const labels = ['Scan', 'Modules', 'Quotes', 'T212 Prices'];
   const summary: string[] = [];
   results.forEach((r, i) => {
     if (r.status === 'fulfilled' && r.value) {
@@ -48,4 +50,16 @@ export async function warmCachesOnStartup(): Promise<void> {
   });
 
   console.log(`[cache-warmup] Complete in ${Date.now() - t0}ms — ${summary.join(', ')}`);
+
+  // Pre-warm T212 live prices in background (non-blocking)
+  // Fires off a fresh T212 API call so the first page load gets real-time prices
+  // instead of stale disk data. Failure is swallowed — disk cache still serves.
+  fetchT212LivePrices().then((prices) => {
+    const count = Object.keys(prices).length;
+    if (count > 0) {
+      console.log(`[cache-warmup] T212 live pre-warm: ${count} tickers refreshed`);
+    }
+  }).catch(() => {
+    console.log('[cache-warmup] T212 live pre-warm skipped (credentials missing or API error)');
+  });
 }

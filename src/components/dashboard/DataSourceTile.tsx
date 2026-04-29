@@ -16,6 +16,12 @@ interface DataSourceInfo {
     ageMinutes: number;
     lastFetchTime: string | null;
   };
+  t212?: {
+    callsLastHour: number;
+    lastCallAt: string | null;
+    cacheSize: number;
+    cacheAgeSeconds: number;
+  };
 }
 
 const STATUS_CONFIG: Record<string, {
@@ -149,6 +155,29 @@ export default function DataSourceTile() {
           )}
         </div>
       </div>
+      {/* T212 API stats */}
+      {info?.t212 && info.t212.cacheSize > 0 && (
+        <div className="mt-3 pt-3 border-t border-border/30">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">T212 Prices</span>
+            <span className={cn(
+              'font-mono font-medium',
+              info.t212.cacheAgeSeconds < 60 ? 'text-profit' : info.t212.cacheAgeSeconds < 300 ? 'text-foreground' : 'text-warning'
+            )}>
+              {info.t212.cacheSize} tickers · {info.t212.cacheAgeSeconds < 60 ? `${info.t212.cacheAgeSeconds}s ago` : `${Math.round(info.t212.cacheAgeSeconds / 60)}m ago`}
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-xs mt-1">
+            <span className="text-muted-foreground">API calls/hr</span>
+            <span className={cn(
+              'font-mono font-medium',
+              info.t212.callsLastHour > 50 ? 'text-warning' : 'text-foreground'
+            )}>
+              {info.t212.callsLastHour}
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

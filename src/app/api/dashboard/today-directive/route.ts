@@ -17,6 +17,7 @@ import prisma from '@/lib/prisma';
 import { ensureDefaultUser } from '@/lib/default-user';
 import { getMarketRegime } from '@/lib/market-data';
 import { getBatchPrices } from '@/lib/market-data';
+import { getLivePrices } from '@/lib/live-prices';
 import { calculateRMultiple } from '@/lib/position-sizer';
 import { generateStopRecommendations, generateTrailingStopRecommendations } from '@/lib/stop-manager';
 import { detectLaggards } from '@/lib/modules';
@@ -411,12 +412,13 @@ export async function GET(_request: NextRequest) {
       return triggered;
     }).length;
 
-    // ── Regime + live prices (parallel) ──
+    // ── Regime + live prices (parallel, T212 primary) ──
     const openTickers = openPositions.map(p => p.stock.ticker);
-    const [regime, livePrices] = await Promise.all([
+    const [regime, liveResult] = await Promise.all([
       getMarketRegime().catch(() => 'SIDEWAYS' as const),
-      openTickers.length > 0 ? getBatchPrices(openTickers) : Promise.resolve({} as Record<string, number>),
+      openTickers.length > 0 ? getLivePrices(openTickers, userId) : Promise.resolve({ prices: {} as Record<string, number>, sources: {}, stats: { t212Count: 0, yahooCount: 0, totalRequested: 0 } }),
     ]);
+    const livePrices = liveResult.prices;
 
     // ── Stops, laggards, pyramids, risk budget ──
     let stopsPending = 0;

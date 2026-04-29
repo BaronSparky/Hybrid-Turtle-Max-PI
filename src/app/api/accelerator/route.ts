@@ -10,7 +10,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { ensureDefaultUser } from '@/lib/default-user';
-import { getBatchPrices, normalizeBatchPricesToGBP, getMarketRegime, getDailyPrices, calculateADX, calculateMA } from '@/lib/market-data';
+import { normalizeBatchPricesToGBP, getMarketRegime, getDailyPrices, calculateADX, calculateMA } from '@/lib/market-data';
+import { getLivePrices } from '@/lib/live-prices';
 import { calculateRMultiple } from '@/lib/position-sizer';
 import { apiError } from '@/lib/api-response';
 import {
@@ -63,10 +64,11 @@ export async function GET(request: NextRequest) {
 
     // ── Phase 2: Live prices + regime ──
     const openTickers = openPositions.map((p) => p.stock.ticker);
-    const [livePrices, regime] = await Promise.all([
-      openTickers.length > 0 ? getBatchPrices(openTickers) : Promise.resolve({} as Record<string, number>),
+    const [liveResult, regime] = await Promise.all([
+      openTickers.length > 0 ? getLivePrices(openTickers, userId) : Promise.resolve({ prices: {} as Record<string, number>, sources: {}, stats: { t212Count: 0, yahooCount: 0, totalRequested: 0 } }),
       getMarketRegime(),
     ]);
+    const livePrices = liveResult.prices;
 
     const stockCurrencies: Record<string, string | null> = {};
     for (const p of openPositions) {

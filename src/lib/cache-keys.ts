@@ -29,4 +29,10 @@ export const CACHE_KEYS: Record<string, CachePersistenceOptions> = {
     ttlMs: 30 * 60 * 1000,           // 30 minutes
     version: '1.0',                   // bump when StockQuote shape changes
   },
+  /** T212 broker price cache (held positions) — 10 min TTL on disk */
+  T212_PRICES: {
+    cacheKey: 't212-prices',
+    ttlMs: 10 * 60 * 1000,           // 10 minutes (disk cache is longer than 30s memory TTL)
+    version: '1.0',
+  },
 } as const;

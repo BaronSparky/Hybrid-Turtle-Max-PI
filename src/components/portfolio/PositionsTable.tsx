@@ -37,6 +37,9 @@ interface Position {
   alerts?: number;
   pyramidAdds?: number;
   gapRisk?: { gapPercent: number; atrPercent: number; threshold: number } | null;
+  priceFreshness?: { source: string; ageSeconds: number } | null;
+  priceSource?: 'T212' | 'YAHOO' | null;
+  t212Price?: { price: number; yahooPrice: number; ageMinutes: number; diffPercent: number; mismatch: boolean } | null;
 }
 
 interface PositionsTableProps {
@@ -350,7 +353,47 @@ export default function PositionsTable({ positions, onUpdateStop, onExitPosition
                   })()}
                 </td>
                 <td className="text-right font-mono text-sm">{formatPrice(pos.entryPrice, pos.priceCurrency)}</td>
-                <td className="text-right font-mono text-sm">{formatPrice(pos.currentPrice, pos.priceCurrency)}</td>
+                <td className="text-right font-mono text-sm">
+                  <span className="inline-flex items-center gap-1 justify-end">
+                    {formatPrice(pos.currentPrice, pos.priceCurrency)}
+                    {pos.priceSource && (
+                      <span
+                        className={cn(
+                          'text-[9px] font-semibold px-1 py-px rounded',
+                          pos.priceSource === 'T212'
+                            ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                            : 'bg-blue-500/15 text-blue-400 border border-blue-500/30'
+                        )}
+                        title={pos.priceSource === 'T212' ? 'Real-time from Trading 212' : 'From Yahoo Finance (may be delayed)'}
+                      >
+                        {pos.priceSource === 'T212' ? 'T212' : 'YF'}
+                      </span>
+                    )}
+                    {pos.priceFreshness && (() => {
+                      const age = pos.priceFreshness.ageSeconds;
+                      const src = pos.priceFreshness.source;
+                      const provider = pos.priceSource ?? 'YAHOO';
+                      const isLive = src === 'LIVE';
+                      const isStale = src === 'STALE_CACHE' || age > 300;
+                      const color = isLive ? 'bg-emerald-400' : isStale ? 'bg-red-400' : 'bg-amber-400';
+                      const ageLabel = isLive ? 'Live'
+                        : age < 60 ? `${age}s ago`
+                        : `${Math.round(age / 60)}m ago`;
+                      return (
+                        <span
+                          title={`${provider}: ${ageLabel}`}
+                          className={cn('inline-block w-1.5 h-1.5 rounded-full flex-shrink-0', color, isLive && 'animate-pulse')}
+                        />
+                      );
+                    })()}
+                  </span>
+                  {pos.t212Price?.mismatch && (
+                    <div className="flex items-center justify-end gap-1 mt-0.5" title={`Yahoo: ${formatPrice(pos.t212Price.yahooPrice, pos.priceCurrency)} vs T212: ${formatPrice(pos.t212Price.price, pos.priceCurrency)} — ${pos.t212Price.diffPercent}% diff`}>
+                      <AlertTriangle className="w-3 h-3 text-amber-400" />
+                      <span className="text-[10px] text-amber-400 font-medium">Yahoo: {formatPrice(pos.t212Price.yahooPrice, pos.priceCurrency)}</span>
+                    </div>
+                  )}
+                </td>
                 <td className="text-right">
                   <span className="font-mono text-sm flex items-center justify-end gap-1">
                     {pos.protectionLevel !== 'INITIAL' && (

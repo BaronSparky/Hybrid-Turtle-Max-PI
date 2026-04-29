@@ -33,6 +33,7 @@ import { sendNightlySummary } from '@/lib/telegram';
 import type { NightlyPositionDetail, NightlyStopChange, NightlyReadyCandidate, NightlyTriggerMetCandidate, NightlyLaggardAlert, NightlyClimaxAlert, NightlySwapAlert, NightlyWhipsawAlert, NightlyBreadthAlert, NightlyMomentumAlert, NightlyPyramidAlert, NightlyGapRiskAlert, NightlyBreakoutFailureAlert, NightlyAcceleratorAlert } from '@/lib/telegram';
 import { getBatchQuotes, normalizeBatchPricesToGBP, getDailyPrices, calculateADX, calculateATR, calculateMA, preCacheHistoricalData, getDataFreshness, getMarketRegime } from '@/lib/market-data';
 import { fetchWithFallback, toPriceRecord } from '@/lib/data-provider';
+import { fetchT212LivePrices } from '@/lib/position-sync';
 import type { DataSourceHealth } from '@/lib/data-provider';
 import { recordEquitySnapshot } from '@/lib/equity-snapshot';
 import { syncClosedPositions } from '@/lib/position-sync';
@@ -270,6 +271,21 @@ async function runNightlyProcess() {
       hadFailure = true;
       console.error('  [2] Live price fetch failed:', (error as Error).message);
     }
+
+    // Overlay T212 real-time prices for held positions (more accurate than Yahoo)
+    if (openTickers.length > 0) {
+      try {
+        const t212Prices = await fetchT212LivePrices(userId);
+        const t212Count = Object.keys(t212Prices).length;
+        if (t212Count > 0) {
+          Object.assign(livePrices, t212Prices);
+          console.log(`        T212 overlay: ${t212Count} tickers upgraded to real-time`);
+        }
+      } catch {
+        console.warn('  [2] T212 price overlay failed — using Yahoo/cache prices');
+      }
+    }
+
     const stockCurrencies: Record<string, string | null> = {};
     for (const p of positions) {
       stockCurrencies[p.stock.ticker] = p.stock.currency;
@@ -1736,6 +1752,25 @@ async function runNightlyProcess() {
     console.log('  [8/9] Sending Telegram summary...');
     startStep('8', 'Telegram alert');
     log.info('Step 8: Telegram summary');
+
+    // Fetch today's price accuracy stats (T212 vs Yahoo)
+    let priceAccuracy: { avgDiffPercent: number; maxDiffPercent: number; snapshotCount: number } | null = null;
+    try {
+      const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const snapshots = await prisma.priceSnapshot.findMany({
+        where: { capturedAt: { gte: dayAgo }, diffPercent: { not: null } },
+        select: { diffPercent: true },
+      });
+      if (snapshots.length > 0) {
+        const diffs = snapshots.map(s => s.diffPercent!);
+        priceAccuracy = {
+          avgDiffPercent: Math.round(diffs.reduce((a, b) => a + b, 0) / diffs.length * 100) / 100,
+          maxDiffPercent: Math.round(Math.max(...diffs) * 100) / 100,
+          snapshotCount: snapshots.length,
+        };
+      }
+    } catch { /* advisory — don't block telegram */ }
+
     let telegramSent = false;
     try {
       telegramSent = await sendNightlySummary({
@@ -1773,6 +1808,7 @@ async function runNightlyProcess() {
       gapRiskAlerts,
       breakoutFailures: breakoutFailureAlerts,
       acceleratorAlerts,
+      priceAccuracy,
     });
     } catch (error) {
       // Telegram is optional infrastructure — failure must not degrade heartbeat

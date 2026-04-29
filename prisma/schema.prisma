@@ -1348,6 +1348,23 @@ model SignalRun {
   @@index([status])
 }
 
+// ── Price Snapshot — T212 vs Yahoo comparison log ──
+// Records T212 and Yahoo prices side-by-side for post-session analysis
+// of price source accuracy. Auto-pruned to 30 days.
+model PriceSnapshot {
+  id          Int      @id @default(autoincrement())
+  ticker      String
+  t212Price   Float
+  yahooPrice  Float?
+  diffPercent Float?
+  source      String   @default("T212_FETCH") // T212_FETCH, SYNC, MANUAL
+  capturedAt  DateTime @default(now())
+
+  @@index([ticker])
+  @@index([capturedAt])
+  @@index([ticker, capturedAt])
+}
+
 model SignalCandidate {
   id                  String      @id @default(cuid())
   signalRunId         String

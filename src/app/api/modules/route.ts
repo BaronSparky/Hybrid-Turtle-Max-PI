@@ -14,7 +14,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { ensureDefaultUser } from '@/lib/default-user';
-import { getBatchPrices, getDailyPrices, calculateMA, calculateADX, calculateATR, getMarketRegime, normalizeBatchPricesToGBP } from '@/lib/market-data';
+import { getDailyPrices, calculateMA, calculateADX, calculateATR, getMarketRegime, normalizeBatchPricesToGBP } from '@/lib/market-data';
+import { getLivePrices } from '@/lib/live-prices';
 import { calculateRMultiple } from '@/lib/position-sizer';
 import { getRiskBudget, canPyramid, calculatePyramidAddSize } from '@/lib/risk-gates';
 import { generateStopRecommendations } from '@/lib/stop-manager';
@@ -96,7 +97,7 @@ export async function GET(request: NextRequest) {
     // ── Live prices ──
     const t2 = Date.now();
     const openTickers = openPositions.map(p => p.stock.ticker);
-    const livePrices = openTickers.length > 0 ? await getBatchPrices(openTickers) : {};
+    const { prices: livePrices } = await getLivePrices(openTickers, userId);
     const stockCurrencies: Record<string, string | null> = {};
     for (const p of openPositions) {
       stockCurrencies[p.stock.ticker] = p.stock.currency;

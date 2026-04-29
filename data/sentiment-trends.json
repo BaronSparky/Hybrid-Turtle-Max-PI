@@ -4,39 +4,63 @@
       {
         "sentiment": "NEUTRAL",
         "confidence": "LOW",
-        "timestamp": 1777374183927,
+        "timestamp": 1777413599873,
         "date": "2026-04-28"
+      },
+      {
+        "sentiment": "NEUTRAL",
+        "confidence": "LOW",
+        "timestamp": 1777463173639,
+        "date": "2026-04-29"
       }
     ],
     "GEV": [
       {
         "sentiment": "NEUTRAL",
         "confidence": "LOW",
-        "timestamp": 1777374183927,
+        "timestamp": 1777413599873,
         "date": "2026-04-28"
+      },
+      {
+        "sentiment": "NEUTRAL",
+        "confidence": "LOW",
+        "timestamp": 1777463173639,
+        "date": "2026-04-29"
       }
     ],
     "SLAB": [
       {
         "sentiment": "NEUTRAL",
         "confidence": "LOW",
-        "timestamp": 1777374183927,
+        "timestamp": 1777413599873,
         "date": "2026-04-28"
+      },
+      {
+        "sentiment": "NEUTRAL",
+        "confidence": "LOW",
+        "timestamp": 1777463173639,
+        "date": "2026-04-29"
       }
     ],
     "APLS": [
       {
         "sentiment": "NEUTRAL",
         "confidence": "LOW",
-        "timestamp": 1777374183927,
+        "timestamp": 1777413599873,
         "date": "2026-04-28"
+      },
+      {
+        "sentiment": "NEUTRAL",
+        "confidence": "LOW",
+        "timestamp": 1777463173639,
+        "date": "2026-04-29"
       }
     ],
     "AMD": [
       {
         "sentiment": "NEUTRAL",
         "confidence": "LOW",
-        "timestamp": 1777374183927,
+        "timestamp": 1777394595341,
         "date": "2026-04-28"
       }
     ],
@@ -44,7 +68,7 @@
       {
         "sentiment": "NEUTRAL",
         "confidence": "LOW",
-        "timestamp": 1777374183927,
+        "timestamp": 1777394595341,
         "date": "2026-04-28"
       }
     ],
@@ -52,7 +76,7 @@
       {
         "sentiment": "NEUTRAL",
         "confidence": "LOW",
-        "timestamp": 1777374183927,
+        "timestamp": 1777394595341,
         "date": "2026-04-28"
       }
     ],
@@ -60,8 +84,56 @@
       {
         "sentiment": "NEUTRAL",
         "confidence": "LOW",
-        "timestamp": 1777374183927,
+        "timestamp": 1777413599873,
         "date": "2026-04-28"
+      },
+      {
+        "sentiment": "NEUTRAL",
+        "confidence": "LOW",
+        "timestamp": 1777463173639,
+        "date": "2026-04-29"
+      }
+    ],
+    "DPLM.L": [
+      {
+        "sentiment": "NEUTRAL",
+        "confidence": "LOW",
+        "timestamp": 1777413599873,
+        "date": "2026-04-28"
+      },
+      {
+        "sentiment": "NEUTRAL",
+        "confidence": "LOW",
+        "timestamp": 1777463173639,
+        "date": "2026-04-29"
+      }
+    ],
+    "NUE": [
+      {
+        "sentiment": "NEUTRAL",
+        "confidence": "LOW",
+        "timestamp": 1777413599873,
+        "date": "2026-04-28"
+      },
+      {
+        "sentiment": "NEUTRAL",
+        "confidence": "LOW",
+        "timestamp": 1777463173639,
+        "date": "2026-04-29"
+      }
+    ],
+    "OSCR": [
+      {
+        "sentiment": "NEUTRAL",
+        "confidence": "LOW",
+        "timestamp": 1777413599873,
+        "date": "2026-04-28"
+      },
+      {
+        "sentiment": "NEUTRAL",
+        "confidence": "LOW",
+        "timestamp": 1777463173639,
+        "date": "2026-04-29"
       }
     ]
   }

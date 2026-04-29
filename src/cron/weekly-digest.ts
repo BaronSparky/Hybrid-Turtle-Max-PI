@@ -160,6 +160,20 @@ async function runWeeklyDigest() {
     suggestions.push(`Only ${scoreboard.totalClosedTrades} trades completed — too early for reliable system statistics. Keep following the rules.`);
   }
 
+  // Price source accuracy warning
+  try {
+    const priceSnapshotsForReview = await prisma.priceSnapshot.findMany({
+      where: { capturedAt: { gte: weekAgo }, diffPercent: { not: null } },
+      select: { diffPercent: true },
+    });
+    if (priceSnapshotsForReview.length > 0) {
+      const avgPriceDiff = priceSnapshotsForReview.reduce((sum, s) => sum + (s.diffPercent ?? 0), 0) / priceSnapshotsForReview.length;
+      if (avgPriceDiff > 2) {
+        suggestions.push(`T212 vs Yahoo price divergence averaged ${avgPriceDiff.toFixed(1)}% this week — check T212 connection and data quality.`);
+      }
+    }
+  } catch { /* advisory — don't block digest */ }
+
   if (suggestions.length > 0) {
     for (const s of suggestions) {
       lines.push(`  • ${s}`);
@@ -171,6 +185,31 @@ async function runWeeklyDigest() {
   // Current state
   lines.push('');
   lines.push(`<b>Current:</b> ${openCount} open position(s)`);
+
+  // Price source accuracy (T212 vs Yahoo)
+  try {
+    const priceSnapshots = await prisma.priceSnapshot.findMany({
+      where: { capturedAt: { gte: weekAgo } },
+      select: { ticker: true, diffPercent: true },
+    });
+    if (priceSnapshots.length > 0) {
+      const withDiff = priceSnapshots.filter(s => s.diffPercent != null);
+      if (withDiff.length > 0) {
+        const avgDiff = withDiff.reduce((sum, s) => sum + (s.diffPercent ?? 0), 0) / withDiff.length;
+        const maxDiff = Math.max(...withDiff.map(s => s.diffPercent ?? 0));
+        const mismatchPct = (withDiff.filter(s => (s.diffPercent ?? 0) > 1).length / withDiff.length * 100);
+        lines.push('');
+        lines.push('<b>📡 Price Sources</b>');
+        lines.push(`  T212 vs Yahoo: avg ${avgDiff.toFixed(2)}% diff | max ${maxDiff.toFixed(2)}%`);
+        lines.push(`  Snapshots: ${priceSnapshots.length} | >1% mismatch: ${mismatchPct.toFixed(0)}%`);
+        if (avgDiff > 2) {
+          lines.push('  ⚠ High price divergence — verify T212 connection');
+        }
+      }
+    }
+  } catch {
+    // Price accuracy is advisory — failure doesn't block digest
+  }
 
   const text = lines.join('\n');
   log.info('Sending weekly digest', { closedCount: closedThisWeek.length, openedCount: openedThisWeek.length, weekTotalR });

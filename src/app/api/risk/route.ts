@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { ensureDefaultUser } from '@/lib/default-user';
-import { getBatchPrices, normalizeBatchPricesToGBP, normalizePriceToGBP } from '@/lib/market-data';
+import { normalizeBatchPricesToGBP, normalizePriceToGBP } from '@/lib/market-data';
+import { getLivePrices } from '@/lib/live-prices';
 import { calculateRMultiple } from '@/lib/position-sizer';
 import { buildInitialRiskFields, computeOpenRiskGBP } from '@/lib/risk-fields';
 import { getRiskBudget } from '@/lib/risk-gates';
@@ -36,7 +37,7 @@ export async function GET(request: NextRequest) {
     });
 
     const tickers = positions.map((p) => p.stock.ticker);
-    const livePrices = tickers.length > 0 ? await getBatchPrices(tickers) : {};
+    const { prices: livePrices } = await getLivePrices(tickers, userId);
     const stockCurrencies: Record<string, string | null> = {};
     for (const p of positions) {
       stockCurrencies[p.stock.ticker] = p.stock.currency;

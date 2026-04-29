@@ -327,6 +327,7 @@ export async function sendNightlySummary(summary: {
   gapRiskAlerts?: NightlyGapRiskAlert[];
   breakoutFailures?: NightlyBreakoutFailureAlert[];
   acceleratorAlerts?: NightlyAcceleratorAlert[];
+  priceAccuracy?: { avgDiffPercent: number; maxDiffPercent: number; snapshotCount: number } | null;
 }): Promise<boolean> {
   const healthEmoji = summary.healthStatus === 'GREEN' ? '🟢'
     : summary.healthStatus === 'YELLOW' ? '🟡' : '🔴';
@@ -532,6 +533,7 @@ ${gapRiskLines}
 ${breadthLine ? breadthLine + '\n' : ''}${momentumLine ? momentumLine + '\n' : ''}
 <b>━━━ Sync ━━━</b>
   📊 Snapshot: ${summary.snapshotSynced} synced${summary.snapshotFailed > 0 ? `, ${summary.snapshotFailed} failed` : ''}
+${summary.priceAccuracy ? `  📡 T212 vs Yahoo: avg ${summary.priceAccuracy.avgDiffPercent.toFixed(2)}% diff | max ${summary.priceAccuracy.maxDiffPercent.toFixed(2)}% (${summary.priceAccuracy.snapshotCount} samples)` : ''}
 
 <b>━━━ Alerts ━━━</b>
 ${alertsText}
