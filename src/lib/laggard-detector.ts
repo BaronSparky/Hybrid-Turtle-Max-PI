@@ -32,8 +32,8 @@ export const LAGGARD_CONFIG = {
   enabled: true,
   holdingDays: 10,          // Min days to qualify as laggard
   minLossPct: 2.0,          // Min loss % to flag (must be 2%+ underwater)
-  deadMoneyDays: 30,        // Days before dead-money flag
-  deadMoneyMaxR: 0.5,       // R-multiple threshold (stalled if < 0.5R)
+  deadMoneyDays: 15,        // Days before dead-money flag (Part P Decision #9)
+  deadMoneyMaxR: 0.2,       // R-multiple threshold (stalled if < 0.2R)
 } as const;
 
 export interface LaggardResult {

@@ -55,7 +55,7 @@ describe('detectLaggards', () => {
 
   it('does not flag positions with small loss < minLossPct', () => {
     const results = detectLaggards([
-      makePosition({ currentPrice: 99 }), // Only 1% loss, below 2% threshold
+      makePosition({ entryDate: daysAgo(12), currentPrice: 99 }), // Only 1% loss, below 2% threshold; 12d avoids dead money
     ]);
     expect(results).toHaveLength(0);
   });
@@ -85,34 +85,34 @@ describe('detectLaggards', () => {
 // ── Dead money detection ─────────────────────────────────────
 
 describe('dead money detection', () => {
-  it('flags dead money: held 35d, slightly profitable (0.3R), stalled', () => {
-    // R-multiple = (currentPrice - entryPrice) / initialRisk = (101.5 - 100) / 5 = 0.3
+  it('flags dead money: held 20d, barely moving (0.1R), stalled', () => {
+    // R-multiple = (currentPrice - entryPrice) / initialRisk = (100.5 - 100) / 5 = 0.1
     const results = detectLaggards([
       makePosition({
-        entryDate: daysAgo(35),
-        currentPrice: 101.5,
+        entryDate: daysAgo(20),
+        currentPrice: 100.5,
       }),
     ]);
     expect(results).toHaveLength(1);
     expect(results[0].flag).toBe('DEAD_MONEY');
-    expect(results[0].rMultiple).toBeCloseTo(0.3, 1);
+    expect(results[0].rMultiple).toBeCloseTo(0.1, 1);
   });
 
   it('does not flag dead money before deadMoneyDays threshold', () => {
     const results = detectLaggards([
       makePosition({
-        entryDate: daysAgo(25), // < 30 days
-        currentPrice: 101.5,
+        entryDate: daysAgo(12), // < 15 days
+        currentPrice: 100.5,
       }),
     ]);
     expect(results).toHaveLength(0);
   });
 
   it('does not flag dead money if R >= deadMoneyMaxR', () => {
-    // R = (103 - 100) / 5 = 0.6 → above 0.5R threshold
+    // R = (103 - 100) / 5 = 0.6 → above 0.2R threshold
     const results = detectLaggards([
       makePosition({
-        entryDate: daysAgo(35),
+        entryDate: daysAgo(20),
         currentPrice: 103,
       }),
     ]);
@@ -123,7 +123,7 @@ describe('dead money detection', () => {
     // R = (92 - 100) / 5 = -1.6 → freefall, should be a stop issue
     const results = detectLaggards([
       makePosition({
-        entryDate: daysAgo(35),
+        entryDate: daysAgo(20),
         currentPrice: 92,
         currentStop: 85, // Above stop so not stop-hit
       }),
@@ -135,12 +135,12 @@ describe('dead money detection', () => {
   });
 
   it('suppresses dead money flag when showing trend recovery (price > MA20 AND ADX rising)', () => {
-    // Meets dead money criteria (35d, 0.3R) but price > MA20 and ADX is rising
+    // Meets dead money criteria (20d, 0.1R) but price > MA20 and ADX is rising
     const results = detectLaggards([
       makePosition({
-        entryDate: daysAgo(35),
-        currentPrice: 101.5, // R = 0.3, stalled — but recovering
-        ma20: 100,           // price 101.5 > MA20 100
+        entryDate: daysAgo(20),
+        currentPrice: 100.5, // R = 0.1, stalled — but recovering
+        ma20: 100,           // price 100.5 > MA20 100
         adxToday: 25,        // ADX rising
         adxYesterday: 22,
       }),
@@ -153,8 +153,8 @@ describe('dead money detection', () => {
     // Price above MA20 but ADX declining — trend not strengthening
     const results = detectLaggards([
       makePosition({
-        entryDate: daysAgo(35),
-        currentPrice: 101.5,
+        entryDate: daysAgo(20),
+        currentPrice: 100.5,
         ma20: 100,
         adxToday: 20,        // ADX falling
         adxYesterday: 25,
@@ -168,9 +168,9 @@ describe('dead money detection', () => {
     // ADX rising but price still below MA20 — not a real recovery
     const results = detectLaggards([
       makePosition({
-        entryDate: daysAgo(35),
-        currentPrice: 101.5,
-        ma20: 105,           // price 101.5 < MA20 105
+        entryDate: daysAgo(20),
+        currentPrice: 100.5,
+        ma20: 105,           // price 100.5 < MA20 105
         adxToday: 25,
         adxYesterday: 22,
       }),
@@ -183,8 +183,8 @@ describe('dead money detection', () => {
     // No ma20/adxToday/adxYesterday — exemption does not activate
     const results = detectLaggards([
       makePosition({
-        entryDate: daysAgo(35),
-        currentPrice: 101.5,
+        entryDate: daysAgo(20),
+        currentPrice: 100.5,
       }),
     ]);
     const deadMoney = results.filter(r => r.flag === 'DEAD_MONEY');
@@ -207,9 +207,9 @@ describe('multiple positions', () => {
 
   it('does not double-flag laggard as dead money', () => {
     // Position meets BOTH laggard and dead money criteria
-    // Held 35d, 5% underwater, above stop — should be TRIM_LAGGARD only
+    // Held 20d, 5% underwater, above stop — should be TRIM_LAGGARD only
     const results = detectLaggards([
-      makePosition({ entryDate: daysAgo(35) }),
+      makePosition({ entryDate: daysAgo(20) }),
     ]);
     expect(results).toHaveLength(1);
     expect(results[0].flag).toBe('TRIM_LAGGARD');
