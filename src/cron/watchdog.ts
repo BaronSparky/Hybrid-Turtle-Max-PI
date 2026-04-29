@@ -10,42 +10,14 @@
  */
 
 import prisma from '@/lib/prisma';
-import { sendTelegramMessage } from '@/lib/telegram';
+import { sendThrottledTelegramAlert } from '@/lib/telegram';
 import { createCronLogger } from '@/lib/cron-logger';
 import { exec } from 'child_process';
 import path from 'path';
+import { waitForDashboardRecovery } from './watchdog-recovery';
 
 const log = createCronLogger('watchdog');
 const NIGHTLY_STALE_HOURS = 26;
-const RECOVERY_POLL_INTERVAL_MS = 5000;
-const RECOVERY_TIMEOUT_MS = 60000;
-const RECOVERY_INITIAL_DELAY_MS = 10000;
-
-/**
- * Polls /api/system-status after auto-restart to confirm the dashboard recovered.
- * Returns true when the endpoint responds OK before the timeout, false otherwise.
- */
-async function waitForDashboardRecovery(): Promise<boolean> {
-  // Give start.bat time to spin up Next.js before the first probe
-  await new Promise((resolve) => setTimeout(resolve, RECOVERY_INITIAL_DELAY_MS));
-
-  const deadline = Date.now() + RECOVERY_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 3000);
-      const res = await fetch('http://localhost:3000/api/system-status', {
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
-      if (res.ok) return true;
-    } catch {
-      // server not ready yet — keep polling
-    }
-    await new Promise((resolve) => setTimeout(resolve, RECOVERY_POLL_INTERVAL_MS));
-  }
-  return false;
-}
 
 async function runWatchdog(): Promise<void> {
   log.info('Watchdog check starting');
@@ -148,19 +120,32 @@ async function runWatchdog(): Promise<void> {
     return;
   }
 
-  // Send Telegram alert
+  // Send Telegram alert (throttled — same alert text suppressed for 1 hour)
   const message = alerts.join('\n\n');
   log.warn('Sending watchdog alert', { alertCount: alerts.length });
 
-  const sent = await sendTelegramMessage({
-    text: message,
-    parseMode: 'HTML',
-  });
+  // Use a stable dedupe key derived from the alert categories present.
+  // This ensures a repeated identical alert within an hour is suppressed,
+  // but a new condition (different alert mix) will still fire.
+  const dedupeKey =
+    'watchdog:' +
+    alerts
+      .map((a) => a.slice(0, 60).replace(/\s+/g, '_'))
+      .sort()
+      .join('|');
+
+  const sent = await sendThrottledTelegramAlert(
+    {
+      text: message,
+      parseMode: 'HTML',
+    },
+    dedupeKey
+  );
 
   if (sent) {
     log.info('Watchdog alert sent via Telegram');
   } else {
-    log.error('Failed to send watchdog Telegram alert');
+    log.info('Watchdog alert suppressed by throttle (sent within last hour) or send failed');
   }
 }
 

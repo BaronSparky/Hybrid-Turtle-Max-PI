@@ -286,6 +286,18 @@ export class Trading212Client {
         const lim = parseInt(limit);
         if (rem <= Math.ceil(lim * 0.2)) {
           console.warn(`[T212] Rate quota low: ${remaining}/${limit} remaining on ${method} ${path}`);
+          // Fire-and-forget observability sink; never blocks or throws into the API path
+          void import('./t212-quota-log')
+            .then(({ recordT212QuotaEvent }) =>
+              recordT212QuotaEvent({
+                timestamp: new Date().toISOString(),
+                remaining: rem,
+                limit: lim,
+                method,
+                path,
+              })
+            )
+            .catch(() => undefined);
         }
       }
 

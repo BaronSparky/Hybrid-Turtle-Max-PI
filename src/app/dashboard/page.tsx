@@ -23,6 +23,7 @@ import TradeHistoryChart from '@/components/dashboard/TradeHistoryChart';
 import RegimeHistoryChart from '@/components/dashboard/RegimeHistoryChart';
 import DataSourceTile from '@/components/dashboard/DataSourceTile';
 import PriceAccuracyTile from '@/components/dashboard/PriceAccuracyTile';
+import PredictionReadinessTile from '@/components/dashboard/PredictionReadinessTile';
 import ModuleStatusPanel from '@/components/dashboard/ModuleStatusPanel';
 import ActionCardWidget from '@/components/dashboard/ActionCardWidget';
 import DualRegimeWidget from '@/components/dashboard/DualRegimeWidget';
@@ -256,6 +257,7 @@ export default function DashboardPage() {
           <HeartbeatMonitor />
           <DataSourceTile />
           <PriceAccuracyTile />
+          <PredictionReadinessTile />
           <ScheduledTasksPanel />
         </div>
 

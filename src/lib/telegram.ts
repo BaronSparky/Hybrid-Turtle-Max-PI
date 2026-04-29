@@ -89,6 +89,64 @@ export async function sendTelegramMessage(message: TelegramMessage): Promise<boo
   }
 }
 
+// ----------------------------------------------------------------
+// Throttled alerts — suppress duplicate alerts within a TTL window
+// ----------------------------------------------------------------
+
+import { promises as fs } from 'fs';
+import path from 'path';
+
+const ALERT_THROTTLE_FILE = path.resolve(process.cwd(), 'data', 'alert-throttle.json');
+const DEFAULT_ALERT_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+interface ThrottleStore {
+  [dedupeKey: string]: number; // last-sent epoch ms
+}
+
+async function readThrottleStore(): Promise<ThrottleStore> {
+  try {
+    const raw = await fs.readFile(ALERT_THROTTLE_FILE, 'utf-8');
+    return JSON.parse(raw) as ThrottleStore;
+  } catch {
+    return {};
+  }
+}
+
+async function writeThrottleStore(store: ThrottleStore): Promise<void> {
+  await fs.mkdir(path.dirname(ALERT_THROTTLE_FILE), { recursive: true });
+  await fs.writeFile(ALERT_THROTTLE_FILE, JSON.stringify(store, null, 2), 'utf-8');
+}
+
+/**
+ * Send a Telegram alert with deduplication. If an alert with the same
+ * dedupeKey was sent within ttlMs, this call is suppressed and returns false.
+ * Useful for cron-driven alerts (e.g. watchdog) that would otherwise spam.
+ */
+export async function sendThrottledTelegramAlert(
+  message: TelegramMessage,
+  dedupeKey: string,
+  ttlMs: number = DEFAULT_ALERT_TTL_MS
+): Promise<boolean> {
+  const store = await readThrottleStore();
+  const now = Date.now();
+  const last = store[dedupeKey];
+
+  if (last && now - last < ttlMs) {
+    return false; // suppressed within window
+  }
+
+  const sent = await sendTelegramMessage(message);
+  if (sent) {
+    // prune entries older than the TTL to keep the file small
+    const pruned: ThrottleStore = { [dedupeKey]: now };
+    for (const [key, ts] of Object.entries(store)) {
+      if (key !== dedupeKey && now - ts < ttlMs) pruned[key] = ts;
+    }
+    await writeThrottleStore(pruned);
+  }
+  return sent;
+}
+
 async function getTelegramCredentials(): Promise<{ botToken: string; chatId: string } | null> {
   const envBotToken = process.env.TELEGRAM_BOT_TOKEN;
   const envChatId = process.env.TELEGRAM_CHAT_ID;
