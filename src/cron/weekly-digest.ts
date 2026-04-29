@@ -16,6 +16,7 @@ import { sendTelegramMessage } from '@/lib/telegram';
 import { computeProfitScoreboard } from '@/lib/profit-scoreboard';
 import { createCronLogger } from '@/lib/cron-logger';
 import { getUKDateString } from '@/lib/uk-time';
+import { readT212QuotaEvents } from '@/lib/t212-quota-log';
 
 const log = createCronLogger('weekly-digest');
 const RUN_NOW = process.argv.includes('--run-now');
@@ -219,6 +220,28 @@ async function runWeeklyDigest() {
     }
   } catch {
     // Price accuracy is advisory — failure doesn't block digest
+  }
+
+  // ── T212 throttle trend (advisory) ─────────────────────────────────
+  // Surfaces sustained rate-limit-low events from the rotating quota log
+  // so quota issues bubble up even when nobody opens the dashboard.
+  try {
+    const quotaEvents = await readT212QuotaEvents();
+    const weekAgoMs = weekAgo.getTime();
+    const recentQuota = quotaEvents.filter((e) => {
+      const ts = new Date(e.timestamp).getTime();
+      return Number.isFinite(ts) && ts >= weekAgoMs;
+    });
+    if (recentQuota.length > 0) {
+      lines.push('');
+      lines.push('<b>🚦 T212 Quota</b>');
+      lines.push(`  Rate-limit-low events: ${recentQuota.length} (last 7 days)`);
+      if (recentQuota.length >= 10) {
+        lines.push('  ⚠ Sustained throttling — consider lowering polling frequency or batching T212 calls');
+      }
+    }
+  } catch {
+    // Quota log is advisory — failure doesn't block digest
   }
 
   const text = lines.join('\n');

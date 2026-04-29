@@ -49,6 +49,48 @@ async function checkEndpoint(name: string, path: string, validate: (json: unknow
   }
 }
 
+/**
+ * Optional: POST to /api/scan to verify the full scan pipeline (Yahoo,
+ * ranking, persistence). Expensive — only run when SMOKE_TRIGGER_SCAN=1.
+ * Uses default-user with a conservative profile and a small equity stub.
+ */
+async function checkScanTrigger(): Promise<CheckResult> {
+  const name = 'scan trigger (POST)';
+  try {
+    const res = await fetch(`${BASE_URL}/api/scan`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        userId: 'default-user',
+        riskProfile: 'BALANCED',
+        equity: 10000,
+      }),
+    });
+    let json: unknown = null;
+    try {
+      json = await res.json();
+    } catch {
+      json = null;
+    }
+    // Benign cases: nightly running (503) or safety control (423) — system
+    // is healthy, just not in a state where a manual scan is allowed.
+    if (res.status === 503 || res.status === 423) {
+      const j = json as { error?: { code?: string; message?: string } };
+      return { name, ok: true, detail: `OK (HTTP ${res.status} ${j.error?.code ?? 'gated'})` };
+    }
+    if (!res.ok) {
+      return { name, ok: false, detail: `HTTP ${res.status} ${res.statusText}` };
+    }
+    const j = json as { result?: unknown; candidates?: unknown[] };
+    if (!j.result && !Array.isArray(j.candidates)) {
+      return { name, ok: false, detail: 'scan response missing result/candidates' };
+    }
+    return { name, ok: true, detail: 'OK (scan completed)' };
+  } catch (err) {
+    return { name, ok: false, detail: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 async function main(): Promise<void> {
   console.log(`[smoke-buy-flow] BASE_URL=${BASE_URL}`);
   console.log('');
@@ -101,6 +143,13 @@ async function main(): Promise<void> {
       return null;
     })
   );
+
+  // Optional: actually trigger a fresh scan to verify the full pipeline,
+  // not just the cache read. Gated behind SMOKE_TRIGGER_SCAN=1 because
+  // a real scan is expensive (Yahoo calls, ranking, persistence).
+  if (process.env.SMOKE_TRIGGER_SCAN === '1') {
+    results.push(await checkScanTrigger());
+  }
 
   let failed = 0;
   for (const r of results) {

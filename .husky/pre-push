@@ -1,9 +1,28 @@
 #!/usr/bin/env sh
 
 # Pre-push smoke gate: if the dashboard is running locally, run the backend
-# smoke script before allowing the push. Skipped when no dashboard is up.
+# smoke script before allowing the push. Skipped when no dashboard is up,
+# or when the push contains no source/script changes (docs-only push).
 
 [ -n "$CI" ] && exit 0
+
+# Determine which files would be pushed. Compare HEAD against upstream;
+# fall back to "all of HEAD" when no upstream is configured (e.g. first push).
+if RANGE=$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null); then
+  CHANGED=$(git diff --name-only "$RANGE..HEAD" 2>/dev/null)
+else
+  CHANGED=$(git diff --name-only HEAD~1..HEAD 2>/dev/null)
+fi
+
+# If no source/scripts/test files in the push, skip smoke (docs-only).
+if [ -n "$CHANGED" ]; then
+  if ! echo "$CHANGED" | grep -qE '^(src/|scripts/|packages/|services/|tasks/|prisma/|\.husky/|package(-lock)?\.json|tsconfig\.json|next\.config\.js|vitest\.config\.ts|eslint\.config\.mjs)'; then
+    echo "[pre-push] No source/script changes detected — skipping smoke test."
+    echo "[pre-push] Changed files:"
+    echo "$CHANGED" | sed 's/^/  /'
+    exit 0
+  fi
+fi
 
 # Probe localhost:3000 with a short timeout. curl -sfm 2 returns non-zero
 # when the endpoint is unreachable; that's our "skip" signal.
