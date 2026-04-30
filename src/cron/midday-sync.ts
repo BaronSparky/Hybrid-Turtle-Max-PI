@@ -9,11 +9,12 @@
  */
 
 import prisma from '@/lib/prisma';
-import { syncClosedPositions } from '@/lib/position-sync';
 import type { PositionSyncResult } from '@/lib/position-sync';
 import { sendAlert } from '@/lib/alert-service';
 import { createCronLogger } from '@/lib/cron-logger';
 import { getUKDayOfWeek } from '@/lib/uk-time';
+
+process.env.HYBRIDTURTLE_SKIP_STARTUP_PRECACHE = 'true';
 
 const log = createCronLogger('midday-sync');
 
@@ -54,7 +55,8 @@ async function runMiddaySync() {
     }
 
     console.log(`  ${openCount} open position(s) — syncing against Trading 212...`);
-    result = await syncClosedPositions(userId);
+    const { syncClosedPositions } = await import('@/lib/position-sync');
+    result = await syncClosedPositions(userId, { detectUntrackedSales: false });
 
     console.log(`  Result: ${result.checked} checked, ${result.closed} closed, ${result.skipped} skipped, ${result.updated} updated`);
 

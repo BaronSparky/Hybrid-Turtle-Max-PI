@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Trading212Error, type T212Position } from './trading212';
+import { shouldFetchOrderHistoryForSync } from './position-sync';
 
 const mocks = vi.hoisted(() => ({
   findUnique: vi.fn(),
@@ -190,5 +191,28 @@ describe('fetchT212LivePrices rate-limit handling', () => {
     expect(result).toEqual({ VOD: 72.4 });
     expect(mocks.getPositions).toHaveBeenCalledTimes(1);
     expect(mocks.constructedApiKeys).toEqual(['shared-key']);
+  });
+});
+
+describe('shouldFetchOrderHistoryForSync', () => {
+  it('skips order history for routine midday sync when tracked positions are still open and untracked sales are disabled', () => {
+    expect(shouldFetchOrderHistoryForSync({
+      hasMissingTrackedPosition: false,
+      detectUntrackedSales: false,
+    })).toBe(false);
+  });
+
+  it('fetches order history when a tracked position is missing from T212', () => {
+    expect(shouldFetchOrderHistoryForSync({
+      hasMissingTrackedPosition: true,
+      detectUntrackedSales: false,
+    })).toBe(true);
+  });
+
+  it('fetches order history for full syncs that detect untracked sales', () => {
+    expect(shouldFetchOrderHistoryForSync({
+      hasMissingTrackedPosition: false,
+      detectUntrackedSales: true,
+    })).toBe(true);
   });
 });

@@ -427,10 +427,9 @@ schtasks /Create /TN "HybridTurtle-HourlyStatus" /SC WEEKLY /D MON,TUE,WED,THU,F
 echo         Hourly Telegram status: 08:00-21:00 Mon-Fri
 
 :: Midday sync (position detection)
-set "MS_BAT=%SCRIPT_DIR%midday-sync-task.bat"
 schtasks /Delete /TN "HybridTurtle-MiddaySync" /F >> "%LOG%" 2>&1
-schtasks /Create /TN "HybridTurtle-MiddaySync" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 12:00 /TR "\"%MS_BAT%\"" /RL HIGHEST /F >> "%LOG%" 2>&1
-echo         Midday sync: 12:00 Mon-Fri
+powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%register-midday-sync.ps1" -FromBat >> "%LOG%" 2>&1
+echo         Midday sync: 10:00, 13:00, 16:00, 19:00 Mon-Fri
 
 :: Watchdog (missed heartbeat detection)
 set "WD_BAT=%SCRIPT_DIR%watchdog-task.bat"
@@ -466,6 +465,14 @@ schtasks /Create /TN "HybridTurtle-TickerAudit" /SC MONTHLY /D 1 /ST 06:00 /TR "
 echo         Ticker audit: 06:00 1st+15th monthly
 
 >> "%LOG%" echo [%date% %time%] Auto-trade + briefing scheduled tasks created
+
+node "%SCRIPT_DIR%scripts\audit-scheduled-tasks.mjs" --quiet >> "%LOG%" 2>&1
+if !errorlevel! neq 0 (
+    echo         WARNING: Scheduler audit found issues. Run npm run tasks:audit for details.
+    >> "%LOG%" echo [%date% %time%] WARN: Scheduler audit found issues
+) else (
+    echo         Scheduler audit: OK
+)
 
 :skip_autotrade
 

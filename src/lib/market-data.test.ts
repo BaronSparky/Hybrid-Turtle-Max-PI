@@ -9,6 +9,7 @@ import {
   getPriorNDayHigh,
   getActiveProvider,
   getDataFreshness,
+  shouldSkipStartupPreCache,
 } from './market-data';
 
 // ── Helper: generate N bars of OHLCV data sorted newest-first ──
@@ -22,6 +23,14 @@ function makeBars(count: number, base = 100, step = 1) {
     volume: 1_000_000,
   }));
 }
+
+describe('shouldSkipStartupPreCache', () => {
+  it('skips startup pre-cache during production build and scheduler jobs', () => {
+    expect(shouldSkipStartupPreCache({ NEXT_PHASE: 'phase-production-build' })).toBe(true);
+    expect(shouldSkipStartupPreCache({ HYBRIDTURTLE_SKIP_STARTUP_PRECACHE: 'true' })).toBe(true);
+    expect(shouldSkipStartupPreCache({ HYBRIDTURTLE_SKIP_STARTUP_PRECACHE: 'false' })).toBe(false);
+  });
+});
 
 describe('calculateMA', () => {
   it('calculates simple moving average of first N prices', () => {

@@ -1217,8 +1217,21 @@ export async function preCacheHistoricalData(): Promise<{
 // dev-mode hot-reloads.  Flag is set immediately (before setTimeout) to
 // prevent multiple queued callbacks if the module reloads within 3s.
 // Skipped during `next build` (NEXT_PHASE = phase-production-build).
+interface StartupPreCacheEnv {
+  NEXT_PHASE?: string;
+  HYBRIDTURTLE_SKIP_STARTUP_PRECACHE?: string;
+}
+
+export function shouldSkipStartupPreCache(env: StartupPreCacheEnv = {
+  NEXT_PHASE: process.env.NEXT_PHASE,
+  HYBRIDTURTLE_SKIP_STARTUP_PRECACHE: process.env.HYBRIDTURTLE_SKIP_STARTUP_PRECACHE,
+}): boolean {
+  return env.NEXT_PHASE === 'phase-production-build'
+    || env.HYBRIDTURTLE_SKIP_STARTUP_PRECACHE === 'true';
+}
+
 (function autoPreCache() {
-  if (process.env.NEXT_PHASE === 'phase-production-build') return;
+  if (shouldSkipStartupPreCache()) return;
   if (globalForCache.__hybridTurtlePreCacheStarted) return;
   globalForCache.__hybridTurtlePreCacheStarted = true;
   // Small delay to let the server finish booting before hammering Yahoo

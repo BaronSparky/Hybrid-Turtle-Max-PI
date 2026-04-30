@@ -67,6 +67,7 @@ data/t212-quota-events.json
 data/sentiment-trends.json
 smoke.log
 auto-trade.log
+midday-sync.log
 
 # HVE-Core AI workflow artifacts (local only)
 .copilot-tracking/

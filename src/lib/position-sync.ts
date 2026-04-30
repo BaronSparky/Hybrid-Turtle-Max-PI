@@ -40,6 +40,17 @@ export interface PositionSyncResult {
   errors: string[];
 }
 
+export interface PositionSyncOptions {
+  detectUntrackedSales?: boolean;
+}
+
+export function shouldFetchOrderHistoryForSync(options: {
+  hasMissingTrackedPosition: boolean;
+  detectUntrackedSales: boolean;
+}): boolean {
+  return options.hasMissingTrackedPosition || options.detectUntrackedSales;
+}
+
 // ── T212 Price Cache (in-memory) ─────────────────────────────────────
 // Stores last-known T212 prices from the most recent fetch.
 // Primary price source for portfolio display (real-time, not delayed).
@@ -389,7 +400,8 @@ interface ClosureCandidate {
  *
  * SAFETY: Aborts entirely (no closures) if T212 API fails or returns 0 positions.
  */
-export async function syncClosedPositions(userId: string = 'default-user'): Promise<PositionSyncResult> {
+export async function syncClosedPositions(userId: string = 'default-user', options: PositionSyncOptions = {}): Promise<PositionSyncResult> {
+  const detectUntrackedSalesEnabled = options.detectUntrackedSales ?? true;
   const result: PositionSyncResult = { checked: 0, closed: 0, skipped: 0, updated: 0, errors: [] };
 
   // 1. Fetch all OPEN positions from DB
@@ -480,33 +492,40 @@ export async function syncClosedPositions(userId: string = 'default-user'): Prom
   // Also build a set of just the T212 full tickers for quick lookups
   const t212OpenTickers = new Set(combinedPositions.map(p => p.fullTicker));
 
-  // Fetch order history once — used for exit price determination
-  // Use the invest client by default (most positions), with ISA fallback
+  const hasMissingTrackedPosition = openPositions.some((pos) => {
+    const t212Ticker = pos.t212Ticker || pos.stock.t212Ticker;
+    return Boolean(t212Ticker && !t212OpenTickers.has(t212Ticker));
+  });
+
+  // Fetch order history once only when needed. Routine midday syncs where all
+  // tracked positions are still open should not burn T212 history quota.
   let orderHistory: T212HistoricalOrder[] = [];
-  try {
-    const primaryClient = investCreds
-      ? new Trading212Client(investCreds.apiKey, investCreds.apiSecret, investCreds.environment)
-      : isaCreds
-        ? new Trading212Client(isaCreds.apiKey, isaCreds.apiSecret, isaCreds.environment)
-        : null;
+  if (shouldFetchOrderHistoryForSync({ hasMissingTrackedPosition, detectUntrackedSales: detectUntrackedSalesEnabled })) {
+    try {
+      const primaryClient = investCreds
+        ? new Trading212Client(investCreds.apiKey, investCreds.apiSecret, investCreds.environment)
+        : isaCreds
+          ? new Trading212Client(isaCreds.apiKey, isaCreds.apiSecret, isaCreds.environment)
+          : null;
 
-    if (primaryClient) {
-      orderHistory = await primaryClient.getOrderHistory(50);
-    }
-
-    // If ISA also exists and is separate, fetch its history too
-    if (investCreds && isaCreds) {
-      try {
-        const isaClient = new Trading212Client(isaCreds.apiKey, isaCreds.apiSecret, isaCreds.environment);
-        const isaOrders = await isaClient.getOrderHistory(50);
-        orderHistory = [...orderHistory, ...isaOrders];
-      } catch {
-        // ISA order history optional — invest orders are primary
+      if (primaryClient) {
+        orderHistory = await primaryClient.getOrderHistory(50);
       }
+
+      // If ISA also exists and is separate, fetch its history too
+      if (investCreds && isaCreds) {
+        try {
+          const isaClient = new Trading212Client(isaCreds.apiKey, isaCreds.apiSecret, isaCreds.environment);
+          const isaOrders = await isaClient.getOrderHistory(50);
+          orderHistory = [...orderHistory, ...isaOrders];
+        } catch {
+          // ISA order history optional — invest orders are primary
+        }
+      }
+    } catch (err) {
+      // Order history unavailable — we'll fall back to estimated prices
+      result.errors.push(`Order history fetch failed: ${(err as Error).message}`);
     }
-  } catch (err) {
-    // Order history unavailable — we'll fall back to estimated prices
-    result.errors.push(`Order history fetch failed: ${(err as Error).message}`);
   }
 
   // 3. For each OPEN position in HybridTurtle, check T212 status
@@ -574,7 +593,9 @@ export async function syncClosedPositions(userId: string = 'default-user'): Prom
   }
 
   // 4. Detect untracked T212 sales — sells in order history that don't match any DB position
-  await detectUntrackedSales(orderHistory, openPositions, userId, result);
+  if (detectUntrackedSalesEnabled) {
+    await detectUntrackedSales(orderHistory, openPositions, userId, result);
+  }
 
   return result;
 }
