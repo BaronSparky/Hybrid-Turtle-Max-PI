@@ -26,6 +26,12 @@ interface QuotaResponse {
   total: number;
   last24h: number;
   events: QuotaEvent[];
+  rateLimitNotifications: {
+    last24h: number;
+    last7d: number;
+    dedupedLast7d: number;
+    latestAt: string | null;
+  };
 }
 
 export default function T212QuotaEventsPanel() {
@@ -47,9 +53,11 @@ export default function T212QuotaEventsPanel() {
     fetchData();
   }, [fetchData]);
 
-  if (loading || !data || data.total === 0) return null;
+  if (loading || !data || (data.total === 0 && data.rateLimitNotifications.last7d === 0)) return null;
 
   const isCritical = data.last24h >= 5;
+  const notificationDedupeHealthy = data.rateLimitNotifications.last7d === 0
+    || data.rateLimitNotifications.dedupedLast7d === data.rateLimitNotifications.last7d;
   const tone = data.last24h === 0
     ? 'text-emerald-500'
     : data.last24h < 5
@@ -82,6 +90,21 @@ export default function T212QuotaEventsPanel() {
       <p className="text-xs text-muted-foreground mt-1">
         Rate-limit-low events recorded
       </p>
+
+      <div className="mt-3 rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-muted-foreground">Rate-limit alerts</span>
+          <span className={cn('font-mono', notificationDedupeHealthy ? 'text-emerald-500' : 'text-amber-500')}>
+            {data.rateLimitNotifications.last24h} / 24h
+          </span>
+        </div>
+        <div className="mt-1 flex items-center justify-between gap-3">
+          <span className="text-muted-foreground">Dedupe tagged</span>
+          <span className={cn('font-mono', notificationDedupeHealthy ? 'text-emerald-500' : 'text-amber-500')}>
+            {data.rateLimitNotifications.dedupedLast7d}/{data.rateLimitNotifications.last7d}
+          </span>
+        </div>
+      </div>
 
       {data.events.length > 0 && (
         <ul className="mt-3 space-y-1 text-[11px] text-muted-foreground max-h-24 overflow-auto">

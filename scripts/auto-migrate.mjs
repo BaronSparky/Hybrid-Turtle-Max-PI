@@ -14,7 +14,8 @@
  *    - Other failed migrations → mark as rolled-back, then retry
  * 3. If it fails due to tables already existing (P3018) → mark as applied
  * 4. Retries up to 3 times with auto-resolution between each attempt
- * 5. Exits 0 on success, 1 on unrecoverable failure
+ * 5. Checks known additive drift without applying it
+ * 6. Exits 0 on success, 1 on unrecoverable failure
  *
  * Usage:
  *   node scripts/auto-migrate.mjs            # normal (with log output)
@@ -24,7 +25,7 @@
 import { execSync, fork } from 'child_process';
 import { existsSync, readdirSync } from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -145,17 +146,49 @@ function extractMigrationName(output) {
 /** Run db-verify.mjs to catch any missing columns the migrations missed */
 function runSchemaVerify() {
   const verifyScript = path.join(__dirname, 'db-verify.mjs');
-  if (!existsSync(verifyScript)) return;
+  if (existsSync(verifyScript)) {
+    try {
+      const args = QUIET ? ['--quiet'] : [];
+      execSync(`node "${verifyScript}" ${args.join(' ')}`, {
+        cwd: ROOT,
+        encoding: 'utf-8',
+        stdio: 'inherit',
+        timeout: 30_000,
+      });
+    } catch {
+      // Non-fatal — don't block startup
+    }
+  }
+
+  runSchemaReconcileCheck();
+}
+
+/** Detect known additive schema drift, but never apply it from auto-migrate. */
+export function runSchemaReconcileCheck(options = {}) {
+  const reconcileScript = options.reconcileScript ?? path.join(__dirname, 'reconcile-schema-drift.mjs');
+  const quiet = options.quiet ?? QUIET;
+  const exec = options.exec ?? execSync;
+  const cwd = options.cwd ?? ROOT;
+  const reportError = options.reportError ?? logError;
+
+  if (!existsSync(reconcileScript)) return;
+
   try {
-    const args = QUIET ? ['--quiet'] : [];
-    execSync(`node "${verifyScript}" ${args.join(' ')}`, {
-      cwd: ROOT,
+    const args = ['--check'];
+    if (quiet) args.push('--quiet');
+    exec(`node "${reconcileScript}" ${args.join(' ')}`, {
+      cwd,
       encoding: 'utf-8',
-      stdio: 'inherit',
+      stdio: quiet ? 'pipe' : 'inherit',
       timeout: 30_000,
     });
-  } catch {
-    // Non-fatal — don't block startup
+  } catch (err) {
+    if (err.status === 2) {
+      reportError('Known additive schema drift detected. Run a backup, then inspect: node scripts/reconcile-schema-drift.mjs');
+      return;
+    }
+
+    reportError(`Schema reconciliation check failed: ${(err.stderr || err.message).trim()}`);
   }
 }
 
@@ -296,7 +329,9 @@ async function main() {
   process.exit(1);
 }
 
-main().catch(err => {
-  logError(`Unexpected error: ${err.message}`);
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  main().catch(err => {
+    logError(`Unexpected error: ${err.message}`);
+    process.exit(1);
+  });
+}

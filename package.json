@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "db:verify": "node scripts/db-verify.mjs",
+    "db:reconcile": "node scripts/reconcile-schema-drift.mjs",
     "refresh:daily-bars": "tsx scripts/refresh-universe-daily-bars.ts",
     "market-data:scheduler": "tsx scripts/start-market-data-scheduler.ts",
     "broker:sync": "tsx scripts/broker-sync.ts",
