@@ -628,6 +628,7 @@ async function detectUntrackedSales(
         message: `Trading 212 shows a recent SELL for ${baseTicker} (${sell.ticker}) that is not tracked in HybridTurtle.\n\nFill price: ${fillPrice.toFixed(2)} · Qty: ${sell.filledQuantity}\nDate: ${sell.dateExecuted}\n\nThis position was not in your portfolio. Use "Record Past Trade" on the Trade Review page to log it.`,
         data: { t212Ticker: sell.ticker, baseTicker, fillPrice, quantity: sell.filledQuantity, dateExecuted: sell.dateExecuted },
         priority: 'WARNING',
+        telegramDedupeKey: `position-sync:untracked-sale:${sell.ticker}:${sell.dateExecuted}`,
       });
     } catch {
       // Alert send failure — non-blocking

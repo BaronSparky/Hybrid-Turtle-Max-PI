@@ -59,9 +59,10 @@ jobs:
           BROKER_ADAPTER: mock
           DISABLE_API_AUTH: 'true'
           NODE_ENV: production
+          SMOKE_ALLOW_BLOCKED: '1'
           SMOKE_TRIGGER_SCAN: '1'
         run: |
-          npm run db:deploy
+          npm run db:auto-migrate -- --quiet
           npm run db:seed
           npm run start > /tmp/hybridturtle-next.log 2>&1 &
           for i in {1..60}; do

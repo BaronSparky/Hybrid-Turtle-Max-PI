@@ -28,7 +28,7 @@ fi
 # when the endpoint is unreachable; that's our "skip" signal.
 if curl -sfm 2 http://localhost:3000/api/system-status > /dev/null 2>&1; then
   echo "[pre-push] Dashboard reachable — running smoke test..."
-  if ! npm run smoke; then
+  if ! BASE_URL=http://localhost:3000 SMOKE_ALLOW_BLOCKED= SMOKE_TRIGGER_SCAN= npm run smoke; then
     echo "[pre-push] Smoke test FAILED. Push aborted."
     echo "[pre-push] Re-run with --no-verify to override after investigating."
     exit 1

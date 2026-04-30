@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { createChart, ColorType, CrosshairMode, LineStyle, type Time } from 'lightweight-charts';
 import { cn } from '@/lib/utils';
-import { ApiClientError, apiRequest } from '@/lib/api-client';
+import { apiRequest, formatApiError } from '@/lib/api-client';
 import { TrendingUp, Activity, Hash, Loader2, RotateCcw } from 'lucide-react';
 
 // ── Types ──
@@ -181,7 +181,7 @@ export default function TickerChart({ tickers, initialTicker }: TickerChartProps
       const sorted = [...(data.bars || [])].reverse();
       setBars(sorted);
     } catch (error) {
-      setError(error instanceof ApiClientError ? error.message : 'Failed to fetch data');
+      setError(formatApiError(error, 'Failed to fetch data'));
       setBars([]);
     } finally {
       setLoading(false);
@@ -451,39 +451,46 @@ export default function TickerChart({ tickers, initialTicker }: TickerChartProps
     onClick,
     icon: Icon,
     label,
-    color,
+    variant,
   }: {
     active: boolean;
     onClick: () => void;
     icon: React.ElementType;
     label: string;
-    color: string;
-  }) => (
-    <button
-      onClick={onClick}
-      className={cn(
-        'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all',
-        active
-          ? `bg-opacity-20 border`
-          : 'bg-navy-700/50 text-muted-foreground border border-transparent hover:border-border'
-      )}
-      style={
-        active
-          ? { backgroundColor: `${color}20`, borderColor: `${color}50`, color }
-          : undefined
-      }
-    >
-      <Icon className="w-3.5 h-3.5" />
-      {label}
-      <span
+    variant: 'cyan' | 'blue' | 'amber';
+  }) => {
+    const activeStyles = {
+      cyan: 'bg-cyan-400/20 border-cyan-400/50 text-cyan-300',
+      blue: 'bg-blue-500/20 border-blue-500/50 text-blue-400',
+      amber: 'bg-amber-500/20 border-amber-500/50 text-amber-400',
+    }[variant];
+    const dotStyles = {
+      cyan: 'bg-cyan-300',
+      blue: 'bg-blue-400',
+      amber: 'bg-amber-400',
+    }[variant];
+
+    return (
+      <button
+        onClick={onClick}
         className={cn(
-          'w-1.5 h-1.5 rounded-full ml-0.5',
-          active ? 'opacity-100' : 'opacity-0'
+          'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border',
+          active
+            ? activeStyles
+            : 'bg-navy-700/50 text-muted-foreground border-transparent hover:border-border'
         )}
-        style={{ backgroundColor: color }}
-      />
-    </button>
-  );
+      >
+        <Icon className="w-3.5 h-3.5" />
+        {label}
+        <span
+          className={cn(
+            'w-1.5 h-1.5 rounded-full ml-0.5',
+            active ? cn('opacity-100', dotStyles) : 'opacity-0'
+          )}
+        />
+      </button>
+    );
+  };
 
   return (
     <div className="card-surface overflow-hidden">
@@ -501,21 +508,21 @@ export default function TickerChart({ tickers, initialTicker }: TickerChartProps
               onClick={() => setShowRSI(!showRSI)}
               icon={Activity}
               label="RSI"
-              color="#22d3ee"
+              variant="cyan"
             />
             <ToggleBtn
               active={showMACD}
               onClick={() => setShowMACD(!showMACD)}
               icon={TrendingUp}
               label="MACD"
-              color="#3b82f6"
+              variant="blue"
             />
             <ToggleBtn
               active={showFib}
               onClick={() => setShowFib(!showFib)}
               icon={Hash}
               label="Fib"
-              color="#f59e0b"
+              variant="amber"
             />
             <button
               onClick={() => fetchData(selectedTicker)}

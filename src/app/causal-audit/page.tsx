@@ -79,8 +79,8 @@ function InvarianceBar({ signal }: { signal: SignalInvariance }) {
       <span className="text-sm text-muted-foreground w-28 truncate" title={label}>{label}</span>
       <div className="flex-1 h-4 bg-navy-800/60 rounded-full overflow-hidden relative">
         {/* Threshold markers at 40% and 70% (spec) mapped to 0.3 and 0.6 invariance scale */}
-        <div className="absolute top-0 bottom-0 w-px bg-amber-500/30 z-10" style={{ left: '30%' }} title="Mixed/Spurious threshold" />
-        <div className="absolute top-0 bottom-0 w-px bg-emerald-500/30 z-10" style={{ left: '60%' }} title="Causal/Mixed threshold" />
+        <div className="absolute top-0 bottom-0 w-px bg-amber-500/30 z-10 left-[30%]" title="Mixed/Spurious threshold" />
+        <div className="absolute top-0 bottom-0 w-px bg-emerald-500/30 z-10 left-[60%]" title="Causal/Mixed threshold" />
         <div
           className={cn('h-full rounded-full transition-all duration-500',
             signal.classification === 'CAUSAL' ? 'bg-emerald-500/70' :

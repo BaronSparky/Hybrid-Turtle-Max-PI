@@ -21,7 +21,7 @@ import DualScoreTable from '@/components/scan/scores/DualScoreTable';
 import WhyCard from '@/components/scan/scores/WhyCard';
 import ScoringGuide from '@/components/scan/scores/ScoringGuide';
 import type { ScoredTicker } from '@/lib/dual-score';
-import { ApiClientError, apiRequest } from '@/lib/api-client';
+import { apiRequest, formatApiError } from '@/lib/api-client';
 import { BarChart3, RefreshCw, CloudDownload, Database, FileText } from 'lucide-react';
 
 interface ScoresResponse {
@@ -65,7 +65,7 @@ export default function ScoresTab() {
       const result = await apiRequest<ScoresResponse>('/api/scan/scores');
       setData(result);
     } catch (error) {
-      setError(error instanceof ApiClientError ? error.message : 'Failed to load dual score data');
+      setError(formatApiError(error, 'Failed to load dual score data'));
     } finally {
       setLoading(false);
     }
@@ -83,7 +83,7 @@ export default function ScoresTab() {
       setSyncMessage(body.message ?? 'Sync completed');
       await fetchScores();
     } catch (error) {
-      const message = error instanceof ApiClientError ? error.message : 'Unknown sync error';
+      const message = formatApiError(error, 'Unknown sync error');
       setSyncMessage(`Sync failed: ${message}`);
     } finally {
       setSyncing(false);

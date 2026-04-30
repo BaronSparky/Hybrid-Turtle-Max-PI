@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { formatCurrency } from '@/lib/utils';
-import { ApiClientError, apiRequest } from '@/lib/api-client';
+import { apiRequest, formatApiError } from '@/lib/api-client';
 import {
   RefreshCw,
   TrendingUp,
@@ -81,7 +81,7 @@ export default function T212SyncPanel({ onSyncComplete }: T212SyncPanelProps) {
       setStatus(data);
       setLoaded(true);
     } catch (error) {
-      setError(error instanceof ApiClientError ? error.message : 'Failed to load sync status');
+      setError(formatApiError(error, 'Failed to load sync status'));
     }
   };
 
@@ -102,7 +102,7 @@ export default function T212SyncPanel({ onSyncComplete }: T212SyncPanelProps) {
       // Reload status
       await loadStatus();
     } catch (error) {
-      setError(error instanceof ApiClientError ? error.message : 'Sync failed — check your connection');
+      setError(formatApiError(error, 'Sync failed — check your connection'));
     } finally {
       setSyncing(false);
     }
@@ -126,7 +126,7 @@ export default function T212SyncPanel({ onSyncComplete }: T212SyncPanelProps) {
       setAccountTypeSyncResult(data.summary);
       onSyncComplete?.();
     } catch (error) {
-      setError(error instanceof ApiClientError ? error.message : 'Account type sync failed');
+      setError(formatApiError(error, 'Account type sync failed'));
     } finally {
       setSyncingAccountTypes(false);
     }

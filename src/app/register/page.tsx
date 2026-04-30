@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { UserPlus, Shield, Eye, EyeOff, Loader2 } from 'lucide-react';
 import Link from 'next/link';
-import { ApiClientError, apiRequest } from '@/lib/api-client';
+import { apiRequest, formatApiError } from '@/lib/api-client';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -41,7 +41,7 @@ export default function RegisterPage() {
       });
       router.push('/login?registered=true');
     } catch (error) {
-      setError(error instanceof ApiClientError ? error.message : 'An error occurred. Please try again.');
+      setError(formatApiError(error, 'An error occurred. Please try again.'));
     } finally {
       setLoading(false);
     }

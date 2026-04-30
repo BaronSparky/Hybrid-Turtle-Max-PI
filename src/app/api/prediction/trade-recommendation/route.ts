@@ -84,6 +84,8 @@ export async function GET(request: NextRequest) {
             message: `RL advisor recommends early exit: ${ticker} — ${Math.round(output.confidence * 100)}% confidence`,
             priority: 'WARNING',
             data: { ticker, confidence: output.confidence },
+            telegramDedupeKey: `prediction:rl-exit-early:${ticker}`,
+            telegramThrottleMs: 6 * 60 * 60 * 1000,
           });
         }
       } catch { /* non-critical */ }

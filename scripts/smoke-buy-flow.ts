@@ -14,6 +14,7 @@
  */
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:3000';
+const ALLOW_BLOCKED = process.env.SMOKE_ALLOW_BLOCKED === '1';
 
 interface CheckResult {
   name: string;
@@ -93,6 +94,7 @@ async function checkScanTrigger(): Promise<CheckResult> {
 
 async function main(): Promise<void> {
   console.log(`[smoke-buy-flow] BASE_URL=${BASE_URL}`);
+  if (ALLOW_BLOCKED) console.log('[smoke-buy-flow] SMOKE_ALLOW_BLOCKED=1');
   console.log('');
 
   const results: CheckResult[] = [];
@@ -101,6 +103,7 @@ async function main(): Promise<void> {
     await checkEndpoint('system-status', '/api/system-status', (json) => {
       const j = json as { readiness?: string };
       if (!j.readiness) return 'missing readiness field';
+      if (j.readiness === 'BLOCKED' && ALLOW_BLOCKED) return null;
       if (j.readiness === 'BLOCKED') return `system BLOCKED (cannot trade)`;
       return null;
     })

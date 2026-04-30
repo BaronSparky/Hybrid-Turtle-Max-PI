@@ -12,7 +12,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
-import { apiRequest, ApiClientError } from '@/lib/api-client';
+import { apiRequest, ApiClientError, formatApiError } from '@/lib/api-client';
 import {
   RefreshCw,
   Check,
@@ -121,11 +121,7 @@ export default function PositionSyncButton({ onSyncComplete }: PositionSyncButto
         startCooldown(wait);
       } else {
         setState('error');
-        setErrorMessage(
-          err instanceof ApiClientError
-            ? err.message
-            : 'Could not reach Trading 212. Check your API credentials in Settings.'
-        );
+        setErrorMessage(formatApiError(err, 'Could not reach Trading 212. Check your API credentials in Settings.'));
         resetAfterDelay(8000);
       }
     }

@@ -131,6 +131,7 @@ export default function RecordPastTradeModal({ isOpen, onClose, onSaved }: Recor
           </h2>
           <button
             onClick={onClose}
+            title="Close"
             className="text-muted-foreground hover:text-foreground transition-colors"
           >
             <X className="w-5 h-5" />
@@ -164,6 +165,7 @@ export default function RecordPastTradeModal({ isOpen, onClose, onSaved }: Recor
             <div>
               <label className="block text-sm text-muted-foreground mb-1">Trade Type *</label>
               <select
+                title="Trade type"
                 value={tradeType}
                 onChange={(e) => setTradeType(e.target.value as TradeType)}
                 className="input-field w-full"
@@ -181,6 +183,7 @@ export default function RecordPastTradeModal({ isOpen, onClose, onSaved }: Recor
               </label>
               <input
                 type="date"
+                title="Trade date"
                 value={tradeDate}
                 onChange={(e) => setTradeDate(e.target.value)}
                 className="input-field w-full"

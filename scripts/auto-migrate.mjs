@@ -28,7 +28,19 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
-const DB_PATH = path.join(ROOT, 'prisma', 'dev.db');
+const PRISMA_DIR = path.join(ROOT, 'prisma');
+
+function resolveSqliteDbPath(databaseUrl) {
+  if (!databaseUrl?.startsWith('file:')) {
+    return path.join(PRISMA_DIR, 'dev.db');
+  }
+
+  const filePath = databaseUrl.slice('file:'.length);
+  if (path.isAbsolute(filePath)) return filePath;
+  return path.resolve(PRISMA_DIR, filePath);
+}
+
+const DB_PATH = resolveSqliteDbPath(process.env.DATABASE_URL);
 const MIGRATIONS_DIR = path.join(ROOT, 'prisma', 'migrations');
 
 const QUIET = process.argv.includes('--quiet');

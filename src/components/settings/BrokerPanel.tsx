@@ -350,16 +350,16 @@ export default function BrokerPanel() {
             <h3 className="text-sm font-semibold text-foreground mb-2">Monday / Weekend Gap</h3>
             <p className="text-[10px] text-muted-foreground mb-3">3-day gap after weekend close</p>
             <div className="grid grid-cols-2 gap-3">
-              <div><label className="block text-xs text-muted-foreground mb-1">ATR multiple</label><input type="number" step="0.05" min="0.1" max="5.0" value={gapGuardWeekendATR} onChange={(e) => { setGapGuardWeekendATR(e.target.value); setGapDirty(true); }} className="input-field w-full text-sm" /></div>
-              <div><label className="block text-xs text-muted-foreground mb-1">Percent</label><div className="relative"><input type="number" step="0.5" min="0.5" max="20" value={gapGuardWeekendPct} onChange={(e) => { setGapGuardWeekendPct(e.target.value); setGapDirty(true); }} className="input-field w-full text-sm pr-6" /><span className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">%</span></div></div>
+              <div><label className="block text-xs text-muted-foreground mb-1">ATR multiple</label><input title="Weekend gap ATR multiple" type="number" step="0.05" min="0.1" max="5.0" value={gapGuardWeekendATR} onChange={(e) => { setGapGuardWeekendATR(e.target.value); setGapDirty(true); }} className="input-field w-full text-sm" /></div>
+              <div><label className="block text-xs text-muted-foreground mb-1">Percent</label><div className="relative"><input title="Weekend gap percent" type="number" step="0.5" min="0.5" max="20" value={gapGuardWeekendPct} onChange={(e) => { setGapGuardWeekendPct(e.target.value); setGapDirty(true); }} className="input-field w-full text-sm pr-6" /><span className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">%</span></div></div>
             </div>
           </div>
           <div className={cn('p-4 rounded-lg border bg-surface-2/50', gapGuardMode === 'ALL' ? 'border-white/10' : 'border-white/5 opacity-40')}>
             <h3 className="text-sm font-semibold text-foreground mb-2">Tuesday–Friday Gap</h3>
             <p className="text-[10px] text-muted-foreground mb-3">1-day gap</p>
             <div className="grid grid-cols-2 gap-3">
-              <div><label className="block text-xs text-muted-foreground mb-1">ATR multiple</label><input type="number" step="0.05" min="0.1" max="5.0" value={gapGuardDailyATR} onChange={(e) => { setGapGuardDailyATR(e.target.value); setGapDirty(true); }} className="input-field w-full text-sm" disabled={gapGuardMode === 'MONDAY_ONLY'} /></div>
-              <div><label className="block text-xs text-muted-foreground mb-1">Percent</label><div className="relative"><input type="number" step="0.5" min="0.5" max="20" value={gapGuardDailyPct} onChange={(e) => { setGapGuardDailyPct(e.target.value); setGapDirty(true); }} className="input-field w-full text-sm pr-6" disabled={gapGuardMode === 'MONDAY_ONLY'} /><span className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">%</span></div></div>
+              <div><label className="block text-xs text-muted-foreground mb-1">ATR multiple</label><input title="Daily gap ATR multiple" type="number" step="0.05" min="0.1" max="5.0" value={gapGuardDailyATR} onChange={(e) => { setGapGuardDailyATR(e.target.value); setGapDirty(true); }} className="input-field w-full text-sm" disabled={gapGuardMode === 'MONDAY_ONLY'} /></div>
+              <div><label className="block text-xs text-muted-foreground mb-1">Percent</label><div className="relative"><input title="Daily gap percent" type="number" step="0.5" min="0.5" max="20" value={gapGuardDailyPct} onChange={(e) => { setGapGuardDailyPct(e.target.value); setGapDirty(true); }} className="input-field w-full text-sm pr-6" disabled={gapGuardMode === 'MONDAY_ONLY'} /><span className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">%</span></div></div>
             </div>
           </div>
         </div>

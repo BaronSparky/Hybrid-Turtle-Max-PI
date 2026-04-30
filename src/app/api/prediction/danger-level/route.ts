@@ -42,6 +42,8 @@ export async function GET() {
             message: `Market environment pattern-matches historical danger period [${topMatch.label}] similarity: ${Math.round(topMatch.similarity * 100)}%`,
             priority: 'WARNING',
             data: { dangerScore: result.dangerScore, topMatch: topMatch.label },
+            telegramDedupeKey: 'prediction:danger-level-high',
+            telegramThrottleMs: DANGER_ALERT_COOLDOWN_MS,
           });
         }
       } catch {

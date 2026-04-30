@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { cn, formatCurrency, formatPrice } from '@/lib/utils';
-import { ApiClientError, apiRequest } from '@/lib/api-client';
+import { apiRequest, formatApiError } from '@/lib/api-client';
 import {
   TrendingUp,
   RefreshCw,
@@ -55,9 +55,7 @@ export default function TrailingStopPanel() {
           : `Found ${data.recommendations.length} trailing stop update(s)`
       );
     } catch (error) {
-      setLastAction(
-        error instanceof ApiClientError ? error.message : 'Failed to calculate trailing stops'
-      );
+      setLastAction(formatApiError(error, 'Failed to calculate trailing stops'));
     } finally {
       setLoading(false);
     }
@@ -76,7 +74,7 @@ export default function TrailingStopPanel() {
         `Applied ${data.applied} trailing stop update(s)${data.blocked > 0 ? `, ${data.blocked} blocked` : ''}`
       );
     } catch (error) {
-      setLastAction(error instanceof ApiClientError ? error.message : 'Failed to apply trailing stops');
+      setLastAction(formatApiError(error, 'Failed to apply trailing stops'));
     } finally {
       setApplying(false);
     }
@@ -95,11 +93,7 @@ export default function TrailingStopPanel() {
         `Imported from CSV: ${data.results?.filter((r: SyncResult) => r.action === 'UPDATED').length || 0} updated, ${data.matchedPositions} matched`
       );
     } catch (error) {
-      setLastAction(
-        error instanceof ApiClientError
-          ? error.message
-          : 'Failed to import from CSV — ensure positions_state.csv exists in Planning/'
-      );
+      setLastAction(formatApiError(error, 'Failed to import from CSV — ensure positions_state.csv exists in Planning/'));
     } finally {
       setImporting(false);
     }

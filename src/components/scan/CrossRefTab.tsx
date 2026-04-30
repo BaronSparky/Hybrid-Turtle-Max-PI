@@ -28,7 +28,7 @@ import {
   XCircle,
   Minus,
 } from 'lucide-react';
-import { ApiClientError, apiRequest } from '@/lib/api-client';
+import { apiRequest, formatApiError } from '@/lib/api-client';
 
 // ── Types ──────────────────────────────────────────────────
 interface CrossRefTicker {
@@ -322,7 +322,7 @@ export default function CrossRefTab() {
       const result = await apiRequest<CrossRefData>('/api/scan/cross-ref');
       setData(result);
     } catch (error) {
-      setError(error instanceof ApiClientError ? error.message : 'Failed to load cross-reference data');
+      setError(formatApiError(error, 'Failed to load cross-reference data'));
     } finally {
       setLoading(false);
     }
@@ -501,6 +501,7 @@ export default function CrossRefTab() {
           />
         </div>
         <select
+          title="Sleeve filter"
           value={sleeveFilter}
           onChange={(e) => setSleeveFilter(e.target.value)}
           className="bg-navy-800 border border-navy-600 text-sm text-foreground rounded-lg px-3 py-2 focus:border-primary/50 focus:outline-none"

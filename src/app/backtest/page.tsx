@@ -372,6 +372,7 @@ export default function BacktestPage() {
               </label>
               <input
                 type="date"
+                title="Replay date"
                 value={replayDate}
                 onChange={(event) => setReplayDate(event.target.value)}
                 disabled={!useReplayDate}
