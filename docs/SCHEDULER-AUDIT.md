@@ -32,6 +32,12 @@ The smoke command also runs the scheduler audit:
 npm run smoke
 ```
 
+Retired-task cleanup can be run from an elevated administrator shell:
+
+```powershell
+npm run tasks:cleanup-retired
+```
+
 ## Finding Severity
 
 Errors mean a load-bearing task is missing or points at the wrong target. Fix
@@ -40,6 +46,20 @@ errors before trusting scheduled automation.
 Warnings mean the system is still operational, but there is drift to clean up.
 Common warning examples include disabled retired tasks, old non-zero task
 results, or disabled tasks that are intentionally offline.
+
+## Accepted Task Results
+
+The audit accepts these Windows Task Scheduler result codes as healthy or
+informational states:
+
+| Code | Meaning | Audit treatment |
+|------|---------|-----------------|
+| `0` | Last run completed successfully | Accepted |
+| `267009` | Task is currently running | Accepted |
+| `267011` | Task has not run yet | Accepted |
+
+Other non-zero result codes are warnings unless the task also has a broken
+target path or missing expected action.
 
 ## Common Repairs
 
@@ -58,6 +78,12 @@ schtasks /Delete /TN "HybridTurtle Intraday Alert" /F
 
 If deletion returns `Access is denied`, open the shell as administrator and run
 the command again.
+
+You can also run the retired-task cleanup helper from an elevated shell:
+
+```powershell
+npm run tasks:cleanup-retired
+```
 
 ### Midday Sync Drift
 

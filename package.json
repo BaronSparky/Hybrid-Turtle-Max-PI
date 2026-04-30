@@ -26,6 +26,7 @@
     "test:unit:watch": "vitest",
     "smoke": "tsx scripts/smoke-buy-flow.ts && node scripts/audit-scheduled-tasks.mjs",
     "tasks:audit": "node scripts/audit-scheduled-tasks.mjs",
+    "tasks:cleanup-retired": "node scripts/cleanup-retired-scheduled-tasks.mjs",
     "audit:harness": "npx tsx scripts/audit_harness.ts",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
