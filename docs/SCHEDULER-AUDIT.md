@@ -16,8 +16,11 @@ estimated_reading_time: 4
 
 HybridTurtle relies on Windows Task Scheduler for live operational jobs such as
 nightly processing, watchdog checks, midday broker sync, auto-trade sessions,
-briefings, and ticker audits. The scheduler audit checks that those tasks still
-point at this repository and that retired legacy tasks are not active.
+briefings, ticker audits, and the daily research-refresh enrichment. The
+scheduler audit checks that those tasks still point at this repository, that
+each expected task has a register script, that the most recent nightly database
+backup is fresher than the 48 h pre-execution gate, and that retired legacy
+tasks are not active.
 
 Run the audit after installer changes, machine moves, task repairs, or any
 unexpected missed automation window.
@@ -124,6 +127,37 @@ Repair them from an elevated shell with:
 > Do not manually run the `uk`, `us`, or `us-close` auto-trade sessions unless
 > you intend to allow the live order path. The scheduled task registration is
 > safe; the trading sessions themselves can place orders when enabled.
+
+### Research Refresh Missing
+
+`HybridTurtle-ResearchRefresh` runs `research-refresh-task.bat --scheduled`
+daily at 23:00. The job is idempotent and runs after nightly + the final T212
+sync to enrich candidate outcomes (5d/10d/20d returns). Repair from an elevated
+PowerShell session:
+
+```powershell
+.\scripts\register-weekly-tasks.ps1
+```
+
+### Stale Database Backup
+
+The audit also checks the newest `dev.db.backup-*` file in `prisma/backups/`
+against a 48 h threshold matching the pre-execution `BACKUP` HARD_BLOCK gate.
+A `BACKUP_STALE` or `NO_NIGHTLY_BACKUP` finding means the nightly backup step
+has not produced a fresh file. Run the nightly process to create one:
+
+```powershell
+.\nightly-task.bat
+```
+
+### Register Script Drift
+
+Each expected task is mapped to a register script in
+`scripts/audit-scheduled-tasks.mjs`. The audit verifies the script still
+exists and references both the task name and target `.bat` file. Findings such
+as `REGISTER_SCRIPT_MISSING`, `REGISTER_SCRIPT_TASK_NAME_NOT_FOUND`, or
+`REGISTER_SCRIPT_TARGET_NOT_REFERENCED` indicate one of the install scripts has
+drifted from the manifest.
 
 ## Verification
 

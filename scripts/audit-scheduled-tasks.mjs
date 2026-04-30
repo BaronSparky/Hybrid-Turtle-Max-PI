@@ -7,7 +7,7 @@
  */
 
 import { execFileSync } from 'child_process';
-import { existsSync } from 'fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 
@@ -16,19 +16,20 @@ const ROOT = path.resolve(__dirname, '..');
 const QUIET = process.argv.includes('--quiet');
 
 export const EXPECTED_TASKS = [
-  { name: 'HybridTurtle Nightly', requiredPath: 'nightly-task.bat' },
-  { name: 'HybridTurtle Watchdog', requiredPath: 'watchdog-task.bat' },
-  { name: 'HybridTurtle Midday Sync', requiredPath: 'midday-sync-task.bat' },
-  { name: 'HybridTurtle-Scan', requiredPath: 'auto-trade-task.bat', requiredArgument: 'scan' },
-  { name: 'HybridTurtle-Trade-UK', requiredPath: 'auto-trade-task.bat', requiredArgument: 'uk' },
-  { name: 'HybridTurtle-Trade-US', requiredPath: 'auto-trade-task.bat', requiredArgument: 'us' },
-  { name: 'HybridTurtle-Trade-USC', requiredPath: 'auto-trade-task.bat', requiredArgument: 'us-close' },
-  { name: 'HybridTurtle-HourlyStatus', requiredPath: 'hourly-status-task.bat' },
-  { name: 'HybridTurtle-MondayBriefing', requiredPath: 'monday-briefing-task.bat' },
-  { name: 'HybridTurtle-UKBriefing', requiredPath: 'uk-briefing-task.bat' },
-  { name: 'HybridTurtle-USBriefing', requiredPath: 'us-briefing-task.bat' },
-  { name: 'HybridTurtle-WeeklyDigest', requiredPath: 'weekly-digest-task.bat' },
-  { name: 'HybridTurtle-TickerAudit', requiredPath: 'ticker-audit-task.bat' },
+  { name: 'HybridTurtle Nightly', requiredPath: 'nightly-task.bat', registerScript: 'register-nightly-task.ps1' },
+  { name: 'HybridTurtle Watchdog', requiredPath: 'watchdog-task.bat', registerScript: 'register-watchdog-task.bat' },
+  { name: 'HybridTurtle Midday Sync', requiredPath: 'midday-sync-task.bat', registerScript: 'register-midday-sync.ps1' },
+  { name: 'HybridTurtle-Scan', requiredPath: 'auto-trade-task.bat', requiredArgument: 'scan', registerScript: 'register-auto-trade.bat' },
+  { name: 'HybridTurtle-Trade-UK', requiredPath: 'auto-trade-task.bat', requiredArgument: 'uk', registerScript: 'register-auto-trade.bat' },
+  { name: 'HybridTurtle-Trade-US', requiredPath: 'auto-trade-task.bat', requiredArgument: 'us', registerScript: 'register-auto-trade.bat' },
+  { name: 'HybridTurtle-Trade-USC', requiredPath: 'auto-trade-task.bat', requiredArgument: 'us-close', registerScript: 'register-auto-trade.bat' },
+  { name: 'HybridTurtle-HourlyStatus', requiredPath: 'hourly-status-task.bat', registerScript: 'register-auto-trade.bat' },
+  { name: 'HybridTurtle-MondayBriefing', requiredPath: 'monday-briefing-task.bat', registerScript: 'scripts/register-weekly-tasks.ps1' },
+  { name: 'HybridTurtle-UKBriefing', requiredPath: 'uk-briefing-task.bat', registerScript: 'scripts/register-weekly-tasks.ps1' },
+  { name: 'HybridTurtle-USBriefing', requiredPath: 'us-briefing-task.bat', registerScript: 'scripts/register-weekly-tasks.ps1' },
+  { name: 'HybridTurtle-WeeklyDigest', requiredPath: 'weekly-digest-task.bat', registerScript: 'scripts/register-weekly-tasks.ps1' },
+  { name: 'HybridTurtle-TickerAudit', requiredPath: 'ticker-audit-task.bat', registerScript: 'scripts/register-weekly-tasks.ps1' },
+  { name: 'HybridTurtle-ResearchRefresh', requiredPath: 'research-refresh-task.bat', requiredArgument: '--scheduled', registerScript: 'scripts/register-weekly-tasks.ps1' },
 ];
 
 export const RETIRED_TASKS = [
@@ -174,6 +175,94 @@ export function runSchedulerAudit(options = {}) {
   return auditScheduledTasks(parseSchtasksCsv(output), options);
 }
 
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export function auditRegisterScripts(options = {}) {
+  const repoRoot = options.repoRoot ?? ROOT;
+  const expectedTasks = options.expectedTasks ?? EXPECTED_TASKS;
+  const readFile = options.readFile ?? ((filePath) => readFileSync(filePath, 'utf8'));
+  const exists = options.existsSync ?? existsSync;
+  const findings = [];
+
+  for (const task of expectedTasks) {
+    if (!task.registerScript) {
+      findings.push({ severity: 'WARNING', taskName: task.name, reason: 'MANIFEST_MISSING_REGISTER_SCRIPT', detail: 'No registerScript field on manifest entry' });
+      continue;
+    }
+
+    const scriptPath = path.join(repoRoot, task.registerScript);
+    if (!exists(scriptPath)) {
+      findings.push({ severity: 'ERROR', taskName: task.name, reason: 'REGISTER_SCRIPT_MISSING', detail: `Register script not found: ${task.registerScript}` });
+      continue;
+    }
+
+    let contents = '';
+    try {
+      contents = readFile(scriptPath);
+    } catch (err) {
+      findings.push({ severity: 'ERROR', taskName: task.name, reason: 'REGISTER_SCRIPT_UNREADABLE', detail: err.message });
+      continue;
+    }
+
+    const namePattern = new RegExp(`["']${escapeRegex(task.name)}["']`);
+    if (!namePattern.test(contents)) {
+      findings.push({ severity: 'ERROR', taskName: task.name, reason: 'REGISTER_SCRIPT_TASK_NAME_NOT_FOUND', detail: `Task name not present in ${task.registerScript}` });
+      continue;
+    }
+
+    const targetBat = task.requiredPath;
+    // Match the basename so registerScripts that reference the target via
+    // forward-slash, backslash, or no path separator all satisfy the check.
+    const targetBasename = path.basename(targetBat);
+    const batPattern = new RegExp(escapeRegex(targetBasename), 'i');
+    if (!batPattern.test(contents)) {
+      findings.push({ severity: 'WARNING', taskName: task.name, reason: 'REGISTER_SCRIPT_TARGET_NOT_REFERENCED', detail: `Target ${targetBat} not referenced in ${task.registerScript}` });
+    }
+  }
+
+  return findings;
+}
+
+export function auditDatabaseBackup(options = {}) {
+  const repoRoot = options.repoRoot ?? ROOT;
+  const backupDir = options.backupDir ?? path.join(repoRoot, 'prisma', 'backups');
+  const maxAgeHours = options.maxAgeHours ?? 48;
+  const nowMs = options.nowMs ?? Date.now();
+  const exists = options.existsSync ?? existsSync;
+  const readDir = options.readdirSync ?? readdirSync;
+  const stat = options.statSync ?? statSync;
+
+  if (!exists(backupDir)) {
+    return [{ severity: 'WARNING', taskName: 'db-backup', reason: 'BACKUP_DIR_MISSING', detail: backupDir }];
+  }
+
+  const candidates = readDir(backupDir)
+    .filter((fileName) => /^dev\.db\.backup-\d{4}-\d{2}-\d{2}-\d{4}$/.test(fileName));
+
+  if (candidates.length === 0) {
+    return [{ severity: 'ERROR', taskName: 'db-backup', reason: 'NO_NIGHTLY_BACKUP', detail: 'No dev.db.backup-* files found; nightly backup may not be running.' }];
+  }
+
+  let newestMtime = 0;
+  let newestName = '';
+  for (const fileName of candidates) {
+    const stats = stat(path.join(backupDir, fileName));
+    if (stats.mtimeMs > newestMtime) {
+      newestMtime = stats.mtimeMs;
+      newestName = fileName;
+    }
+  }
+
+  const ageHours = (nowMs - newestMtime) / (1000 * 60 * 60);
+  if (ageHours > maxAgeHours) {
+    return [{ severity: 'ERROR', taskName: 'db-backup', reason: 'BACKUP_STALE', detail: `Newest backup ${newestName} is ${ageHours.toFixed(1)}h old (>${maxAgeHours}h). Pre-execution gate will HARD_BLOCK trading.` }];
+  }
+
+  return [];
+}
+
 function logFindings(findings) {
   if (findings.length === 0) {
     if (!QUIET) console.log('[scheduler-audit] OK: all expected HybridTurtle scheduled tasks are registered with valid targets.');
@@ -186,7 +275,11 @@ function logFindings(findings) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  const findings = runSchedulerAudit();
+  const findings = [
+    ...runSchedulerAudit(),
+    ...auditRegisterScripts(),
+    ...auditDatabaseBackup(),
+  ];
   logFindings(findings);
   process.exit(findings.some((finding) => finding.severity === 'ERROR') ? 1 : 0);
 }

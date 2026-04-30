@@ -45,8 +45,15 @@ schtasks /Create /TN "HybridTurtle-TickerAudit" /SC MONTHLY /D 1 /ST 06:00 /TR "
 Set-TaskResilient "HybridTurtle-TickerAudit"
 Write-Host "Ticker Audit: $LASTEXITCODE"
 
+# Research Refresh — daily 23:00 (after nightly + T212 sync, idempotent enrichment)
+schtasks /Delete /TN "HybridTurtle-ResearchRefresh" /F 2>$null
+schtasks /Create /TN "HybridTurtle-ResearchRefresh" /SC DAILY /ST 23:00 /TR "`"$root\research-refresh-task.bat`" --scheduled" /RL HIGHEST /F
+Set-TaskResilient "HybridTurtle-ResearchRefresh"
+Write-Host "Research Refresh: $LASTEXITCODE"
+
 Write-Host ""
 Write-Host "Done. Verify with: schtasks /Query /TN HybridTurtle-WeeklyDigest"
 Write-Host "                    schtasks /Query /TN HybridTurtle-MondayBriefing"
 Write-Host "                    schtasks /Query /TN HybridTurtle-USBriefing"
 Write-Host "                    schtasks /Query /TN HybridTurtle-TickerAudit"
+Write-Host "                    schtasks /Query /TN HybridTurtle-ResearchRefresh"
