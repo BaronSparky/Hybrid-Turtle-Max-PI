@@ -41,6 +41,12 @@ Retired-task cleanup can be run from an elevated administrator shell:
 npm run tasks:cleanup-retired
 ```
 
+To register every HybridTurtle scheduled task in one go (self-elevates via UAC):
+
+```powershell
+npm run tasks:register-all
+```
+
 ## Finding Severity
 
 Errors mean a load-bearing task is missing or points at the wrong target. Fix

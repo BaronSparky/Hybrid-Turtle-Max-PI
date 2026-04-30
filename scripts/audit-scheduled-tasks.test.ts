@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import { existsSync as realExistsSync } from 'fs';
+import path from 'path';
 
 vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof import('fs')>('fs');
@@ -8,7 +10,7 @@ vi.mock('fs', async () => {
   };
 });
 
-const { auditScheduledTasks, parseCsvLine, parseSchtasksCsv, auditRegisterScripts, auditDatabaseBackup } = await import('./audit-scheduled-tasks.mjs');
+const { auditScheduledTasks, parseCsvLine, parseSchtasksCsv, auditRegisterScripts, auditDatabaseBackup, EXPECTED_TASKS } = await import('./audit-scheduled-tasks.mjs');
 
 describe('audit-scheduled-tasks.mjs', () => {
   it('parses schtasks CSV rows with quoted commands', () => {
@@ -276,4 +278,26 @@ describe('auditDatabaseBackup', () => {
       expect.objectContaining({ reason: 'BACKUP_DIR_MISSING', severity: 'WARNING' }),
     ]);
   });
+});
+
+describe('EXPECTED_TASKS manifest integrity', () => {
+  // Resolve repo root from this test file location: scripts/audit-scheduled-tasks.test.ts
+  const repoRoot = path.resolve(__dirname, '..');
+
+  it.each(EXPECTED_TASKS as Array<{ name: string; requiredPath: string; registerScript?: string }>)(
+    '$name has a registerScript file that exists on disk',
+    (task) => {
+      expect(task.registerScript, `${task.name} is missing registerScript field`).toBeTruthy();
+      const scriptPath = path.join(repoRoot, task.registerScript!);
+      expect(realExistsSync(scriptPath), `Register script not found: ${task.registerScript}`).toBe(true);
+    },
+  );
+
+  it.each(EXPECTED_TASKS as Array<{ name: string; requiredPath: string }>)(
+    '$name target .bat exists on disk: $requiredPath',
+    (task) => {
+      const targetPath = path.join(repoRoot, task.requiredPath);
+      expect(realExistsSync(targetPath), `Target not found: ${task.requiredPath}`).toBe(true);
+    },
+  );
 });

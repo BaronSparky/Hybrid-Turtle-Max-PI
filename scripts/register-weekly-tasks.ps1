@@ -5,13 +5,29 @@ $root = "C:\Turtle-Hybrid\Hybrid-Trurtle-Max"
 
 function Set-TaskResilient($name) {
   $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
-  if ($task) {
-    $task.Settings.DisallowStartIfOnBatteries = $false
-    $task.Settings.StopIfGoingOnBatteries = $false
-    $task.Settings.IdleSettings.StopOnIdleEnd = $false
-    $task.Settings.StartWhenAvailable = $true
-    $task.Settings.ExecutionTimeLimit = "PT10M"
-    Set-ScheduledTask -InputObject $task | Out-Null
+  if (-not $task) { return }
+
+  # schtasks /Create defaults monthly tasks to Vista compatibility, which
+  # rejects Win7+ settings like StartWhenAvailable. Bump compatibility first.
+  if ($task.Settings.Compatibility -eq 'Vista' -or $task.Settings.Compatibility -eq 'V1') {
+    try {
+      $task.Settings.Compatibility = 'Win7'
+      Set-ScheduledTask -InputObject $task -ErrorAction Stop | Out-Null
+      $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+    } catch {
+      Write-Host "  Could not bump compatibility for ${name}: $_" -ForegroundColor Yellow
+    }
+  }
+
+  $task.Settings.DisallowStartIfOnBatteries = $false
+  $task.Settings.StopIfGoingOnBatteries = $false
+  $task.Settings.IdleSettings.StopOnIdleEnd = $false
+  $task.Settings.StartWhenAvailable = $true
+  $task.Settings.ExecutionTimeLimit = "PT10M"
+  try {
+    Set-ScheduledTask -InputObject $task -ErrorAction Stop | Out-Null
+  } catch {
+    Write-Host "  Could not apply resilience settings to ${name}: $_" -ForegroundColor Yellow
   }
 }
 
@@ -40,8 +56,20 @@ Set-TaskResilient "HybridTurtle-USBriefing"
 Write-Host "US Briefing: $LASTEXITCODE"
 
 # Ticker Audit — 1st of each month at 06:00 (before market open)
+# schtasks /SC MONTHLY produces Vista-compat XML which rejects later
+# Set-ScheduledTask updates. Round-trip the XML to bump compatibility to V2 (Win7+)
+# so Set-TaskResilient can apply battery + StartWhenAvailable settings.
 schtasks /Delete /TN "HybridTurtle-TickerAudit" /F 2>$null
-schtasks /Create /TN "HybridTurtle-TickerAudit" /SC MONTHLY /D 1 /ST 06:00 /TR "`"$root\ticker-audit-task.bat`" --scheduled" /RL HIGHEST /F
+schtasks /Create /TN "HybridTurtle-TickerAudit" /SC MONTHLY /D 1 /ST 06:00 /TR "`"$root\ticker-audit-task.bat`" --scheduled" /RL HIGHEST /F | Out-Null
+$tickerXml = schtasks /Query /TN "HybridTurtle-TickerAudit" /XML | Out-String
+if ($tickerXml -match '<Compatibility>V1</Compatibility>') {
+  $tickerXml = $tickerXml -replace '<Compatibility>V1</Compatibility>', '<Compatibility>V2</Compatibility>'
+  schtasks /Delete /TN "HybridTurtle-TickerAudit" /F | Out-Null
+  $tickerXmlPath = Join-Path $env:TEMP 'hybridturtle-ticker-audit.xml'
+  $tickerXml | Out-File -FilePath $tickerXmlPath -Encoding Unicode
+  schtasks /Create /TN "HybridTurtle-TickerAudit" /XML "`"$tickerXmlPath`"" /F | Out-Null
+  Remove-Item $tickerXmlPath -ErrorAction SilentlyContinue
+}
 Set-TaskResilient "HybridTurtle-TickerAudit"
 Write-Host "Ticker Audit: $LASTEXITCODE"
 
