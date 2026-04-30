@@ -51,6 +51,11 @@ export async function warmCachesOnStartup(): Promise<void> {
 
   console.log(`[cache-warmup] Complete in ${Date.now() - t0}ms — ${summary.join(', ')}`);
 
+  if (process.env.NEXT_PHASE === 'phase-production-build') {
+    console.log('[cache-warmup] T212 live pre-warm skipped during production build');
+    return;
+  }
+
   // Pre-warm T212 live prices in background (non-blocking)
   // Fires off a fresh T212 API call so the first page load gets real-time prices
   // instead of stale disk data. Failure is swallowed — disk cache still serves.

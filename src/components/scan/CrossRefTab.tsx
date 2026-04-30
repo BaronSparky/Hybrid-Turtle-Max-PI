@@ -29,6 +29,7 @@ import {
   Minus,
 } from 'lucide-react';
 import { apiRequest, formatApiError } from '@/lib/api-client';
+import { PercentBar } from '@/components/ui/PercentBar';
 
 // ── Types ──────────────────────────────────────────────────
 interface CrossRefTicker {
@@ -166,13 +167,23 @@ function ActionBadge({ action }: { action: string | null }) {
   );
 }
 
+function toFillClass(color: string): string {
+  switch (color) {
+  case 'bg-blue-400': return 'fill-blue-400';
+  case 'bg-emerald-400': return 'fill-emerald-400';
+  case 'bg-amber-400': return 'fill-amber-400';
+  case 'bg-red-400': return 'fill-red-400';
+  default: return 'fill-slate-400';
+  }
+}
+
 function ScoreBar({ value, max = 100, color }: { value: number | null; max?: number; color: string }) {
   if (value === null) return <span className="text-xs text-slate-600">—</span>;
   const pct = Math.min(100, Math.max(0, (value / max) * 100));
   return (
     <div className="flex items-center gap-2">
       <div className="w-16 h-1.5 bg-navy-700 rounded-full overflow-hidden">
-        <div className={cn('h-full rounded-full', color)} style={{ width: `${pct}%` }} />
+        <PercentBar value={pct} fillClassName={toFillClass(color)} />
       </div>
       <span className="text-xs font-mono text-muted-foreground w-8 text-right">
         {value.toFixed(0)}
@@ -187,7 +198,7 @@ function AgreementMeter({ score }: { score: number }) {
   return (
     <div className="flex items-center gap-1.5">
       <div className="w-12 h-1.5 bg-navy-700 rounded-full overflow-hidden">
-        <div className={cn('h-full rounded-full', color)} style={{ width: `${score}%` }} />
+        <PercentBar value={score} fillClassName={toFillClass(color)} />
       </div>
       <span className="text-[10px] font-mono text-muted-foreground">{score}</span>
     </div>

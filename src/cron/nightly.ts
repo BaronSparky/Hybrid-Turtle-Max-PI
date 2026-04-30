@@ -1144,6 +1144,8 @@ async function runNightlyProcess() {
             message: `Your position in ${pa.ticker} has moved up enough to add more shares.\n\nR-multiple: ${pa.rMultiple.toFixed(1)}R\n${sizingLine}\n${pa.triggerPrice ? `Trigger price: ${currSymbol}${pa.triggerPrice.toFixed(2)}` : ''}\n${pa.message}\n\nPyramid adds auto-execute on Friday nightly if regime is BULLISH.`,
             data: { ticker: pa.ticker, rMultiple: pa.rMultiple, addNumber: pa.addNumber, addShares: pa.addShares, addRiskAmount: pa.addRiskAmount, riskScalar: pa.riskScalar },
             priority: 'INFO',
+            telegramDedupeKey: `nightly:pyramid-ready:${pa.ticker}:${pa.addNumber}`,
+            telegramThrottleMs: 6 * 24 * 60 * 60 * 1000,
           });
         }
       }

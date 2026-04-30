@@ -13,6 +13,8 @@
  * Exits non-zero on any check failure.
  */
 
+import { pathToFileURL } from 'url';
+
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:3000';
 const ALLOW_BLOCKED = process.env.SMOKE_ALLOW_BLOCKED === '1';
 
@@ -20,6 +22,14 @@ interface CheckResult {
   name: string;
   ok: boolean;
   detail: string;
+}
+
+export function validateSystemReadiness(json: unknown, allowBlocked: boolean): string | null {
+  const body = json as { readiness?: string };
+  if (!body.readiness) return 'missing readiness field';
+  if (body.readiness === 'BLOCKED' && allowBlocked) return null;
+  if (body.readiness === 'BLOCKED') return 'system BLOCKED (cannot trade)';
+  return null;
 }
 
 async function checkEndpoint(name: string, path: string, validate: (json: unknown) => string | null): Promise<CheckResult> {
@@ -101,11 +111,7 @@ async function main(): Promise<void> {
 
   results.push(
     await checkEndpoint('system-status', '/api/system-status', (json) => {
-      const j = json as { readiness?: string };
-      if (!j.readiness) return 'missing readiness field';
-      if (j.readiness === 'BLOCKED' && ALLOW_BLOCKED) return null;
-      if (j.readiness === 'BLOCKED') return `system BLOCKED (cannot trade)`;
-      return null;
+      return validateSystemReadiness(json, ALLOW_BLOCKED);
     })
   );
 
@@ -170,7 +176,9 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  console.error('[smoke-buy-flow] Unhandled error:', err);
-  process.exit(2);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((err) => {
+    console.error('[smoke-buy-flow] Unhandled error:', err);
+    process.exit(2);
+  });
+}

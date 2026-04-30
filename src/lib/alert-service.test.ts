@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const notificationCreate = vi.fn();
+const notificationFindFirst = vi.fn();
 const sendTelegramMessage = vi.fn();
 const sendThrottledTelegramAlert = vi.fn();
 
@@ -8,6 +9,7 @@ vi.mock('@/lib/prisma', () => ({
   default: {
     notification: {
       create: notificationCreate,
+      findFirst: notificationFindFirst,
     },
   },
 }));
@@ -21,6 +23,7 @@ describe('sendAlert', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     notificationCreate.mockResolvedValue({ id: 'notification-1' });
+    notificationFindFirst.mockResolvedValue(null);
     sendTelegramMessage.mockResolvedValue(true);
     sendThrottledTelegramAlert.mockResolvedValue(true);
   });
@@ -90,5 +93,55 @@ describe('sendAlert', () => {
     expect(notificationCreate).toHaveBeenCalledTimes(1);
     expect(sendTelegramMessage).not.toHaveBeenCalled();
     expect(sendThrottledTelegramAlert).not.toHaveBeenCalled();
+  });
+
+  it('suppresses duplicate in-app notifications by dedupe key', async () => {
+    notificationFindFirst.mockResolvedValue({ id: 42 });
+    const { sendAlert } = await import('./alert-service');
+
+    await sendAlert({
+      type: 'BROKER_SYNC_FAILURE',
+      title: 'T212 Rate Limited',
+      message: 'Trading 212 ISA account rate-limited.',
+      priority: 'WARNING',
+      data: { account: 'ISA' },
+      notificationDedupeKey: 't212-rate-limit:ISA',
+      notificationThrottleMs: 6 * 60 * 60_000,
+    });
+
+    expect(notificationFindFirst).toHaveBeenCalledWith({
+      where: {
+        type: 'BROKER_SYNC_FAILURE',
+        title: 'T212 Rate Limited',
+        createdAt: { gte: expect.any(Date) },
+        data: { contains: '"_notificationDedupeKey":"t212-rate-limit:ISA"' },
+      },
+      select: { id: true },
+    });
+    expect(notificationCreate).not.toHaveBeenCalled();
+    expect(sendTelegramMessage).not.toHaveBeenCalled();
+  });
+
+  it('stores the in-app dedupe key with new notifications', async () => {
+    const { sendAlert } = await import('./alert-service');
+
+    await sendAlert({
+      type: 'BROKER_SYNC_FAILURE',
+      title: 'T212 Rate Limited',
+      message: 'Trading 212 ISA account rate-limited.',
+      priority: 'WARNING',
+      data: { account: 'ISA' },
+      notificationDedupeKey: 't212-rate-limit:ISA',
+    });
+
+    expect(notificationCreate).toHaveBeenCalledWith({
+      data: {
+        type: 'BROKER_SYNC_FAILURE',
+        title: 'T212 Rate Limited',
+        message: 'Trading 212 ISA account rate-limited.',
+        data: JSON.stringify({ account: 'ISA', _notificationDedupeKey: 't212-rate-limit:ISA' }),
+        priority: 'WARNING',
+      },
+    });
   });
 });

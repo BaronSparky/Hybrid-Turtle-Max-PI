@@ -54,6 +54,10 @@ export interface AlertPayload {
   telegramDedupeKey?: string;
   /** Optional Telegram throttle TTL in milliseconds. Defaults to telegram.ts TTL. */
   telegramThrottleMs?: number;
+  /** Optional key for suppressing duplicate in-app notifications. */
+  notificationDedupeKey?: string;
+  /** Optional in-app notification throttle TTL in milliseconds. Defaults to 30 minutes. */
+  notificationThrottleMs?: number;
 }
 
 // ── Email Placeholder ───────────────────────────────────────────────
@@ -94,13 +98,32 @@ function priorityEmoji(priority: AlertPriority): string {
  */
 export async function sendAlert(payload: AlertPayload): Promise<void> {
   try {
+    if (payload.notificationDedupeKey) {
+      const since = new Date(Date.now() - (payload.notificationThrottleMs ?? 30 * 60_000));
+      const existing = await prisma.notification.findFirst({
+        where: {
+          type: payload.type,
+          title: payload.title,
+          createdAt: { gte: since },
+          data: { contains: `"_notificationDedupeKey":"${payload.notificationDedupeKey}"` },
+        },
+        select: { id: true },
+      });
+
+      if (existing) return;
+    }
+
+    const data = payload.notificationDedupeKey
+      ? { ...(payload.data ?? {}), _notificationDedupeKey: payload.notificationDedupeKey }
+      : payload.data;
+
     // Layer 1: Always save to DB (in-app notification centre)
     await prisma.notification.create({
       data: {
         type: payload.type,
         title: payload.title,
         message: payload.message,
-        data: payload.data ? JSON.stringify(payload.data) : null,
+        data: data ? JSON.stringify(data) : null,
         priority: payload.priority,
       },
     });

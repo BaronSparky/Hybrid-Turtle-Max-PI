@@ -15,6 +15,7 @@
 
 import { useEffect, useState } from 'react';
 import Navbar from '@/components/shared/Navbar';
+import { PercentBar, PercentColumn } from '@/components/ui/PercentBar';
 import { cn } from '@/lib/utils';
 import { apiRequest } from '@/lib/api-client';
 import { Loader2, PlayCircle, Shield, AlertTriangle, BarChart3, ChevronDown, ChevronUp, Download, Info } from 'lucide-react';
@@ -50,6 +51,12 @@ const LABELS: Record<string, string> = {
   bqsHurst: 'Hurst', bqsVolBonus: 'Vol Bonus',
 };
 
+const barFillStyles: Record<SignalInvariance['classification'], string> = {
+  CAUSAL: 'fill-emerald-500/70',
+  MIXED: 'fill-amber-500/70',
+  SPURIOUS: 'fill-red-500/50',
+};
+
 const classStyles = {
   CAUSAL: { text: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', label: 'Causal', action: 'Keep' },
   MIXED: { text: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/30', label: 'Monitor', action: 'Watch' },
@@ -81,12 +88,10 @@ function InvarianceBar({ signal }: { signal: SignalInvariance }) {
         {/* Threshold markers at 40% and 70% (spec) mapped to 0.3 and 0.6 invariance scale */}
         <div className="absolute top-0 bottom-0 w-px bg-amber-500/30 z-10 left-[30%]" title="Mixed/Spurious threshold" />
         <div className="absolute top-0 bottom-0 w-px bg-emerald-500/30 z-10 left-[60%]" title="Causal/Mixed threshold" />
-        <div
-          className={cn('h-full rounded-full transition-all duration-500',
-            signal.classification === 'CAUSAL' ? 'bg-emerald-500/70' :
-            signal.classification === 'MIXED' ? 'bg-amber-500/70' : 'bg-red-500/50'
-          )}
-          style={{ width: `${pct}%` }}
+        <PercentBar
+          value={pct}
+          className="transition-all duration-500"
+          fillClassName={barFillStyles[signal.classification]}
         />
       </div>
       <span className="text-xs font-mono text-muted-foreground w-10 text-right">{pct}%</span>
@@ -112,9 +117,11 @@ function BetaChart({ signal }: { signal: SignalInvariance }) {
         return (
           <div key={env} className="flex flex-col items-center gap-0.5 flex-1">
             <div className="relative w-full h-8 flex items-end justify-center">
-              <div
-                className={cn('w-full rounded-t', isPositive ? 'bg-emerald-500/50' : 'bg-red-500/50')}
-                style={{ height: `${Math.max(height, 5)}%` }}
+              <PercentColumn
+                value={height}
+                minVisible={5}
+                className="rounded-t"
+                fillClassName={isPositive ? 'fill-emerald-500/50' : 'fill-red-500/50'}
                 title={`β in ${ENV_LABELS[env]}: ${beta.toFixed(4)}`}
               />
             </div>

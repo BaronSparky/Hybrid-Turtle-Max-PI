@@ -58,6 +58,7 @@ interface T212ApiCallLog {
   timestamps: number[];
 }
 const t212ApiCallLog: T212ApiCallLog = { timestamps: [] };
+const t212RateLimitBackoffUntil = new Map<string, number>();
 
 function recordT212ApiCall(): void {
   const now = Date.now();
@@ -67,9 +68,11 @@ function recordT212ApiCall(): void {
   t212ApiCallLog.timestamps = t212ApiCallLog.timestamps.filter(t => t > oneHourAgo);
 }
 
-// Rate limit alert cooldown — max once per 30 minutes
+// Rate limit alert cooldown — max once per 30 minutes per process; sendAlert also
+// applies persisted dedupe so restarts/render workers don't stack duplicates.
 let lastRateLimitAlertAt = 0;
 const RATE_LIMIT_ALERT_COOLDOWN = 30 * 60_000;
+const RATE_LIMIT_ALERT_PERSISTED_COOLDOWN = 6 * 60 * 60_000;
 
 function sendRateLimitAlert(account: string): void {
   const now = Date.now();
@@ -82,7 +85,28 @@ function sendRateLimitAlert(account: string): void {
     message: `Trading 212 ${account} account rate-limited. Portfolio prices falling back to Yahoo Finance (delayed). ${stats.callsLastHour} API calls in the last hour.`,
     priority: 'WARNING',
     data: { account, callsLastHour: stats.callsLastHour },
+    notificationDedupeKey: `t212-rate-limit:${account}`,
+    notificationThrottleMs: RATE_LIMIT_ALERT_PERSISTED_COOLDOWN,
+    telegramDedupeKey: `t212-rate-limit:${account}`,
+    telegramThrottleMs: RATE_LIMIT_ALERT_PERSISTED_COOLDOWN,
   }).catch(() => { /* alert delivery is best-effort */ });
+}
+
+function setRateLimitBackoff(account: string, error: Trading212Error): void {
+  const resetMs = error.rateLimitReset ? error.rateLimitReset * 1000 : 0;
+  const fallbackMs = Date.now() + 30 * 60_000;
+  const backoffUntil = Math.max(resetMs, fallbackMs);
+  t212RateLimitBackoffUntil.set(account, backoffUntil);
+}
+
+function isRateLimitBackedOff(account: string): boolean {
+  return (t212RateLimitBackoffUntil.get(account) ?? 0) > Date.now();
+}
+
+function staleT212PriceResult(): Record<string, number> {
+  const result: Record<string, number> = {};
+  t212PriceCache.forEach((entry, ticker) => result[ticker] = entry.price);
+  return result;
 }
 
 // T212 connection drop alert — fires when API returns 0 positions during market hours
@@ -226,9 +250,11 @@ export async function fetchT212LivePrices(userId: string = 'default-user'): Prom
 
   // Outside market hours: serve stale cache to save T212 rate limit budget
   if (!isAnyMarketOpen() && t212PriceCache.size > 0) {
-    const result: Record<string, number> = {};
-    t212PriceCache.forEach((entry, ticker) => result[ticker] = entry.price);
-    return result;
+    return staleT212PriceResult();
+  }
+
+  if (t212PriceCache.size > 0 && (isRateLimitBackedOff('Invest') || isRateLimitBackedOff('ISA'))) {
+    return staleT212PriceResult();
   }
 
   // Concurrency dedup: if another call is already in flight, await it
@@ -265,7 +291,7 @@ async function fetchT212LivePricesInner(userId: string): Promise<Record<string, 
     // Fetch accounts SEQUENTIALLY with delay to avoid T212 rate limits (1 req/1s per account)
     const allPositions: T212Position[] = [];
 
-    if (investCreds) {
+    if (investCreds && !isRateLimitBackedOff('Invest')) {
       recordT212ApiCall();
       try {
         const positions = await new Trading212Client(investCreds.apiKey, investCreds.apiSecret, investCreds.environment)
@@ -274,13 +300,14 @@ async function fetchT212LivePricesInner(userId: string): Promise<Record<string, 
       } catch (err) {
         if (err instanceof Trading212Error && err.statusCode === 429) {
           console.warn('[position-sync] T212 Invest rate-limited — serving stale cache');
+          setRateLimitBackoff('Invest', err);
           sendRateLimitAlert('Invest');
         }
       }
     }
 
     // ISA: skip if same API key as Invest (duplicate), otherwise wait 1.5s
-    if (isaCreds && !(investCreds && investCreds.apiKey === isaCreds.apiKey)) {
+    if (isaCreds && !(investCreds && investCreds.apiKey === isaCreds.apiKey) && !isRateLimitBackedOff('ISA')) {
       // T212 rate limit is per-account but same IP — add delay to be safe
       await new Promise(resolve => setTimeout(resolve, 1500));
       recordT212ApiCall();
@@ -291,6 +318,7 @@ async function fetchT212LivePricesInner(userId: string): Promise<Record<string, 
       } catch (err) {
         if (err instanceof Trading212Error && err.statusCode === 429) {
           console.warn('[position-sync] T212 ISA rate-limited — serving stale cache');
+          setRateLimitBackoff('ISA', err);
           sendRateLimitAlert('ISA');
         }
       }
@@ -300,9 +328,7 @@ async function fetchT212LivePricesInner(userId: string): Promise<Record<string, 
     if (allPositions.length === 0 && t212PriceCache.size > 0) {
       console.warn('[position-sync] T212 returned no positions — serving stale cache');
       checkT212ConnectionDrop();
-      const result: Record<string, number> = {};
-      t212PriceCache.forEach((entry, ticker) => result[ticker] = entry.price);
-      return result;
+      return staleT212PriceResult();
     }
 
     // If T212 returned nothing and no cache exists, alert
@@ -329,9 +355,7 @@ async function fetchT212LivePricesInner(userId: string): Promise<Record<string, 
     console.warn('[position-sync] T212 live price fetch failed:', (error as Error).message);
     // Serve stale cache on any failure — stale T212 prices are still better than nothing
     if (t212PriceCache.size > 0) {
-      const result: Record<string, number> = {};
-      t212PriceCache.forEach((entry, ticker) => result[ticker] = entry.price);
-      return result;
+      return staleT212PriceResult();
     }
     return {};
   }
