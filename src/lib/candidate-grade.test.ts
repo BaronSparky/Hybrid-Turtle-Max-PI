@@ -305,6 +305,44 @@ describe('candidate-grade: batch', () => {
     expect(results[1].classification.grade).toBe('B_GRADE_WATCH');
     expect(results[2].classification.grade).toBe('BLOCKED_EVENT');
   });
+
+  it('classifyCandidates accepts a per-candidate context resolver function', () => {
+    // Two candidates: one with strong scores via resolver, one with weak
+    // scores. The shared base context (regime/health) is derived inside
+    // the resolver from the candidate's ticker.
+    const baseCtx = { regime: 'BULLISH', healthOverall: 'GREEN' } as const;
+    const scoresByTicker = new Map<string, { ncs: number; fws: number; bqs: number }>([
+      ['EZPW', { ncs: 100, fws: 12, bqs: 100 }], // A-grade scores
+      ['WEAK', { ncs: 40, fws: 60, bqs: 30 }],   // sub-A scores
+    ]);
+
+    const results = classifyCandidates(
+      [
+        makeCandidate({ ticker: 'EZPW' }),
+        makeCandidate({ ticker: 'WEAK' }),
+      ],
+      (candidate) => {
+        const s = scoresByTicker.get(candidate.ticker);
+        return s ? { ...baseCtx, ncs: s.ncs, fws: s.fws, bqs: s.bqs } : baseCtx;
+      },
+    );
+
+    expect(results[0].classification.grade).toBe('A_GRADE_BUY');
+    expect(results[1].classification.grade).toBe('B_GRADE_WATCH');
+  });
+
+  it('classifyCandidates resolver receiving no scores yields B_GRADE_WATCH not A', () => {
+    // Reproduces the original bug: when the resolver returns the bare
+    // GradingContext (no ncs/fws/bqs), the grader must default to worst
+    // case and demote even a perfectly clean candidate.
+    const baseCtx = { regime: 'BULLISH', healthOverall: 'GREEN' } as const;
+    const results = classifyCandidates(
+      [makeCandidate({ ticker: 'NO_SCORES' })],
+      () => baseCtx,
+    );
+    expect(results[0].classification.grade).toBe('B_GRADE_WATCH');
+    expect(results[0].classification.reason).toContain('NCS 0');
+  });
 });
 
 // ── Display helpers ─────────────────────────────────────────

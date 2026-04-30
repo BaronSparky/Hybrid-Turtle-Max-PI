@@ -29,6 +29,14 @@ Each entry uses this shape (newest at top of the History section):
 
 ## History
 
+### 2026-04-30 — pending — auto-trade.ts: per-candidate dual-score lookup
+
+- File(s): `src/cron/auto-trade.ts`
+- Why: Auto-trade's `classifyCandidate` call was passing a shared `GradingContext` with no `ncs/fws/bqs`. The grader defaults missing scores to worst case (NCS=0, FWS=100, BQS=0), so every candidate failed the A_GRADE_BUY thresholds. Result: 0 A-grades across 8,402 historical ScanResult rows; every auto-trade run produced `eligible: 0` and zero trades. Fix wires the existing dual-score data (already produced nightly into ScoreBreakdown) through to grading per candidate via the new `getLatestScoresByTicker` helper.
+- Behaviour preserved: Risk gates, regime checks, health checks, Trading212 order placement, ISA/Invest routing, kill switch, throttled alerts, and the entry/exit logic are all unchanged. Only the input to `classifyCandidate` was upgraded — ncs/fws/bqs are now per-candidate instead of always-null. A_GRADE_BUY filtering and ranking logic downstream is untouched.
+- Tests: 39/39 candidate-grade + score-lookup tests pass (2 new tests cover the resolver). Full suite 1540/1540. No `auto-trade.test.ts` changes were required because the call signature is preserved (still `classifyCandidate(c, ctx)`).
+- Author: RPI agent (Phase 3 implementation)
+
 ### 2026-04-29 — 6bba3cf — auto-trade.ts: throttle failure-only Telegram alerts
 
 - File(s): `src/cron/auto-trade.ts`

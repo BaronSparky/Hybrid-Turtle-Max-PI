@@ -34,6 +34,7 @@ import { getDataFreshness } from '@/lib/market-data';
 import { applyModelLayerToCandidates } from '../../../../packages/model/src';
 import { assertScanAllowed, SafetyControlError } from '../../../../packages/workflow/src';
 import { classifyCandidates, type GradingContext } from '@/lib/candidate-grade';
+import { getLatestScoresByTicker } from '@/lib/score-lookup';
 
 const scanRequestSchema = z.object({
   userId: z.string().trim().min(1),
@@ -114,17 +115,31 @@ export async function POST(request: NextRequest) {
       select: { overall: true },
     }).catch(() => null);
 
-    const gradingContext: GradingContext = {
+    // Look up the latest BQS/FWS/NCS for every candidate ticker so per-candidate
+    // grading uses the same scores nightly.ts wrote into ScoreBreakdown.
+    // Without this the grader receives null scores and treats every candidate
+    // as worst-case (NCS=0, FWS=100, BQS=0), which means nothing ever reaches
+    // A_GRADE_BUY and auto-trade never fires.
+    const candidateTickers = modelLayer.candidates.map((c) => c.ticker);
+    const scoresByTicker = await getLatestScoresByTicker(candidateTickers).catch((err) => {
+      console.warn('[Scan] getLatestScoresByTicker failed, falling back to null scores:', (err as Error).message);
+      return new Map<string, ReturnType<typeof Map.prototype.get>>() as Map<string, never>;
+    });
+
+    const baseGradingContext: GradingContext = {
       regime: result.regime,
       healthOverall: (latestHealth?.overall as string) ?? 'GREEN',
     };
 
-    // Classify each candidate — NCS/BQS/FWS come from dual-score if available
-    // (scan candidates don't carry these yet; they're in the snapshot/cross-ref layer)
-    // For now, use what's available from modelOverlay or leave null for B/C grading
+    // Per-candidate context: shared regime/health + ticker-specific scores.
     const gradedCandidates = classifyCandidates(
       modelLayer.candidates,
-      gradingContext,
+      (candidate) => {
+        const scores = scoresByTicker.get(candidate.ticker);
+        return scores
+          ? { ...baseGradingContext, ncs: scores.ncs, fws: scores.fws, bqs: scores.bqs }
+          : baseGradingContext;
+      },
     );
 
     const responseResult = {
@@ -177,6 +192,9 @@ export async function POST(request: NextRequest) {
                 riskDollars: c.riskDollars ?? null,
                 grade: (c as { classification?: { grade: string } }).classification?.grade ?? null,
                 gradeReason: (c as { classification?: { reason: string } }).classification?.reason ?? null,
+                ncs: scoresByTicker.get(c.ticker)?.ncs ?? null,
+                fws: scoresByTicker.get(c.ticker)?.fws ?? null,
+                bqs: scoresByTicker.get(c.ticker)?.bqs ?? null,
               })),
           },
         },

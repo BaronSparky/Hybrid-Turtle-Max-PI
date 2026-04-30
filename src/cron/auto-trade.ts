@@ -52,6 +52,7 @@ import { assertSubmissionAllowed, SafetyControlError, isAutoTradingEnabled } fro
 import { getBatchPrices, normalizeBatchPricesToGBP, getFXRate, getMarketRegime } from '@/lib/market-data';
 import { fetchT212LivePrices } from '@/lib/position-sync';
 import { classifyCandidate, type GradingContext, type CandidateGrade } from '@/lib/candidate-grade';
+import { getLatestScoresByTicker } from '@/lib/score-lookup';
 import { RISK_PROFILES, type RiskProfileType, type Sleeve, type MarketRegime, OPERATING_MODES, type OperatingMode } from '@/types';
 import { decryptField } from '@/lib/crypto';
 import { isTodayMarketHoliday, isEarlyCloseDay } from '@/lib/market-holidays';
@@ -744,11 +745,26 @@ async function runAutoTrade(session: Session) {
     isStockForSession(c.ticker, c.sleeve, session)
   );
 
-  // Classify each candidate
-  const gradedCandidates = sessionCandidates.map(c => ({
-    ...c,
-    classification: classifyCandidate(c, gradingCtx),
-  }));
+  // Per-candidate dual-score lookup. Without this every candidate is graded
+  // with NCS=0/FWS=100/BQS=0 (worst case), which means nothing ever reaches
+  // A_GRADE_BUY and auto-trade silently produces zero eligible trades.
+  const sessionTickers = sessionCandidates.map(c => c.ticker);
+  const scoresByTicker = await getLatestScoresByTicker(sessionTickers).catch((err) => {
+    console.warn('  [grading] Score lookup failed, falling back to null scores:', (err as Error).message);
+    return new Map<string, ReturnType<typeof Map.prototype.get>>() as Map<string, never>;
+  });
+
+  // Classify each candidate with its own NCS/FWS/BQS
+  const gradedCandidates = sessionCandidates.map(c => {
+    const scores = scoresByTicker.get(c.ticker);
+    const candidateCtx: GradingContext = scores
+      ? { ...gradingCtx, ncs: scores.ncs, fws: scores.fws, bqs: scores.bqs }
+      : gradingCtx;
+    return {
+      ...c,
+      classification: classifyCandidate(c, candidateCtx),
+    };
+  });
 
   // Auto-trade only executes A_GRADE_BUY candidates
   const readyCandidates = gradedCandidates.filter(c => c.classification.grade === 'A_GRADE_BUY');

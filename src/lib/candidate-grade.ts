@@ -310,14 +310,25 @@ export function classifyCandidate(
 
 // ── Batch classification ────────────────────────────────────
 
+/**
+ * A per-candidate context override. Used by the scan route to inject
+ * NCS/FWS/BQS scores looked up from ScoreBreakdown for each ticker, while
+ * keeping shared fields like `regime` and `healthOverall` in a single
+ * base context.
+ */
+export type GradingContextResolver =
+  | GradingContext
+  | ((candidate: ScanCandidate) => GradingContext);
+
 export function classifyCandidates(
   candidates: ScanCandidate[],
-  context: GradingContext,
+  context: GradingContextResolver,
   thresholds?: GradeThresholds,
 ): Array<ScanCandidate & { classification: CandidateClassification }> {
+  const isResolver = typeof context === 'function';
   return candidates.map(c => ({
     ...c,
-    classification: classifyCandidate(c, context, thresholds),
+    classification: classifyCandidate(c, isResolver ? context(c) : context, thresholds),
   }));
 }
 

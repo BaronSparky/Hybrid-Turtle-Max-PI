@@ -187,6 +187,11 @@ model ScanResult {
   riskDollars      Float?
   grade            String?  // A_GRADE_BUY, B_GRADE_WATCH, C_GRADE_IGNORE, BLOCKED_*
   gradeReason      String?  // Plain-English explanation
+  // Per-candidate dual-score values resolved from latest ScoreBreakdown at grading time.
+  // Persisted so dashboards + analytics see the same numbers the grader saw.
+  ncs              Float?
+  fws              Float?
+  bqs              Float?
   mode             String   @default("FULL")  // FULL or BENCHMARK
   stock            Stock    @relation(fields: [stockId], references: [id])
   scan             Scan     @relation(fields: [scanId], references: [id])
