@@ -28,7 +28,19 @@ Each entry uses this shape (newest at top of the History section):
 ```
 
 ## History
-### 2026-04-30 — pending — auto-trade.ts: smarter ISA-only routing + currency mismatch advisory
+### 2026-04-30 — pending — auto-trade.ts: CRITICAL — attempt cap + terminal error abort + revert routing
+
+- File(s): `src/cron/auto-trade.ts`
+- Why (incident report): At 21:35 BST a manual `us-close` re-run was triggered. The market was closed, so T212 queued buy orders without filling; `executeTrade` returned `result.success = false` for every candidate due to the polling timeout. The previous loop only incremented `tradesExecuted` on success, so `MAX_TRADES_PER_SESSION = 2` was never reached and the loop drained the entire ready list, placing real T212 buy orders on each candidate (3 orders accepted: GOOGL, PWR, UNFI; many more rejected by T212 with `i-s-a-ineligible-instrument` and `insufficient-free-for-stocks-buy`). The previous routing change "let T212 reject anything truly ineligible" — that turned out to mean burning a real order placement before the rejection, which is unsafe.
+- Fixes (three layered safety guards):
+  1. **Attempt cap**: introduced `tradesAttempted` counter; cap is now applied to ATTEMPTS, not just SUCCESSES. The loop cannot exceed `MAX_TRADES_PER_SESSION` order placements regardless of fill outcomes.
+  2. **Terminal error abort**: introduced `TERMINAL_ERROR_PATTERNS` (insufficient funds, kill switch, account suspended). On match, `sessionAbortReason` is set and all subsequent candidates are marked skipped without an attempt.
+  3. **Routing reverted to safe rule**: only route to ISA when stock is EXPLICITLY tagged `isaEligible=true` (null and false both → Invest). The previous "ISA-only user → ISA for everything" routing was too permissive and produced T212 ineligible-instrument rejections. The currency advisory log was removed (no longer relevant under strict routing).
+- Behaviour preserved: `executeTrade` is unchanged. Stop placement, position sizing, regime gates, kill switch, monotonic stop rule, FX handling, risk gates, A-grade filtering, and Telegram notifications are all identical. The only behaviour changes are the three safety guards above plus the routing tightening.
+- Tests: 22/22 auto-trade unit tests pass. Manual incident verified: with attempt cap, the same scenario would have produced exactly 2 attempts (1 success + 1 fill-timeout, then session ends). With terminal error abort, the insufficient-funds pattern from the same incident would have aborted after the first such error. Audit entry follows the rule: "supersede with a new entry that explains the change in understanding" — the prior entry's "let T212 reject" assumption is now superseded.
+- Author: PR Review agent (incident response, 2026-04-30 21:35 BST)
+
+### 2026-04-30 — 6d7fe1d — auto-trade.ts: smarter ISA-only routing + currency mismatch advisory
 
 - File(s): `src/cron/auto-trade.ts` (only `getAccountTypeForStock` and the routing call site in `runSession`)
 - Why: Old routing required `sleeve='CORE' AND isaEligible=true` to send a candidate to ISA. For an ISA-only user, this excluded GBP-listed ETFs and HIGH_RISK stocks — they fell through to Invest, hit the "Invest not connected" path, and were skipped. The new rule: when only ISA is connected, route everything (except explicit `isaEligible=false`) to ISA. T212 ISA accepts US shares (with FX) and UK-listed UCITS ETFs; let T212 reject anything truly ineligible. The dual-account case (both connected) is unchanged.

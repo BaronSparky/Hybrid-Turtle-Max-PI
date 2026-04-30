@@ -164,18 +164,18 @@ async function getT212Client(userId: string, accountType: T212AccountType): Prom
 // no connected account can hold the stock (caller skips the candidate
 // with a clear reason rather than attempting an order that will throw).
 //
-// Routing rules (in order):
-//   1. No accounts connected            → null (skip with clear reason)
-//   2. Only ISA connected               → 'isa' if isaEligible is not explicitly false
-//                                          (T212 ISA accepts UK shares, GBP ETFs, and US shares)
-//   3. Only Invest connected            → 'invest' (Invest is multi-currency, no eligibility filter)
-//   4. Both connected, ISA-eligible CORE→ 'isa' (preferred for tax efficiency)
-//   5. Both connected, anything else    → 'invest'
+// Routing rules — conservative (the inverse rule was attempted on 2026-04-30
+// and produced i-s-a-ineligible-instrument rejections from T212; we now require
+// explicit isaEligible=true to route to ISA, regardless of which accounts are
+// connected). The user must tag stocks isaEligible=true to use ISA.
+//
+//   1. No accounts connected            → null
+//   2. ISA-eligible (isaEligible === true) → ISA if connected, else Invest if connected, else null
+//   3. Anything else                    → Invest if connected, else null
 
 async function getAccountTypeForStock(userId: string, stockId: string): Promise<T212AccountType | null> {
   const stock = await prisma.stock.findUnique({ where: { id: stockId }, select: { isaEligible: true, sleeve: true } });
 
-  // Read both account-connection flags once so routing matches reality.
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { t212Connected: true, t212IsaConnected: true },
@@ -184,28 +184,19 @@ async function getAccountTypeForStock(userId: string, stockId: string): Promise<
   const investConnected = !!user?.t212Connected;
   const isaConnected = !!user?.t212IsaConnected;
 
-  // 1. No T212 accounts at all → caller will skip (and Telegram will say so once).
   if (!investConnected && !isaConnected) return null;
 
-  // 2. ISA-only user: route everything except explicitly non-eligible to ISA.
-  // T212 ISA accepts US shares (with FX) and UK-listed UCITS ETFs. The strict
-  // "sleeve='CORE' AND isaEligible=true" gate would block ETFs and HIGH_RISK
-  // stocks for ISA-only users, leaving them unable to trade. Let T212 reject
-  // anything truly ineligible — our diagnostic hints already cover those errors.
-  if (isaConnected && !investConnected) {
-    if (stock?.isaEligible === false) return null; // Explicit non-eligible — skip
-    return 'isa';
+  // Only route to ISA if the stock is EXPLICITLY tagged isaEligible=true.
+  // null/false → Invest. T212 ISA rejects untagged instruments with
+  // i-s-a-ineligible-instrument; let our DB tagging be the source of truth.
+  if (stock?.isaEligible === true) {
+    if (isaConnected) return 'isa';
+    if (investConnected) return 'invest';
+    return null;
   }
 
-  // 3. Invest-only user: everything goes to Invest (multi-currency, no eligibility filter).
-  if (investConnected && !isaConnected) {
-    return 'invest';
-  }
-
-  // 4 + 5. Both connected — use sleeve+eligibility to decide tax-efficient routing.
-  if (!stock) return 'invest'; // Unknown stock → default to Invest
-  if (stock.sleeve === 'CORE' && stock.isaEligible === true) return 'isa';
-  return 'invest';
+  if (investConnected) return 'invest';
+  return null;
 }
 
 // ── Single Trade Execution (buy + stop + DB position) ────────
@@ -886,7 +877,25 @@ async function runAutoTrade(session: Session) {
 
   const tradeResults: TradeResult[] = [];
   const skipped: Array<{ ticker: string; reason: string }> = [];
+  // Track ATTEMPTS separately from SUCCESSES. Both are capped at
+  // MAX_TRADES_PER_SESSION so a string of failures (insufficient funds, T212
+  // rejections, fill-timeouts) cannot let the loop drain the entire candidate
+  // list and place dozens of orders. This is the bug that fired on 2026-04-30
+  // 21:35 — success-only counter let the loop run unbounded when fills timed
+  // out outside market hours.
+  let tradesAttempted = 0;
   let tradesExecuted = 0;
+
+  // Errors that mean "no point trying any more candidates this session".
+  // First match aborts the loop; subsequent candidates are marked skipped.
+  const TERMINAL_ERROR_PATTERNS = [
+    /insufficient[- ]free[- ]for[- ]stocks[- ]buy/i,  // T212 cash too low
+    /insufficient.*funds/i,
+    /insufficient.*cash/i,
+    /kill[- ]switch/i,
+    /account.{0,15}suspended/i,
+  ] as const;
+  let sessionAbortReason: string | null = null;
 
   // Build existing positions for risk gate checks (GBP-normalised)
   const existingTickers = existingPositions.map(p => p.stock.ticker);
@@ -921,8 +930,15 @@ async function runAutoTrade(session: Session) {
   });
 
   for (const candidate of readyCandidates) {
-    if (tradesExecuted >= MAX_TRADES_PER_SESSION) {
-      skipped.push({ ticker: candidate.ticker, reason: `Session limit (${MAX_TRADES_PER_SESSION})` });
+    // SAFETY CAP — attempt-based, not success-based. See definition above.
+    if (tradesAttempted >= MAX_TRADES_PER_SESSION) {
+      skipped.push({ ticker: candidate.ticker, reason: `Session attempt cap reached (${MAX_TRADES_PER_SESSION})` });
+      continue;
+    }
+
+    // SAFETY CAP — hard stop on terminal errors (insufficient funds, kill switch, etc.)
+    if (sessionAbortReason) {
+      skipped.push({ ticker: candidate.ticker, reason: `Session aborted: ${sessionAbortReason}` });
       continue;
     }
 
@@ -996,36 +1012,18 @@ async function runAutoTrade(session: Session) {
     // Determine account type
     const accountType = await getAccountTypeForStock(userId, stock.id);
     if (!accountType) {
-      // Routed account not connected (e.g. user has neither account, or ISA-only with explicit isaEligible=false).
-      // Treat as a configuration skip, not a trade failure.
+      // Routed account not connected, or stock not isaEligible and no Invest account.
       skipped.push({
         ticker: candidate.ticker,
-        reason: 'T212 account not connected for this stock (check Settings → connect Invest account, or tag stock isaEligible=true)',
+        reason: 'No suitable T212 account (tag stock isaEligible=true to allow ISA routing, or connect Invest account)',
       });
       continue;
     }
 
-    // Currency-mismatch advisory (per T212 docs:
-    // https://docs.trading212.com/api/section/general-information#API-Limitations
-    // — "orders can be executed only in the primary account currency"). T212 ISA is GBP-only;
-    // T212 Invest is multi-currency. We DON'T skip on mismatch (ISA visibly accepts USD
-    // instruments via FX for QUANTITY orders), but we log so failures are debuggable.
-    if (accountType === 'isa') {
-      const stockCcy = (stock.currency || '').toUpperCase();
-      // GBP / GBX / GBp are all the GBP family (pence-quoted is the same primary currency)
-      const isGbpFamily = stockCcy === 'GBP' || stockCcy === 'GBX' || stockCcy === 'GBP';
-      if (stockCcy && !isGbpFamily) {
-        log.warn('Currency advisory: ISA primary currency is GBP but stock is non-GBP', {
-          ticker: candidate.ticker,
-          stockCurrency: stockCcy,
-          accountType,
-          note: 'T212 ISA usually accepts non-GBP instruments with FX conversion; if rejected, check T212 limits',
-        });
-      }
-    }
-
     // ── Step 4: Execute trade ──
-    console.log(`\n  [4/4] Executing trade ${tradesExecuted + 1}/${MAX_TRADES_PER_SESSION}...`);
+    console.log(`\n  [4/4] Executing trade attempt ${tradesAttempted + 1}/${MAX_TRADES_PER_SESSION}...`);
+    tradesAttempted++; // Count the attempt BEFORE calling executeTrade. Even if executeTrade
+                       // throws or returns failure, the attempt is spent and counts toward the cap.
 
     const result = await executeTrade(userId, {
       stockId: stock.id,
@@ -1063,10 +1061,28 @@ async function runAutoTrade(session: Session) {
         currentStop: newStopGbp,
         currentPrice: newEntryGbp,
       });
+    } else if (result.error) {
+      // Detect terminal errors that mean "abort the rest of this session".
+      // These are conditions where retrying with another ticker can only make things worse
+      // (e.g. insufficient funds — every subsequent buy attempt will fail the same way and
+      // generate Telegram noise).
+      for (const pattern of TERMINAL_ERROR_PATTERNS) {
+        if (pattern.test(result.error)) {
+          sessionAbortReason = result.error;
+          log.warn('Session aborted due to terminal error', {
+            ticker: candidate.ticker,
+            error: result.error,
+            tradesAttempted,
+            tradesExecuted,
+          });
+          break;
+        }
+      }
     }
 
-    // Rate limit: wait 3s between trades
-    if (tradesExecuted < MAX_TRADES_PER_SESSION && readyCandidates.indexOf(candidate) < readyCandidates.length - 1) {
+    // Rate limit: wait 3s between attempts (use attempts, not successes, so we still
+    // pace correctly when failures dominate).
+    if (tradesAttempted < MAX_TRADES_PER_SESSION && !sessionAbortReason && readyCandidates.indexOf(candidate) < readyCandidates.length - 1) {
       await new Promise(r => setTimeout(r, 3000));
     }
   }
