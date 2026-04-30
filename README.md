@@ -88,6 +88,12 @@ Current constraint: the checked-in Prisma schema is still SQLite-backed, so the 
 | `hourly-status-task.bat` | Send hourly Telegram portfolio status during market hours |
 | `watchdog-task.bat` | Check for missed nightly/midday heartbeats, send Telegram alert |
 | `register-watchdog-task.bat` | Register watchdog as a Windows Task Scheduler entry (10:00 AM daily) |
+| `monday-briefing-task.bat` | Monday 07:30 Telegram briefing for the week ahead |
+| `uk-briefing-task.bat` | UK pre-session Telegram briefing (08:00 Mon-Fri) |
+| `us-briefing-task.bat` | US pre-session Telegram briefing (14:30 Tue-Fri) |
+| `weekly-digest-task.bat` | Sunday 18:00 weekly performance digest via Telegram |
+| `ticker-audit-task.bat` | Monthly ticker universe audit (1st of month, 06:00) |
+| `restore-backup.bat` | Restore the SQLite database from a `prisma/backups` snapshot |
 
 ## Environment variables
 
@@ -235,7 +241,7 @@ On first server start with an empty cache, background pre-caching fetches histor
 
 ## Tech stack
 
-- Next.js 14 + React 18
+- Next.js 15 + React 18
 - Prisma + SQLite (local)
 - TailwindCSS
 - Zustand (state management)
