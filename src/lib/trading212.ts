@@ -196,9 +196,46 @@ export interface T212OrderHistoryOptions {
 
 // ---- API Client ----
 
+/**
+ * Per-endpoint minimum spacing (milliseconds) for known-tight T212 endpoints.
+ * Source: per-endpoint Rate limit lines in https://docs.trading212.com/api/orders, /positions,
+ * /instruments, /historical-events. Values include a small safety margin.
+ *
+ * Used by `Trading212Client.paceCall()` to proactively wait when a recent call to the same
+ * endpoint would otherwise burn a 429 (which we already retry on, but at the cost of latency).
+ */
+const MIN_INTERVAL_MS: Record<string, number> = {
+  // Orders
+  'GET /equity/orders': 5_100,             // 1 req / 5s
+  'POST /equity/orders/market': 1_300,     // 50 req / 1m ≈ 1.2s avg; pace at 1.3s
+  'POST /equity/orders/stop': 2_100,       // 1 req / 2s
+  'POST /equity/orders/limit': 2_100,      // 1 req / 2s
+  'POST /equity/orders/stop_limit': 2_100, // 1 req / 2s
+  // Positions
+  'GET /equity/positions': 1_100,          // 1 req / 1s
+  // Account
+  'GET /equity/account/summary': 5_100,    // 1 req / 5s
+  // Instruments (very strict)
+  'GET /equity/metadata/instruments': 50_500, // 1 req / 50s
+  'GET /equity/metadata/exchanges': 30_500,   // 1 req / 30s
+  // Historical events (6 req / 1m)
+  'GET /equity/history/orders': 10_500,
+  'GET /equity/history/dividends': 10_500,
+  'GET /equity/history/transactions': 10_500,
+};
+
+/**
+ * Pending-order safety cap. T212 documents "maximum of 50 pending orders allowed per ticker,
+ * per account" (https://docs.trading212.com/api/section/rate-limiting#Function-Specific-Limits).
+ * We abort stop placement at 45 to leave headroom for retries and concurrent flows.
+ */
+const PENDING_ORDER_CAP_PER_TICKER = 45;
+
 export class Trading212Client {
   private baseUrl: string;
   private authHeader: string;
+  /** Last-call timestamps per endpoint key ("METHOD /path"). Per-instance, not shared. */
+  private lastCallAt: Map<string, number> = new Map();
 
   /**
    * Construct a Trading 212 API client.
@@ -225,6 +262,9 @@ export class Trading212Client {
     const url = path.startsWith('http') ? path : `${this.baseUrl}${path}`;
     const method = options?.method ?? 'GET';
     const maxRetries = 2; // Retry up to 2 times on rate limit (429)
+
+    // Proactive pacing for known-tight endpoints — cheaper than burning a 429 + retry.
+    await this.paceCall(method, path);
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       const response = await fetch(url, {
@@ -324,6 +364,37 @@ export class Trading212Client {
 
     // Should never reach here, but TypeScript needs a return
     throw new Trading212Error('Max retries exceeded', 429);
+  }
+
+  /**
+   * Proactive endpoint pacing. For known-tight T212 endpoints (e.g. /metadata/instruments
+   * at 1 req / 50s), waits the remainder of the minimum interval before issuing another call
+   * on the same Trading212Client instance. Cheaper than absorbing a 429 + retry round-trip.
+   *
+   * Path normalization: strips query strings and numeric path segments (e.g. `/orders/{id}`)
+   * so paginated GETs and per-id lookups all share the same endpoint key.
+   *
+   * Disabled under Vitest so unit tests don't pay multi-second pacing costs.
+   */
+  private async paceCall(method: string, path: string): Promise<void> {
+    if (process.env.VITEST || process.env.NODE_ENV === 'test') return;
+
+    // Normalise path → strip query, collapse numeric ids
+    const cleanPath = path.split('?')[0].replace(/\/\d+(?=\/|$)/g, '');
+    const key = `${method} ${cleanPath}`;
+    const minInterval = MIN_INTERVAL_MS[key];
+    if (!minInterval) return; // Endpoint isn't on the tight list — no pacing needed
+
+    const last = this.lastCallAt.get(key);
+    const now = Date.now();
+    if (last !== undefined) {
+      const elapsed = now - last;
+      const wait = minInterval - elapsed;
+      if (wait > 0) {
+        await new Promise((r) => setTimeout(r, wait));
+      }
+    }
+    this.lastCallAt.set(key, Date.now());
   }
 
   // ---- Positions ----
@@ -561,6 +632,18 @@ export class Trading212Client {
     const existingStops = pending.filter(
       (o) => o.ticker === t212Ticker && o.type === 'STOP' && o.side === 'SELL'
     );
+
+    // 1a. Pending-order safety cap. T212 limits 50 pending orders per ticker per account
+    // (https://docs.trading212.com/api/section/rate-limiting#Function-Specific-Limits).
+    // If something has gone wrong upstream and we've accumulated near the limit, abort
+    // before placing a 51st rather than letting T212 reject after we've cancelled the old stop.
+    const totalPendingForTicker = pending.filter((o) => o.ticker === t212Ticker).length;
+    if (totalPendingForTicker >= PENDING_ORDER_CAP_PER_TICKER) {
+      throw new Trading212Error(
+        `Pending-order safety cap: ${totalPendingForTicker} pending orders already exist for ${t212Ticker} on this T212 account (cap: ${PENDING_ORDER_CAP_PER_TICKER}, T212 hard limit: 50). Inspect the T212 app and cancel stale orders before retrying.`,
+        400
+      );
+    }
 
     // 2. MONOTONIC ENFORCEMENT — never lower an existing stop
     const highestExisting = existingStops.reduce(

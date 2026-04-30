@@ -132,6 +132,50 @@ describe('Trading212Client.getOrderHistory', () => {
   });
 });
 
+// ── Auth scheme ──
+
+describe('Trading212Client auth scheme', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers(),
+      json: async () => ({}),
+    } as unknown as Response));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('uses Basic key:secret when secret is provided', async () => {
+    const fetchMock = vi.mocked(fetch);
+    const client = new Trading212Client('myKey', 'mySecret', 'demo');
+    await client.getPositions();
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    const headers = init.headers as Record<string, string>;
+    const expected = `Basic ${Buffer.from('myKey:mySecret').toString('base64')}`;
+    expect(headers['Authorization']).toBe(expected);
+  });
+
+  it('uses legacy single-token auth when secret is empty', async () => {
+    const fetchMock = vi.mocked(fetch);
+    const client = new Trading212Client('soloToken', '', 'demo');
+    await client.getPositions();
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    const headers = init.headers as Record<string, string>;
+    expect(headers['Authorization']).toBe('soloToken');
+  });
+
+  it('defaults secret to empty when omitted entirely', async () => {
+    const fetchMock = vi.mocked(fetch);
+    const client = new Trading212Client('soloToken', undefined, 'demo');
+    await client.getPositions();
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    const headers = init.headers as Record<string, string>;
+    expect(headers['Authorization']).toBe('soloToken');
+  });
+});
+
 // ── mapT212Position ──
 
 describe('mapT212Position', () => {
