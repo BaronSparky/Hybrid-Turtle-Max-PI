@@ -28,7 +28,13 @@ Each entry uses this shape (newest at top of the History section):
 ```
 
 ## History
+### 2026-04-30 — pending — auto-trade.ts: relax t212ApiSecret requirement (legacy single-token auth)
 
+- File(s): `src/cron/auto-trade.ts` (only `getT212Client`)
+- Why: T212 docs show two auth modes — Basic `key:secret` AND legacy single-token `Authorization: <apiKey>`. Today T212 commonly issues a single token with no separate secret. The previous gate `!user.t212ApiSecret || !user.t212IsaApiSecret` blocked these users from connecting. `Trading212Client` constructor now treats an empty `apiSecret` as legacy auth and sends the key directly in the header.
+- Behaviour preserved: All routing logic, regime gates, kill switch, stop placement, position creation, risk gates, currency handling, and ISA/Invest selection are untouched. Only the credential-validity check changed: secret is no longer required, key + connected flag still are. `decryptField(... ?? '')` is null-safe so missing secret in DB doesn't throw.
+- Tests: trading212-dual updated (1 test renamed to focus on missing-key, 1 new test added asserting key-only legacy auth is accepted). Full T212 test suite 39/39 pass. positions/execute (24 tests) pass with the same relaxation applied.
+- Author: PR Review agent (T212 audit, ship-all batch)
 ### 2026-04-30 — pending — auto-trade.ts: skip candidates whose T212 account isn't connected (don't error)
 
 - File(s): `src/cron/auto-trade.ts`

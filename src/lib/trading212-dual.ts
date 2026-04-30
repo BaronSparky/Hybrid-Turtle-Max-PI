@@ -262,8 +262,9 @@ export function validateDualCredentials(user: {
   t212IsaApiSecret?: string | null;
   t212IsaConnected?: boolean;
 }): DualCredentialStatus {
-  const hasInvest = !!(user.t212ApiKey && user.t212ApiSecret && user.t212Connected);
-  const hasIsa = !!(user.t212IsaApiKey && user.t212IsaApiSecret && user.t212IsaConnected);
+  // apiSecret is OPTIONAL (legacy single-token auth) — only the key + connected flag are required.
+  const hasInvest = !!(user.t212ApiKey && user.t212Connected);
+  const hasIsa = !!(user.t212IsaApiKey && user.t212IsaConnected);
 
   return {
     hasInvest,
@@ -289,19 +290,20 @@ export function getCredentialsForAccount(
   accountType: T212AccountType
 ): T212AccountCredentials | null {
   if (accountType === 'invest') {
-    if (!user.t212ApiKey || !user.t212ApiSecret || !user.t212Connected) return null;
+    // Secret is optional (legacy single-token auth). Required: key + connected flag.
+    if (!user.t212ApiKey || !user.t212Connected) return null;
     return {
       apiKey: decryptField(user.t212ApiKey),
-      apiSecret: decryptField(user.t212ApiSecret),
+      apiSecret: user.t212ApiSecret ? decryptField(user.t212ApiSecret) : '',
       environment: (user.t212Environment as Trading212Environment) || 'live',
     };
   }
 
   // ISA — shares t212Environment with the invest account (same demo/live setting)
-  if (!user.t212IsaApiKey || !user.t212IsaApiSecret || !user.t212IsaConnected) return null;
+  if (!user.t212IsaApiKey || !user.t212IsaConnected) return null;
   return {
     apiKey: decryptField(user.t212IsaApiKey),
-    apiSecret: decryptField(user.t212IsaApiSecret),
+    apiSecret: user.t212IsaApiSecret ? decryptField(user.t212IsaApiSecret) : '',
     environment: (user.t212Environment as Trading212Environment) || 'live',
   };
 }

@@ -51,23 +51,23 @@ async function getT212Client(userId: string, accountType?: T212AccountType | str
   }
 
   if (acctType === 'isa') {
-    if (!user.t212IsaApiKey || !user.t212IsaApiSecret || !user.t212IsaConnected) {
+    if (!user.t212IsaApiKey || !user.t212IsaConnected) {
       throw new Error('Trading 212 ISA account not connected. Go to Settings to add your ISA API credentials.');
     }
     return new Trading212Client(
       decryptField(user.t212IsaApiKey),
-      decryptField(user.t212IsaApiSecret),
+      decryptField(user.t212IsaApiSecret ?? ''),
       user.t212Environment as 'demo' | 'live'
     );
   }
 
   // Invest (default)
-  if (!user.t212ApiKey || !user.t212ApiSecret || !user.t212Connected) {
+  if (!user.t212ApiKey || !user.t212Connected) {
     throw new Error('Trading 212 Invest account not connected. Go to Settings to add your API credentials.');
   }
   return new Trading212Client(
     decryptField(user.t212ApiKey),
-    decryptField(user.t212ApiSecret),
+    decryptField(user.t212ApiSecret ?? ''),
     user.t212Environment as 'demo' | 'live'
   );
 }

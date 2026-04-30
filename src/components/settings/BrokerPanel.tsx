@@ -103,7 +103,7 @@ export default function BrokerPanel() {
 
   // ── T212 handlers ──
   const handleT212Connect = async () => {
-    if (!t212ApiKey || !t212ApiSecret) { setT212Error('Enter both API Key and Secret'); return; }
+    if (!t212ApiKey) { setT212Error('Enter your API Key'); return; }
     setT212Connecting(true); setT212Error(null); setT212Success(null);
     try {
       const data = await apiRequest<{ accountId: number; currency: string }>('/api/trading212/connect', {
@@ -127,7 +127,7 @@ export default function BrokerPanel() {
   };
 
   const handleT212IsaConnect = async () => {
-    if (!t212IsaApiKey || !t212IsaApiSecret) { setT212IsaError('Enter both API Key and Secret'); return; }
+    if (!t212IsaApiKey) { setT212IsaError('Enter your ISA API Key'); return; }
     setT212IsaConnecting(true); setT212IsaError(null); setT212IsaSuccess(null);
     try {
       const data = await apiRequest<{ accountId: number; currency: string }>('/api/trading212/connect', {
@@ -253,14 +253,14 @@ export default function BrokerPanel() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs text-muted-foreground mb-1">API Secret</label>
+                  <label className="block text-xs text-muted-foreground mb-1">API Secret <span className="text-muted-foreground/70">(optional)</span></label>
                   <div className="relative">
-                    <input type={t212ShowSecret ? 'text' : 'password'} value={t212ApiSecret} onChange={(e) => setT212ApiSecret(e.target.value)} placeholder="Invest API Secret" className="input-field w-full pr-10 text-sm" />
+                    <input type={t212ShowSecret ? 'text' : 'password'} value={t212ApiSecret} onChange={(e) => setT212ApiSecret(e.target.value)} placeholder="Leave blank if T212 issued only one token" className="input-field w-full pr-10 text-sm" />
                     <button onClick={() => setT212ShowSecret(!t212ShowSecret)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" title="Toggle visibility">{t212ShowSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
                   </div>
                 </div>
               </div>
-              <button onClick={handleT212Connect} disabled={t212Connecting || !t212ApiKey || !t212ApiSecret} className={cn('btn-primary flex items-center gap-2 text-sm', (t212Connecting || !t212ApiKey || !t212ApiSecret) && 'opacity-50 cursor-not-allowed')}>
+              <button onClick={handleT212Connect} disabled={t212Connecting || !t212ApiKey} className={cn('btn-primary flex items-center gap-2 text-sm', (t212Connecting || !t212ApiKey) && 'opacity-50 cursor-not-allowed')}>
                 {t212Connecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plug className="w-4 h-4" />}
                 {t212Connecting ? 'Connecting...' : 'Connect & Test'}
               </button>
@@ -296,14 +296,14 @@ export default function BrokerPanel() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs text-muted-foreground mb-1">ISA API Secret</label>
+                  <label className="block text-xs text-muted-foreground mb-1">ISA API Secret <span className="text-muted-foreground/70">(optional)</span></label>
                   <div className="relative">
-                    <input type={t212IsaShowSecret ? 'text' : 'password'} value={t212IsaApiSecret} onChange={(e) => setT212IsaApiSecret(e.target.value)} placeholder="ISA API Secret" className="input-field w-full pr-10 text-sm" />
+                    <input type={t212IsaShowSecret ? 'text' : 'password'} value={t212IsaApiSecret} onChange={(e) => setT212IsaApiSecret(e.target.value)} placeholder="Leave blank if T212 issued only one token" className="input-field w-full pr-10 text-sm" />
                     <button onClick={() => setT212IsaShowSecret(!t212IsaShowSecret)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" title="Toggle visibility">{t212IsaShowSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
                   </div>
                 </div>
               </div>
-              <button onClick={handleT212IsaConnect} disabled={t212IsaConnecting || !t212IsaApiKey || !t212IsaApiSecret} className={cn('btn-primary flex items-center gap-2 text-sm', (t212IsaConnecting || !t212IsaApiKey || !t212IsaApiSecret) && 'opacity-50 cursor-not-allowed')}>
+              <button onClick={handleT212IsaConnect} disabled={t212IsaConnecting || !t212IsaApiKey} className={cn('btn-primary flex items-center gap-2 text-sm', (t212IsaConnecting || !t212IsaApiKey) && 'opacity-50 cursor-not-allowed')}>
                 {t212IsaConnecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plug className="w-4 h-4" />}
                 {t212IsaConnecting ? 'Connecting...' : 'Connect & Test'}
               </button>
@@ -312,6 +312,7 @@ export default function BrokerPanel() {
         </div>
         <p className="text-xs text-muted-foreground">
           Generate separate API keys for each account from your Trading 212 app.
+          Trading 212 may issue either a key+secret pair <em>or</em> a single token — if you only see one token, paste it into the <strong>API Key</strong> field and leave <strong>API Secret</strong> blank.
           <a href="https://helpcentre.trading212.com/hc/en-us/articles/14584770928157-Trading-212-API-key" target="_blank" rel="noopener noreferrer" className="text-primary-400 hover:text-primary-300 ml-1">How to get your API key →</a>
         </p>
       </div>

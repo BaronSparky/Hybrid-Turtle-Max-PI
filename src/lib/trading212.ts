@@ -200,11 +200,25 @@ export class Trading212Client {
   private baseUrl: string;
   private authHeader: string;
 
-  constructor(apiKey: string, apiSecret: string, environment: Trading212Environment = 'live') {
+  /**
+   * Construct a Trading 212 API client.
+   *
+   * Auth modes (both documented at https://docs.trading212.com/api/section/authentication):
+   * - Key-pair (preferred): pass `apiKey` and `apiSecret` → sent as `Authorization: Basic base64(key:secret)`.
+   * - Single-token (legacy): pass only `apiKey` (leave `apiSecret` empty) → sent as `Authorization: <apiKey>`.
+   *   This is the form T212 issues when generating an API key from the mobile app today; many
+   *   users only ever see a single token and never receive a separate secret.
+   */
+  constructor(apiKey: string, apiSecret: string = '', environment: Trading212Environment = 'live') {
     this.baseUrl = BASE_URLS[environment];
-    // HTTP Basic Auth: base64(API_KEY:API_SECRET)
-    const credentials = Buffer.from(`${apiKey}:${apiSecret}`).toString('base64');
-    this.authHeader = `Basic ${credentials}`;
+    if (apiSecret && apiSecret.length > 0) {
+      // HTTP Basic Auth: base64(API_KEY:API_SECRET) — the documented key-pair scheme
+      const credentials = Buffer.from(`${apiKey}:${apiSecret}`).toString('base64');
+      this.authHeader = `Basic ${credentials}`;
+    } else {
+      // Legacy single-token scheme — the cURL examples in the T212 docs show this form too
+      this.authHeader = apiKey;
+    }
   }
 
   private async request<T>(path: string, options?: { method?: string; body?: unknown }): Promise<T> {

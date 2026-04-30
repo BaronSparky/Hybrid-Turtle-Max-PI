@@ -70,15 +70,15 @@ export async function POST(request: NextRequest) {
 
     let client: Trading212Client;
     if (acctType === 'isa') {
-      if (!user.t212IsaApiKey || !user.t212IsaApiSecret || !user.t212IsaConnected) {
+      if (!user.t212IsaApiKey || !user.t212IsaConnected) {
         return apiError(400, 'T212_NOT_CONNECTED', 'T212 ISA not connected');
       }
-      client = new Trading212Client(decryptField(user.t212IsaApiKey), decryptField(user.t212IsaApiSecret), user.t212Environment as 'demo' | 'live');
+      client = new Trading212Client(decryptField(user.t212IsaApiKey), decryptField(user.t212IsaApiSecret ?? ''), user.t212Environment as 'demo' | 'live');
     } else {
-      if (!user.t212ApiKey || !user.t212ApiSecret || !user.t212Connected) {
+      if (!user.t212ApiKey || !user.t212Connected) {
         return apiError(400, 'T212_NOT_CONNECTED', 'T212 Invest not connected');
       }
-      client = new Trading212Client(decryptField(user.t212ApiKey), decryptField(user.t212ApiSecret), user.t212Environment as 'demo' | 'live');
+      client = new Trading212Client(decryptField(user.t212ApiKey), decryptField(user.t212ApiSecret ?? ''), user.t212Environment as 'demo' | 'live');
     }
 
     // Fetch all T212 positions and find the matching one

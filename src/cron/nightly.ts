@@ -83,11 +83,11 @@ async function getNightlyT212Client(userId: string, accountType: T212AccountType
     });
     if (!user) return null;
     if (accountType === 'isa') {
-      if (!user.t212IsaApiKey || !user.t212IsaApiSecret || !user.t212IsaConnected) return null;
-      return new Trading212Client(decryptField(user.t212IsaApiKey), decryptField(user.t212IsaApiSecret), user.t212Environment as 'demo' | 'live');
+      if (!user.t212IsaApiKey || !user.t212IsaConnected) return null;
+      return new Trading212Client(decryptField(user.t212IsaApiKey), decryptField(user.t212IsaApiSecret ?? ''), user.t212Environment as 'demo' | 'live');
     }
-    if (!user.t212ApiKey || !user.t212ApiSecret || !user.t212Connected) return null;
-    return new Trading212Client(decryptField(user.t212ApiKey), decryptField(user.t212ApiSecret), user.t212Environment as 'demo' | 'live');
+    if (!user.t212ApiKey || !user.t212Connected) return null;
+    return new Trading212Client(decryptField(user.t212ApiKey), decryptField(user.t212ApiSecret ?? ''), user.t212Environment as 'demo' | 'live');
   } catch {
     return null;
   }

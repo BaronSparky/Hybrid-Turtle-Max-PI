@@ -327,8 +327,8 @@ describe('validateDualCredentials', () => {
 
   it('requires both key and secret — partial credentials fail', () => {
     const result = validateDualCredentials({
-      t212ApiKey: 'key',
-      t212ApiSecret: null, // missing secret
+      t212ApiKey: null, // missing key — fails even with secret present
+      t212ApiSecret: 'invest-secret',
       t212Connected: true,
       t212IsaApiKey: null, // missing key
       t212IsaApiSecret: 'isa-secret',
@@ -338,6 +338,23 @@ describe('validateDualCredentials', () => {
     expect(result.hasInvest).toBe(false);
     expect(result.hasIsa).toBe(false);
     expect(result.canFetch).toBe(false);
+  });
+
+  it('accepts key-only credentials (legacy single-token auth)', () => {
+    // T212 may issue a single token (no separate secret). The Trading212Client
+    // sends Authorization: <apiKey> per the legacy cURL example in the docs.
+    const result = validateDualCredentials({
+      t212ApiKey: 'just-a-token',
+      t212ApiSecret: null, // intentionally absent — legacy auth
+      t212Connected: true,
+      t212IsaApiKey: 'isa-token',
+      t212IsaApiSecret: null,
+      t212IsaConnected: true,
+    });
+
+    expect(result.hasInvest).toBe(true);
+    expect(result.hasIsa).toBe(true);
+    expect(result.canFetch).toBe(true);
   });
 });
 

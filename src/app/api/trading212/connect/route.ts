@@ -11,7 +11,9 @@ import { encryptField } from '@/lib/crypto';
 
 const connectSchema = z.object({
   apiKey: z.string().trim().min(1),
-  apiSecret: z.string().trim().min(1),
+  // apiSecret is OPTIONAL — T212 may issue a single-token credential (legacy auth scheme).
+  // When omitted, Trading212Client uses Authorization: <apiKey> per the T212 docs cURL example.
+  apiSecret: z.string().trim().optional().default(''),
   environment: z.enum(['demo', 'live']).optional(),
   userId: z.string().trim().min(1).optional(),
   accountType: z.enum(['invest', 'isa']).optional(), // Which T212 account to connect

@@ -147,16 +147,16 @@ async function getT212Client(userId: string, accountType: T212AccountType): Prom
   if (!user) throw new Error('User not found');
 
   if (accountType === 'isa') {
-    if (!user.t212IsaApiKey || !user.t212IsaApiSecret || !user.t212IsaConnected) {
+    if (!user.t212IsaApiKey || !user.t212IsaConnected) {
       throw new Error('Trading 212 ISA account not connected.');
     }
-    return new Trading212Client(decryptField(user.t212IsaApiKey), decryptField(user.t212IsaApiSecret), user.t212Environment as 'demo' | 'live');
+    return new Trading212Client(decryptField(user.t212IsaApiKey), decryptField(user.t212IsaApiSecret ?? ''), user.t212Environment as 'demo' | 'live');
   }
 
-  if (!user.t212ApiKey || !user.t212ApiSecret || !user.t212Connected) {
+  if (!user.t212ApiKey || !user.t212Connected) {
     throw new Error('Trading 212 Invest account not connected.');
   }
-  return new Trading212Client(decryptField(user.t212ApiKey), decryptField(user.t212ApiSecret), user.t212Environment as 'demo' | 'live');
+  return new Trading212Client(decryptField(user.t212ApiKey), decryptField(user.t212ApiSecret ?? ''), user.t212Environment as 'demo' | 'live');
 }
 
 // ── Determine account type for a stock ───────────────────────
