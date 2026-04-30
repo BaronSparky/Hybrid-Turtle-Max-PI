@@ -69,6 +69,8 @@ npm run start
 - Broker/data refresh: keep existing scheduler scripts as separate supervised jobs
 - Watchdog: retain the daily heartbeat check if Telegram alerts are enabled
 
+Windows Task Scheduler audit and repair steps are documented in [SCHEDULER-AUDIT.md](SCHEDULER-AUDIT.md).
+
 ## CI
 
 The Phase 13 CI workflow runs:

@@ -55,6 +55,7 @@ That's it. The installer creates a `.env` file automatically with secure default
 ## Deployment
 
 Docker deployment, CI, and cloud self-hosting notes: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+Windows Task Scheduler audit and repair notes: [docs/SCHEDULER-AUDIT.md](docs/SCHEDULER-AUDIT.md).
 
 Core CI test command: `npm run test:unit`
 
