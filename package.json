@@ -28,6 +28,7 @@
     "tasks:audit": "node scripts/audit-scheduled-tasks.mjs",
     "tasks:cleanup-retired": "node scripts/cleanup-retired-scheduled-tasks.mjs",
     "tasks:register-all": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/register-all-tasks.ps1",
+    "sanity:live": "tsx scripts/sanity-live.ts",
     "audit:harness": "npx tsx scripts/audit_harness.ts",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
