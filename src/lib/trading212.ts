@@ -190,6 +190,10 @@ export interface T212PaginatedResponse<T> {
   nextPagePath: string | null;
 }
 
+export interface T212OrderHistoryOptions {
+  maxPages?: number;
+}
+
 // ---- API Client ----
 
 export class Trading212Client {
@@ -337,16 +341,19 @@ export class Trading212Client {
   // ---- Historical Orders (paginated) ----
 
   /**
-   * Fetch all historical orders with automatic pagination.
+   * Fetch historical orders with automatic pagination.
    * T212 API returns { order, fill } pairs — we flatten them into T212HistoricalOrder
    * for the importer to consume.
    */
-  async getOrderHistory(limit: number = 50): Promise<T212HistoricalOrder[]> {
+  async getOrderHistory(limit: number = 50, options: T212OrderHistoryOptions = {}): Promise<T212HistoricalOrder[]> {
     const allOrders: T212HistoricalOrder[] = [];
     let nextPath: string | null = `/equity/history/orders?limit=${limit}`;
+    const maxPages = options.maxPages ?? Number.POSITIVE_INFINITY;
+    let pagesFetched = 0;
 
-    while (nextPath) {
+    while (nextPath && pagesFetched < maxPages) {
       const page: T212PaginatedResponse<T212RawHistoryItem> = await this.request(nextPath);
+      pagesFetched++;
 
       for (const item of page.items) {
         const o = item.order;
@@ -396,7 +403,7 @@ export class Trading212Client {
       // T212 nextPagePath includes /api/v0/ prefix — strip it to avoid doubling
       // since baseUrl already contains /api/v0
       const raw = page.nextPagePath;
-      if (raw) {
+      if (raw && pagesFetched < maxPages) {
         nextPath = raw.startsWith('/api/v0') ? raw.replace('/api/v0', '') : raw;
       } else {
         nextPath = null;

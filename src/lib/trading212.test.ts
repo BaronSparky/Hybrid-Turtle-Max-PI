@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import {
   Trading212Client,
   Trading212Error,
@@ -62,6 +62,73 @@ describe('Trading212Error', () => {
     const err = new Trading212Error('Forbidden', 403);
     expect(err.statusCode).toBe(403);
     expect(err.rateLimitReset).toBeUndefined();
+  });
+});
+
+// ── getOrderHistory pagination ──
+
+describe('Trading212Client.getOrderHistory', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function mockHistoryResponse(nextPagePath: string | null, id: number) {
+    return {
+      ok: true,
+      headers: { get: vi.fn(() => null) },
+      json: vi.fn(async () => ({
+        items: [{
+          order: {
+            id,
+            ticker: 'VOD_UK_EQ',
+            type: 'SELL',
+            side: 'SELL',
+            status: 'FILLED',
+            quantity: -10,
+            filledQuantity: 10,
+            filledValue: 720,
+            createdAt: '2026-04-30T09:59:00Z',
+          },
+          fill: {
+            id,
+            quantity: -10,
+            price: 72,
+            type: 'FILL',
+            filledAt: '2026-04-30T10:00:00Z',
+          },
+        }],
+        nextPagePath,
+      })),
+    } as unknown as Response;
+  }
+
+  it('continues through pages by default for full import callers', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(mockHistoryResponse('/api/v0/equity/history/orders?limit=50&cursor=next', 1))
+      .mockResolvedValueOnce(mockHistoryResponse(null, 2));
+
+    const client = new Trading212Client('key', 'secret', 'demo');
+    const orders = await client.getOrderHistory(50);
+
+    expect(orders.map((order) => order.id)).toEqual([1, 2]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenNthCalledWith(2, 'https://demo.trading212.com/api/v0/equity/history/orders?limit=50&cursor=next', expect.any(Object));
+  });
+
+  it('stops after maxPages when callers only need recent history', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(mockHistoryResponse('/api/v0/equity/history/orders?limit=50&cursor=next', 1));
+
+    const client = new Trading212Client('key', 'secret', 'demo');
+    const orders = await client.getOrderHistory(50, { maxPages: 1 });
+
+    expect(orders.map((order) => order.id)).toEqual([1]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 

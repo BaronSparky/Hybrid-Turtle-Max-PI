@@ -509,14 +509,14 @@ export async function syncClosedPositions(userId: string = 'default-user', optio
           : null;
 
       if (primaryClient) {
-        orderHistory = await primaryClient.getOrderHistory(50);
+        orderHistory = await primaryClient.getOrderHistory(50, { maxPages: 1 });
       }
 
       // If ISA also exists and is separate, fetch its history too
       if (investCreds && isaCreds) {
         try {
           const isaClient = new Trading212Client(isaCreds.apiKey, isaCreds.apiSecret, isaCreds.environment);
-          const isaOrders = await isaClient.getOrderHistory(50);
+          const isaOrders = await isaClient.getOrderHistory(50, { maxPages: 1 });
           orderHistory = [...orderHistory, ...isaOrders];
         } catch {
           // ISA order history optional — invest orders are primary

@@ -4,8 +4,16 @@ import { shouldFetchOrderHistoryForSync } from './position-sync';
 
 const mocks = vi.hoisted(() => ({
   findUnique: vi.fn(),
+  positionFindMany: vi.fn(),
+  positionUpdate: vi.fn(),
+  tradeLogCreate: vi.fn(),
+  tradeLogFindFirst: vi.fn(),
+  transaction: vi.fn(),
   getPositions: vi.fn(),
+  getAccountSummary: vi.fn(),
+  getOrderHistory: vi.fn(),
   sendAlert: vi.fn(),
+  logEVRecord: vi.fn(),
   persistCache: vi.fn(),
   rehydrateCache: vi.fn(),
   recordPriceSnapshots: vi.fn(),
@@ -18,6 +26,15 @@ vi.mock('@/lib/prisma', () => ({
     user: {
       findUnique: mocks.findUnique,
     },
+    position: {
+      findMany: mocks.positionFindMany,
+      update: mocks.positionUpdate,
+    },
+    tradeLog: {
+      create: mocks.tradeLogCreate,
+      findFirst: mocks.tradeLogFindFirst,
+    },
+    $transaction: mocks.transaction,
   },
 }));
 
@@ -38,6 +55,10 @@ vi.mock('@/lib/price-snapshot', () => ({
   recordPriceSnapshots: mocks.recordPriceSnapshots,
 }));
 
+vi.mock('@/lib/ev-tracker', () => ({
+  logEVRecord: mocks.logEVRecord,
+}));
+
 vi.mock('./trading212', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./trading212')>();
 
@@ -52,6 +73,14 @@ vi.mock('./trading212', async (importOriginal) => {
 
     async getPositions(): Promise<T212Position[]> {
       return mocks.getPositions(this.apiKey);
+    }
+
+    async getAccountSummary() {
+      return mocks.getAccountSummary(this.apiKey);
+    }
+
+    async getOrderHistory(limit = 50, options = {}) {
+      return mocks.getOrderHistory(this.apiKey, limit, options);
     }
   }
 
@@ -105,6 +134,68 @@ function connectedSameKeyUser() {
   };
 }
 
+function makeAccountSummary() {
+  return {
+    cash: { availableToTrade: 5000, inPies: 0, reservedForOrders: 0 },
+    currency: 'GBP',
+    id: 123,
+    investments: {
+      currentValue: 1000,
+      realizedProfitLoss: 0,
+      totalCost: 950,
+      unrealizedProfitLoss: 50,
+    },
+    totalValue: 6000,
+  };
+}
+
+function makeDbPosition(ticker: string, t212Ticker = `${ticker}_UK_EQ`) {
+  return {
+    id: `position-${ticker}`,
+    userId: 'default-user',
+    stockId: `stock-${ticker}`,
+    t212Ticker,
+    entryPrice: 75,
+    entryDate: new Date('2026-04-01T09:00:00Z'),
+    shares: 10,
+    currentStop: 68,
+    initialRisk: 7,
+    initial_R: 7,
+    atr_at_entry: 2,
+    accountType: 'invest',
+    stock: {
+      ticker,
+      name: `${ticker} plc`,
+      t212Ticker,
+      currency: 'GBP',
+      cluster: 'core',
+      sleeve: 'stock',
+    },
+  };
+}
+
+function makeSellOrder(ticker: string) {
+  return {
+    id: 12345,
+    ticker: `${ticker}_UK_EQ`,
+    type: 'SELL',
+    side: 'SELL' as const,
+    status: 'FILLED',
+    quantity: 10,
+    filledQuantity: 10,
+    filledValue: 720,
+    dateCreated: '2026-04-30T09:59:00Z',
+    dateExecuted: '2026-04-30T10:00:00Z',
+    initiatedFrom: 'STOP_LOSS',
+    fills: [{
+      price: 72,
+      quantity: 10,
+      filledAt: '2026-04-30T10:00:00Z',
+      walletImpact: { netValue: 720, realisedProfitLoss: -30, fxRate: 1 },
+    }],
+  };
+}
+
 describe('fetchT212LivePrices rate-limit handling', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -114,7 +205,18 @@ describe('fetchT212LivePrices rate-limit handling', () => {
 
     mocks.constructedApiKeys.length = 0;
     mocks.findUnique.mockResolvedValue(connectedDualUser());
+    mocks.positionFindMany.mockResolvedValue([]);
+    mocks.positionUpdate.mockResolvedValue({});
+    mocks.tradeLogCreate.mockResolvedValue({});
+    mocks.tradeLogFindFirst.mockResolvedValue(null);
+    mocks.transaction.mockImplementation(async (callback) => callback({
+      position: { update: mocks.positionUpdate },
+      tradeLog: { create: mocks.tradeLogCreate },
+    }));
+    mocks.getAccountSummary.mockResolvedValue(makeAccountSummary());
+    mocks.getOrderHistory.mockResolvedValue([]);
     mocks.sendAlert.mockResolvedValue(undefined);
+    mocks.logEVRecord.mockResolvedValue(undefined);
     mocks.persistCache.mockResolvedValue(undefined);
     mocks.rehydrateCache.mockResolvedValue(null);
     mocks.recordPriceSnapshots.mockResolvedValue(undefined);
@@ -214,5 +316,72 @@ describe('shouldFetchOrderHistoryForSync', () => {
       hasMissingTrackedPosition: false,
       detectUntrackedSales: true,
     })).toBe(true);
+  });
+});
+
+describe('syncClosedPositions order-history usage', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 3, 30, 10, 0, 0));
+
+    mocks.constructedApiKeys.length = 0;
+    mocks.findUnique.mockResolvedValue({
+      ...connectedDualUser(),
+      t212IsaConnected: false,
+      t212IsaApiKey: null,
+      t212IsaApiSecret: null,
+    });
+    mocks.positionUpdate.mockResolvedValue({});
+    mocks.tradeLogCreate.mockResolvedValue({});
+    mocks.tradeLogFindFirst.mockResolvedValue(null);
+    mocks.transaction.mockImplementation(async (callback) => callback({
+      position: { update: mocks.positionUpdate },
+      tradeLog: { create: mocks.tradeLogCreate },
+    }));
+    mocks.getAccountSummary.mockResolvedValue(makeAccountSummary());
+    mocks.getOrderHistory.mockResolvedValue([]);
+    mocks.sendAlert.mockResolvedValue(undefined);
+    mocks.logEVRecord.mockResolvedValue(undefined);
+    mocks.persistCache.mockResolvedValue(undefined);
+    mocks.rehydrateCache.mockResolvedValue(null);
+    mocks.recordPriceSnapshots.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('does not fetch order history when every tracked position is still open and untracked sale detection is disabled', async () => {
+    mocks.positionFindMany.mockResolvedValue([makeDbPosition('VOD')]);
+    mocks.getPositions.mockResolvedValue([makePosition('VOD', 72.4)]);
+
+    const { syncClosedPositions } = await import('./position-sync');
+    const result = await syncClosedPositions('default-user', { detectUntrackedSales: false });
+
+    expect(result).toMatchObject({ checked: 1, closed: 0, skipped: 0, updated: 1, errors: [] });
+    expect(mocks.getOrderHistory).not.toHaveBeenCalled();
+    expect(mocks.positionUpdate).not.toHaveBeenCalled();
+  });
+
+  it('fetches one history page and closes when a tracked position is missing from T212', async () => {
+    mocks.positionFindMany.mockResolvedValue([makeDbPosition('VOD')]);
+    mocks.getPositions.mockResolvedValue([makePosition('SHEL', 2500)]);
+    mocks.getOrderHistory.mockResolvedValue([makeSellOrder('VOD')]);
+
+    const { syncClosedPositions } = await import('./position-sync');
+    const result = await syncClosedPositions('default-user', { detectUntrackedSales: false });
+
+    expect(result).toMatchObject({ checked: 1, closed: 1, skipped: 0, updated: 0, errors: [] });
+    expect(mocks.getOrderHistory).toHaveBeenCalledWith('invest-key', 50, { maxPages: 1 });
+    expect(mocks.positionUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'position-VOD' },
+      data: expect.objectContaining({
+        status: 'CLOSED',
+        exitPrice: 72,
+        closedBy: 'AUTO_SYNC',
+      }),
+    }));
   });
 });
