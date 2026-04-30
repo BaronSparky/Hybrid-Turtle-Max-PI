@@ -29,6 +29,14 @@ Each entry uses this shape (newest at top of the History section):
 
 ## History
 
+### 2026-04-30 — pending — auto-trade.ts: skip candidates whose T212 account isn't connected (don't error)
+
+- File(s): `src/cron/auto-trade.ts`
+- Why: When the user has only an ISA account connected (no Invest), `getAccountTypeForStock` still routed non-ISA-eligible US stocks (e.g. GOOGL, PWR, IRM, CAT, HASI, FDX) and untagged ETFs (VUSA, EIMI) to Invest. `getT212Client('invest')` then threw "Trading 212 Invest account not connected", producing 8 noisy per-candidate Telegram failures and 8 execution-log writes per session. This is a configuration mismatch, not a trade failure.
+- Behaviour preserved: Routing rules unchanged for connected accounts (ISA-eligible CORE → ISA; everything else → Invest). T212 client construction, order placement, polling, fill detection, stop-loss placement, position creation, risk gates, kill switch, regime checks, and Trade Notifications for actual trades are all untouched. Only the routing function's return type changed: `T212AccountType` → `T212AccountType | null`. The single caller in `runSession` now handles `null` by adding to `skipped[]` (same shape used for "Zero shares after sizing", "No T212 ticker mapped", etc.) instead of calling `executeTrade` which would throw.
+- Tests: Full suite 108 test files pass (no new tests added — change is defensive and the existing trade-result/skip-result assertions remain valid). Manual trace: ISA-only user with US-only candidates now reports `Trades: 0 executed, 0 failed, 8 skipped (T212 account not connected for this stock)` instead of `0 executed, 8 failed`.
+- Author: PR Review agent (live diagnosis from 30/04/2026 US Near-Close session)
+
 ### 2026-04-30 — pending — auto-trade.ts: per-candidate dual-score lookup
 
 - File(s): `src/cron/auto-trade.ts`

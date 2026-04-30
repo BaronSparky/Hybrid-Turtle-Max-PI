@@ -160,25 +160,39 @@ async function getT212Client(userId: string, accountType: T212AccountType): Prom
 }
 
 // ── Determine account type for a stock ───────────────────────
+// Returns the account type the stock should route to, or null if
+// that account is not connected (caller should skip the candidate
+// rather than attempt a trade that will throw "not connected").
 
-async function getAccountTypeForStock(userId: string, stockId: string): Promise<T212AccountType> {
+async function getAccountTypeForStock(userId: string, stockId: string): Promise<T212AccountType | null> {
   const stock = await prisma.stock.findUnique({ where: { id: stockId }, select: { isaEligible: true, sleeve: true } });
-  if (!stock) return 'invest';
 
-  // Check if ISA account is configured
+  // Read both account-connection flags once so routing matches reality.
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { t212IsaConnected: true },
+    select: { t212Connected: true, t212IsaConnected: true },
   });
 
-  // Default to invest if ISA not connected or stock not ISA eligible
-  if (!user?.t212IsaConnected) return 'invest';
-  if (stock.isaEligible === false) return 'invest';
+  const investConnected = !!user?.t212Connected;
+  const isaConnected = !!user?.t212IsaConnected;
 
-  // ISA-eligible CORE stocks → ISA account
-  if (stock.sleeve === 'CORE' && stock.isaEligible === true) return 'isa';
+  // No T212 accounts at all → caller will skip (and Telegram will say so once).
+  if (!investConnected && !isaConnected) return null;
 
-  return 'invest';
+  // Stock unknown → fall back to whichever account is connected (prefer Invest).
+  if (!stock) return investConnected ? 'invest' : 'isa';
+
+  // ISA-eligible CORE stocks prefer ISA, but only if it's connected.
+  if (stock.sleeve === 'CORE' && stock.isaEligible === true) {
+    if (isaConnected) return 'isa';
+    if (investConnected) return 'invest';
+    return null;
+  }
+
+  // Everything else routes to Invest. If Invest isn't connected, this
+  // candidate cannot be traded under the current configuration → null.
+  if (investConnected) return 'invest';
+  return null;
 }
 
 // ── Single Trade Execution (buy + stop + DB position) ────────
@@ -968,6 +982,15 @@ async function runAutoTrade(session: Session) {
 
     // Determine account type
     const accountType = await getAccountTypeForStock(userId, stock.id);
+    if (!accountType) {
+      // Routed account not connected (e.g. ISA-only setup with a non-ISA-eligible US stock).
+      // Treat as a configuration skip, not a trade failure.
+      skipped.push({
+        ticker: candidate.ticker,
+        reason: 'T212 account not connected for this stock (check Settings → connect Invest account, or restrict universe to ISA-eligible CORE stocks)',
+      });
+      continue;
+    }
 
     // ── Step 4: Execute trade ──
     console.log(`\n  [4/4] Executing trade ${tradesExecuted + 1}/${MAX_TRADES_PER_SESSION}...`);
