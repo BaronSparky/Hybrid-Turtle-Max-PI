@@ -32,6 +32,14 @@ export function validateSystemReadiness(json: unknown, allowBlocked: boolean): s
   return null;
 }
 
+export function validateScanCacheResponse(json: unknown): string | null {
+  const j = json as { error?: { code?: string }; results?: unknown; candidates?: unknown };
+  const benignCodes = new Set(['SCAN_CACHE_MISS', 'SCAN_CACHE_STALE']);
+  if (j.error?.code && benignCodes.has(j.error.code)) return null;
+  if (j.results !== undefined || Array.isArray(j.candidates) || Array.isArray(json)) return null;
+  return 'scan response missing results/candidates';
+}
+
 async function checkEndpoint(name: string, path: string, validate: (json: unknown) => string | null): Promise<CheckResult> {
   try {
     const res = await fetch(`${BASE_URL}${path}`);
@@ -145,11 +153,7 @@ async function main(): Promise<void> {
     await checkEndpoint('scan cache', '/api/scan', (json) => {
       // Cached scan returns { results: [...] } when fresh; benign 404 codes mean
       // no fresh cache exists yet — that's normal, not a regression.
-      const j = json as { error?: { code?: string }; results?: unknown };
-      const benignCodes = new Set(['SCAN_CACHE_MISS', 'SCAN_CACHE_STALE']);
-      if (j.error?.code && benignCodes.has(j.error.code)) return null;
-      if (j.results === undefined && !Array.isArray(json)) return 'scan response missing results';
-      return null;
+      return validateScanCacheResponse(json);
     })
   );
 

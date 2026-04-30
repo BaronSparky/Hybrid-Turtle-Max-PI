@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateSystemReadiness } from '../../scripts/smoke-buy-flow';
+import { validateScanCacheResponse, validateSystemReadiness } from '../../scripts/smoke-buy-flow';
 
 describe('validateSystemReadiness', () => {
   it('requires a readiness field', () => {
@@ -16,5 +16,23 @@ describe('validateSystemReadiness', () => {
 
   it('accepts non-blocked readiness values', () => {
     expect(validateSystemReadiness({ readiness: 'READY' }, false)).toBeNull();
+  });
+});
+
+describe('validateScanCacheResponse', () => {
+  it('accepts cached scan responses with results', () => {
+    expect(validateScanCacheResponse({ results: [] })).toBeNull();
+  });
+
+  it('accepts cached scan responses with candidates', () => {
+    expect(validateScanCacheResponse({ candidates: [] })).toBeNull();
+  });
+
+  it('accepts benign cache miss errors', () => {
+    expect(validateScanCacheResponse({ error: { code: 'SCAN_CACHE_MISS' } })).toBeNull();
+  });
+
+  it('rejects unexpected scan response shapes', () => {
+    expect(validateScanCacheResponse({ totalScanned: 0 })).toBe('scan response missing results/candidates');
   });
 });
