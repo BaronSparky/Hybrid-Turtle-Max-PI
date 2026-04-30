@@ -28,6 +28,14 @@ Each entry uses this shape (newest at top of the History section):
 ```
 
 ## History
+### 2026-04-30 — pending — auto-trade.ts: smarter ISA-only routing + currency mismatch advisory
+
+- File(s): `src/cron/auto-trade.ts` (only `getAccountTypeForStock` and the routing call site in `runSession`)
+- Why: Old routing required `sleeve='CORE' AND isaEligible=true` to send a candidate to ISA. For an ISA-only user, this excluded GBP-listed ETFs and HIGH_RISK stocks — they fell through to Invest, hit the "Invest not connected" path, and were skipped. The new rule: when only ISA is connected, route everything (except explicit `isaEligible=false`) to ISA. T212 ISA accepts US shares (with FX) and UK-listed UCITS ETFs; let T212 reject anything truly ineligible. The dual-account case (both connected) is unchanged.
+- Behaviour preserved: All risk gates, position sizing, regime checks, kill switch, stop placement, monotonic stop rule, position creation, FX handling, and order execution paths are untouched. The change is **routing-only** — `executeTrade` and downstream behaviour are identical. Currency-mismatch logging is **advisory only** (warn log) — no skip, no block.
+- Tests: All 22 auto-trade unit tests pass. Full suite 108/108 test files pass. New helper test coverage isn't added because the change is to a private function with no exported surface; existing route-level tests cover the integration.
+- Author: PR Review agent (T212 audit, ship-all batch)
+
 ### 2026-04-30 — pending — auto-trade.ts: relax t212ApiSecret requirement (legacy single-token auth)
 
 - File(s): `src/cron/auto-trade.ts` (only `getT212Client`)

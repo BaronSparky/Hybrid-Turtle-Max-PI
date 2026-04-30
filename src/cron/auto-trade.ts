@@ -161,8 +161,16 @@ async function getT212Client(userId: string, accountType: T212AccountType): Prom
 
 // ── Determine account type for a stock ───────────────────────
 // Returns the account type the stock should route to, or null if
-// that account is not connected (caller should skip the candidate
-// rather than attempt a trade that will throw "not connected").
+// no connected account can hold the stock (caller skips the candidate
+// with a clear reason rather than attempting an order that will throw).
+//
+// Routing rules (in order):
+//   1. No accounts connected            → null (skip with clear reason)
+//   2. Only ISA connected               → 'isa' if isaEligible is not explicitly false
+//                                          (T212 ISA accepts UK shares, GBP ETFs, and US shares)
+//   3. Only Invest connected            → 'invest' (Invest is multi-currency, no eligibility filter)
+//   4. Both connected, ISA-eligible CORE→ 'isa' (preferred for tax efficiency)
+//   5. Both connected, anything else    → 'invest'
 
 async function getAccountTypeForStock(userId: string, stockId: string): Promise<T212AccountType | null> {
   const stock = await prisma.stock.findUnique({ where: { id: stockId }, select: { isaEligible: true, sleeve: true } });
@@ -176,23 +184,28 @@ async function getAccountTypeForStock(userId: string, stockId: string): Promise<
   const investConnected = !!user?.t212Connected;
   const isaConnected = !!user?.t212IsaConnected;
 
-  // No T212 accounts at all → caller will skip (and Telegram will say so once).
+  // 1. No T212 accounts at all → caller will skip (and Telegram will say so once).
   if (!investConnected && !isaConnected) return null;
 
-  // Stock unknown → fall back to whichever account is connected (prefer Invest).
-  if (!stock) return investConnected ? 'invest' : 'isa';
-
-  // ISA-eligible CORE stocks prefer ISA, but only if it's connected.
-  if (stock.sleeve === 'CORE' && stock.isaEligible === true) {
-    if (isaConnected) return 'isa';
-    if (investConnected) return 'invest';
-    return null;
+  // 2. ISA-only user: route everything except explicitly non-eligible to ISA.
+  // T212 ISA accepts US shares (with FX) and UK-listed UCITS ETFs. The strict
+  // "sleeve='CORE' AND isaEligible=true" gate would block ETFs and HIGH_RISK
+  // stocks for ISA-only users, leaving them unable to trade. Let T212 reject
+  // anything truly ineligible — our diagnostic hints already cover those errors.
+  if (isaConnected && !investConnected) {
+    if (stock?.isaEligible === false) return null; // Explicit non-eligible — skip
+    return 'isa';
   }
 
-  // Everything else routes to Invest. If Invest isn't connected, this
-  // candidate cannot be traded under the current configuration → null.
-  if (investConnected) return 'invest';
-  return null;
+  // 3. Invest-only user: everything goes to Invest (multi-currency, no eligibility filter).
+  if (investConnected && !isaConnected) {
+    return 'invest';
+  }
+
+  // 4 + 5. Both connected — use sleeve+eligibility to decide tax-efficient routing.
+  if (!stock) return 'invest'; // Unknown stock → default to Invest
+  if (stock.sleeve === 'CORE' && stock.isaEligible === true) return 'isa';
+  return 'invest';
 }
 
 // ── Single Trade Execution (buy + stop + DB position) ────────
@@ -983,13 +996,32 @@ async function runAutoTrade(session: Session) {
     // Determine account type
     const accountType = await getAccountTypeForStock(userId, stock.id);
     if (!accountType) {
-      // Routed account not connected (e.g. ISA-only setup with a non-ISA-eligible US stock).
+      // Routed account not connected (e.g. user has neither account, or ISA-only with explicit isaEligible=false).
       // Treat as a configuration skip, not a trade failure.
       skipped.push({
         ticker: candidate.ticker,
-        reason: 'T212 account not connected for this stock (check Settings → connect Invest account, or restrict universe to ISA-eligible CORE stocks)',
+        reason: 'T212 account not connected for this stock (check Settings → connect Invest account, or tag stock isaEligible=true)',
       });
       continue;
+    }
+
+    // Currency-mismatch advisory (per T212 docs:
+    // https://docs.trading212.com/api/section/general-information#API-Limitations
+    // — "orders can be executed only in the primary account currency"). T212 ISA is GBP-only;
+    // T212 Invest is multi-currency. We DON'T skip on mismatch (ISA visibly accepts USD
+    // instruments via FX for QUANTITY orders), but we log so failures are debuggable.
+    if (accountType === 'isa') {
+      const stockCcy = (stock.currency || '').toUpperCase();
+      // GBP / GBX / GBp are all the GBP family (pence-quoted is the same primary currency)
+      const isGbpFamily = stockCcy === 'GBP' || stockCcy === 'GBX' || stockCcy === 'GBP';
+      if (stockCcy && !isGbpFamily) {
+        log.warn('Currency advisory: ISA primary currency is GBP but stock is non-GBP', {
+          ticker: candidate.ticker,
+          stockCurrency: stockCcy,
+          accountType,
+          note: 'T212 ISA usually accepts non-GBP instruments with FX conversion; if rejected, check T212 limits',
+        });
+      }
     }
 
     // ── Step 4: Execute trade ──
