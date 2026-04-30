@@ -1220,14 +1220,17 @@ export async function preCacheHistoricalData(): Promise<{
 interface StartupPreCacheEnv {
   NEXT_PHASE?: string;
   HYBRIDTURTLE_SKIP_STARTUP_PRECACHE?: string;
+  VITEST?: string;
 }
 
 export function shouldSkipStartupPreCache(env: StartupPreCacheEnv = {
   NEXT_PHASE: process.env.NEXT_PHASE,
   HYBRIDTURTLE_SKIP_STARTUP_PRECACHE: process.env.HYBRIDTURTLE_SKIP_STARTUP_PRECACHE,
+  VITEST: process.env.VITEST,
 }): boolean {
   return env.NEXT_PHASE === 'phase-production-build'
-    || env.HYBRIDTURTLE_SKIP_STARTUP_PRECACHE === 'true';
+    || env.HYBRIDTURTLE_SKIP_STARTUP_PRECACHE === 'true'
+    || env.VITEST === 'true';
 }
 
 (function autoPreCache() {
