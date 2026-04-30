@@ -165,6 +165,19 @@ as `REGISTER_SCRIPT_MISSING`, `REGISTER_SCRIPT_TASK_NAME_NOT_FOUND`, or
 `REGISTER_SCRIPT_TARGET_NOT_REFERENCED` indicate one of the install scripts has
 drifted from the manifest.
 
+### Battery Resilience Drift
+
+`schtasks /SC MONTHLY` produces tasks with Vista-era compatibility, which then
+reject `Set-ScheduledTask` updates for `StartWhenAvailable` and battery
+behaviour. The audit flags `BATTERY_RESILIENCE_DRIFT` when a task's
+`Power Management` field still reports `Stop On Battery Mode`. Repair by
+re-running the orchestrator from an elevated shell so the XML round-trip in
+`scripts/register-weekly-tasks.ps1` bumps the task to Win7 compat:
+
+```powershell
+npm run tasks:register-all
+```
+
 ## Verification
 
 After any repair, run:

@@ -38,7 +38,7 @@ $registerScripts = @(
   @{ Label = 'Nightly';        Path = Join-Path $repoRoot 'register-nightly-task.ps1';          Args = @('-FromBat') },
   @{ Label = 'Watchdog';       Path = Join-Path $repoRoot 'register-watchdog-task.bat';         Args = @() },
   @{ Label = 'Midday Sync';    Path = Join-Path $repoRoot 'register-midday-sync.ps1';           Args = @('-FromBat') },
-  @{ Label = 'Auto-Trade';     Path = Join-Path $repoRoot 'register-auto-trade.bat';            Args = @() },
+  @{ Label = 'Auto-Trade';     Path = Join-Path $repoRoot 'register-auto-trade.bat';            Args = @('--yes') },
   @{ Label = 'Weekly + Daily'; Path = Join-Path $PSScriptRoot 'register-weekly-tasks.ps1';      Args = @() }
 )
 
@@ -57,9 +57,12 @@ foreach ($script in $registerScripts) {
     if ($extension -eq '.ps1') {
       & $script.Path @($script.Args)
     } else {
-      # .bat is interactive (register-auto-trade.bat) or interactive (register-watchdog-task.bat).
-      # Pipe blank input to skip any "Y/N" prompt with default behaviour.
-      cmd /c "`"$($script.Path)`""
+      # .bat scripts must be invoked through cmd /c. Args are joined with spaces;
+      # register-auto-trade.bat understands --yes to skip its Y/N prompt and pause.
+      # Pipe NUL to stdin so any trailing `pause` (e.g. register-watchdog-task.bat)
+      # auto-acknowledges without blocking the orchestrator.
+      $argString = if ($script.Args.Count -gt 0) { ' ' + ($script.Args -join ' ') } else { '' }
+      cmd /c "`"$($script.Path)`"$argString < nul"
     }
     $exitCode = $LASTEXITCODE
     $status = if ($exitCode -eq 0) { 'OK' } else { 'FAILED' }

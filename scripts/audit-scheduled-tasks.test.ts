@@ -143,6 +143,44 @@ describe('audit-scheduled-tasks.mjs', () => {
 
     expect(findings).toEqual([]);
   });
+
+  it('flags BATTERY_RESILIENCE_DRIFT when Power Management indicates Vista compat', () => {
+    const findings = auditScheduledTasks([
+      {
+        TaskName: '\\HybridTurtle-TickerAudit',
+        'Task To Run': 'C:\\Repo\\ticker-audit-task.bat --scheduled',
+        'Start In': 'N/A',
+        'Scheduled Task State': 'Enabled',
+        'Last Result': '0',
+        'Power Management': 'Stop On Battery Mode, No Start On Batteries',
+      },
+    ], {
+      repoRoot: 'C:\\Repo',
+      expectedTasks: [{ name: 'HybridTurtle-TickerAudit', requiredPath: 'ticker-audit-task.bat', requiredArgument: '--scheduled' }],
+    });
+
+    expect(findings).toEqual([
+      expect.objectContaining({ reason: 'BATTERY_RESILIENCE_DRIFT', severity: 'WARNING', taskName: 'HybridTurtle-TickerAudit' }),
+    ]);
+  });
+
+  it('does not flag BATTERY_RESILIENCE_DRIFT when Power Management is the Win7 default', () => {
+    const findings = auditScheduledTasks([
+      {
+        TaskName: '\\HybridTurtle-WeeklyDigest',
+        'Task To Run': 'C:\\Repo\\weekly-digest-task.bat',
+        'Start In': 'N/A',
+        'Scheduled Task State': 'Enabled',
+        'Last Result': '0',
+        'Power Management': '',
+      },
+    ], {
+      repoRoot: 'C:\\Repo',
+      expectedTasks: [{ name: 'HybridTurtle-WeeklyDigest', requiredPath: 'weekly-digest-task.bat' }],
+    });
+
+    expect(findings).toEqual([]);
+  });
 });
 
 describe('auditRegisterScripts', () => {

@@ -22,6 +22,13 @@ if %errorlevel% neq 0 (
 setlocal
 cd /d "%~dp0"
 
+:: --yes (or -y / /Y) skips the interactive Y/N prompt and final pause so the
+:: orchestrator (npm run tasks:register-all) can run this non-interactively.
+set "AUTO_YES="
+if /i "%~1"=="--yes" set "AUTO_YES=1"
+if /i "%~1"=="-y" set "AUTO_YES=1"
+if /i "%~1"=="/Y" set "AUTO_YES=1"
+
 echo.
 echo  ==========================================================
 echo   HybridTurtle — Register Auto-Trade Tasks
@@ -40,11 +47,15 @@ echo     - ENABLE_AUTO_TRADING=true in .env
 echo     - Trading 212 account connected in Settings
 echo     - PC must be on at scheduled times
 echo.
-set /p CONFIRM="  Create these scheduled tasks? (Y/N): "
-if /i not "%CONFIRM%"=="Y" (
-    echo  Cancelled.
-    pause
-    exit /b 0
+if defined AUTO_YES (
+    echo   --yes flag set — proceeding without prompt.
+) else (
+    set /p CONFIRM="  Create these scheduled tasks? (Y/N): "
+    if /i not "%CONFIRM%"=="Y" (
+        echo  Cancelled.
+        pause
+        exit /b 0
+    )
 )
 
 set "SCRIPT_DIR=%~dp0"
@@ -112,4 +123,4 @@ echo   To pause:   enable kill switch in Settings
 echo  ==========================================================
 echo.
 
-pause
+if not defined AUTO_YES pause

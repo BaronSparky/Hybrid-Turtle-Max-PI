@@ -145,6 +145,15 @@ export function auditScheduledTasks(tasks, options = {}) {
       findings.push({ severity: 'WARNING', taskName, reason: 'NON_ZERO_LAST_RESULT', detail: `Last Result is ${lastResult}` });
     }
 
+    // Vista-compat tasks (created by `schtasks /SC MONTHLY`) cannot accept
+    // Set-ScheduledTask updates for StartWhenAvailable + battery settings, so
+    // their Power Management string still shows the unwanted defaults. Surface
+    // this as a WARNING so a future tasks:register-all run is prompted.
+    const powerManagement = normalizeText(task['Power Management'] ?? '');
+    if (expected && powerManagement.includes('stop on battery mode')) {
+      findings.push({ severity: 'WARNING', taskName, reason: 'BATTERY_RESILIENCE_DRIFT', detail: `Power Management is "${task['Power Management']}". Re-run npm run tasks:register-all from an admin shell to apply Win7 compat + StartWhenAvailable.` });
+    }
+
     const referencedPaths = extractQuotedPaths(taskToRun);
     for (const referencedPath of referencedPaths) {
       if (!existsSync(referencedPath)) {
