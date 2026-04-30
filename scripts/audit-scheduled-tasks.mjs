@@ -140,7 +140,7 @@ export function auditScheduledTasks(tasks, options = {}) {
       findings.push({ severity: 'ERROR', taskName, reason: 'RETIRED_TASK_ENABLED', detail: retired.reason });
     }
 
-    if (lastResult && !['0', '267011'].includes(lastResult)) {
+    if (lastResult && !['0', '267009', '267011'].includes(lastResult)) {
       findings.push({ severity: 'WARNING', taskName, reason: 'NON_ZERO_LAST_RESULT', detail: `Last Result is ${lastResult}` });
     }
 

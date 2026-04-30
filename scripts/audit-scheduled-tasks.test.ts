@@ -124,4 +124,21 @@ describe('audit-scheduled-tasks.mjs', () => {
 
     expect(findings).toEqual([]);
   });
+
+  it('does not warn when a task is currently running', () => {
+    const findings = auditScheduledTasks([
+      {
+        TaskName: '\\HybridTurtle-Trade-US',
+        'Task To Run': 'C:\\Repo\\auto-trade-task.bat us --scheduled',
+        'Start In': 'N/A',
+        'Scheduled Task State': 'Running',
+        'Last Result': '267009',
+      },
+    ], {
+      repoRoot: 'C:\\Repo',
+      expectedTasks: [{ name: 'HybridTurtle-Trade-US', requiredPath: 'auto-trade-task.bat', requiredArgument: 'us' }],
+    });
+
+    expect(findings).toEqual([]);
+  });
 });
