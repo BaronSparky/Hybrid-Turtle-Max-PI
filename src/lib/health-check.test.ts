@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { checkStopIntegrity, checkConfigCoherence, checkSleeveLimits } from './health-check';
+import { checkStopIntegrity, checkConfigCoherence, checkSleeveLimits, checkOpenPositionUniqueness } from './health-check';
 import type { RiskProfileType } from '@/types';
 
 // ── Helper: make a minimal position for health checks ──
@@ -156,5 +156,68 @@ describe('checkSleeveLimits', () => {
     ], 10000);
     expect(result.status).toBe('RED');
     expect(result.message).toContain('HIGH_RISK');
+  });
+});
+
+// ── checkOpenPositionUniqueness (regression: 2026-05-01 "9 vs 6" bug) ──
+
+describe('checkOpenPositionUniqueness', () => {
+  it('returns GREEN when every (stockId, accountType) is unique', () => {
+    const result = checkOpenPositionUniqueness([
+      { ...makePos({ ticker: 'AAPL' }), stockId: 's1', accountType: 'isa' },
+      { ...makePos({ ticker: 'GOOGL' }), stockId: 's2', accountType: 'isa' },
+      { ...makePos({ ticker: 'UNFI' }), stockId: 's3', accountType: 'invest' },
+    ]);
+    expect(result.id).toBe('A4');
+    expect(result.status).toBe('GREEN');
+    expect(result.message).toContain('3 unique');
+  });
+
+  it('returns RED when two OPEN rows share the same stockId + accountType', () => {
+    // This is the production bug: auto-trade row + broker-sync row for the
+    // same holding, both OPEN under the ISA account.
+    const result = checkOpenPositionUniqueness([
+      { ...makePos({ ticker: 'UNFI' }), stockId: 's1', accountType: 'isa' },
+      { ...makePos({ ticker: 'UNFI' }), stockId: 's1', accountType: 'isa' },
+    ]);
+    expect(result.status).toBe('RED');
+    expect(result.message).toContain('UNFI');
+    expect(result.message).toContain('isa');
+    expect(result.message).toContain('2 rows');
+  });
+
+  it('does NOT flag the same stockId held under different account types as duplicate', () => {
+    const result = checkOpenPositionUniqueness([
+      { ...makePos({ ticker: 'AAPL' }), stockId: 's1', accountType: 'isa' },
+      { ...makePos({ ticker: 'AAPL' }), stockId: 's1', accountType: 'invest' },
+    ]);
+    expect(result.status).toBe('GREEN');
+  });
+
+  it('treats a null accountType as invest (default) for grouping', () => {
+    const result = checkOpenPositionUniqueness([
+      { ...makePos({ ticker: 'PWR' }), stockId: 's1', accountType: null },
+      { ...makePos({ ticker: 'PWR' }), stockId: 's1', accountType: 'invest' },
+    ]);
+    expect(result.status).toBe('RED');
+    expect(result.message).toContain('PWR');
+  });
+
+  it('lists every duplicated ticker, not just the first', () => {
+    const result = checkOpenPositionUniqueness([
+      { ...makePos({ ticker: 'UNFI' }), stockId: 's1', accountType: 'isa' },
+      { ...makePos({ ticker: 'UNFI' }), stockId: 's1', accountType: 'isa' },
+      { ...makePos({ ticker: 'GOOGL' }), stockId: 's2', accountType: 'isa' },
+      { ...makePos({ ticker: 'GOOGL' }), stockId: 's2', accountType: 'isa' },
+    ]);
+    expect(result.status).toBe('RED');
+    expect(result.message).toContain('UNFI');
+    expect(result.message).toContain('GOOGL');
+  });
+
+  it('returns GREEN with zero positions', () => {
+    const result = checkOpenPositionUniqueness([]);
+    expect(result.status).toBe('GREEN');
+    expect(result.message).toContain('0 unique');
   });
 });

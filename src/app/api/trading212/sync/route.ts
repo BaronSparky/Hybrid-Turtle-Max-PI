@@ -24,6 +24,12 @@ import { recordEquitySnapshot } from '@/lib/equity-snapshot';
 import { validateRiskGates } from '@/lib/risk-gates';
 import { getFXRate } from '@/lib/market-data';
 import { apiError } from '@/lib/api-response';
+import {
+  buildSyncIndex,
+  findExistingForSync,
+  isExistingStillActive,
+  shouldSkipForCrossAccountDuplicate,
+} from '@/lib/trading212-sync-merge';
 import { z } from 'zod';
 import { parseJsonBody } from '@/lib/request-validation';
 import type { RiskProfileType, Sleeve } from '@/types';
@@ -108,34 +114,44 @@ export async function POST(request: NextRequest) {
       const mappedPositions = acctData.positions.map((p) => mapT212Position(p, acctType));
       const acctResults = syncResults[acctType];
 
-      // Get existing T212-sourced positions for this account type
+      // Get existing OPEN positions for this account type across ALL sources.
+      // We must include source='auto-trade' (and 'manual') here — otherwise the
+      // sync re-creates a fresh trading212 row over the top of a position the
+      // auto-trader already recorded, producing duplicates in the OPEN list.
       const existingPositions = await prisma.position.findMany({
-        where: { userId, source: 'trading212', status: 'OPEN', accountType: acctType },
+        where: { userId, status: 'OPEN', accountType: acctType },
         include: { stock: true },
       });
 
-      const existingTickerMap = new Map(
-        existingPositions.map((p) => [p.t212Ticker || p.stock.ticker, p])
-      );
+      // Index existing rows by both keys we may receive from T212:
+      //   - full T212 ticker (e.g. UNFI_US_EQ) when t212Ticker is populated
+      //   - bare stock ticker (e.g. UNFI) for legacy rows where t212Ticker is null
+      // Lookups below try fullTicker first, then bare ticker.
+      const existingIndex = buildSyncIndex(existingPositions);
 
       // Cross-account duplicate guard: find t212Tickers already open under OTHER account types.
       // Prevents creating the same position twice when both Invest and ISA see the same holdings.
+      // Same as above: must consider all sources, not just trading212-sourced rows.
       const otherAccountType = acctType === 'invest' ? 'isa' : 'invest';
       const crossAccountPositions = await prisma.position.findMany({
-        where: { userId, source: 'trading212', status: 'OPEN', accountType: otherAccountType },
+        where: { userId, status: 'OPEN', accountType: otherAccountType },
         select: { t212Ticker: true },
       });
-      const crossAccountTickers = new Set(crossAccountPositions.map((p) => p.t212Ticker).filter(Boolean));
+      const crossAccountTickers = new Set(
+        crossAccountPositions.map((p) => p.t212Ticker).filter((t): t is string => Boolean(t))
+      );
 
       // Track which T212 tickers are still open in this account
       const activeT212Tickers = new Set<string>();
+      const activeBareTickers = new Set<string>();
 
       for (const pos of mappedPositions) {
         activeT212Tickers.add(pos.fullTicker);
+        activeBareTickers.add(pos.ticker);
 
         // Skip if this ticker already exists as an OPEN position under the other account type
         // (prevents duplicates when Invest and ISA see the same holdings)
-        if (crossAccountTickers.has(pos.fullTicker) && !existingTickerMap.has(pos.fullTicker)) {
+        if (shouldSkipForCrossAccountDuplicate(existingIndex, crossAccountTickers, pos)) {
           acctResults.errors.push(`Skipped ${pos.ticker} — already tracked under ${otherAccountType} account`);
           continue;
         }
@@ -157,19 +173,21 @@ export async function POST(request: NextRequest) {
               });
             }
 
-            const existing = existingTickerMap.get(pos.fullTicker);
+            // Match by full T212 ticker first (the strong key); fall back to
+            // bare stock ticker so legacy rows with t212Ticker=null (e.g. older
+            // auto-trade or manual entries) merge instead of duplicate.
+            const existing = findExistingForSync(existingIndex, pos);
 
             if (existing) {
-              // Update existing position — ONLY update shares count.
-              // CRITICAL: Do NOT overwrite entryPrice with T212's averagePricePaid.
-              // After partial sells or pyramid adds on T212, the average cost changes,
-              // but our initialRisk / initial_R / initial_stop / entry_price are all
-              // based on the original entry. Overwriting entryPrice would corrupt
-              // R-multiple calculations and the entire stop protection ladder.
+              // Update existing position — ONLY update shares count and
+              // backfill t212Ticker if it was missing. Never overwrite
+              // entryPrice/initialRisk: those are tied to our original
+              // entry decision and underpin every R-multiple calculation.
               await tx.position.update({
                 where: { id: existing.id },
                 data: {
                   shares: pos.shares,
+                  t212Ticker: existing.t212Ticker ?? pos.fullTicker,
                   updatedAt: new Date(),
                 },
               });
@@ -217,27 +235,29 @@ export async function POST(request: NextRequest) {
       // succeeded, acctData.positions is [] but positionsFetched is false.
       // Closing positions based on a degraded empty list would be a data-loss bug.
       if (acctData.positionsFetched) {
-        const existingEntries = Array.from(existingTickerMap.entries());
-        for (const [t212Ticker, existing] of existingEntries) {
-          if (!activeT212Tickers.has(t212Ticker)) {
-            try {
-              await prisma.position.update({
-                where: { id: existing.id },
-                data: {
-                  status: 'CLOSED',
-                  exitDate: new Date(),
-                  exitReason: `Closed on Trading 212 (${acctType.toUpperCase()})`,
-                },
-              });
-              acctResults.closed++;
-            } catch (err) {
-              acctResults.errors.push(`Error closing ${t212Ticker}: ${(err as Error).message}`);
-            }
+        for (const existing of existingPositions) {
+          // A position is still active if T212 returned it under either key
+          // we know about. We compare both because legacy rows may carry
+          // only the bare ticker (t212Ticker is null).
+          if (isExistingStillActive(existing, activeT212Tickers, activeBareTickers)) continue;
+
+          try {
+            await prisma.position.update({
+              where: { id: existing.id },
+              data: {
+                status: 'CLOSED',
+                exitDate: new Date(),
+                exitReason: `Closed on Trading 212 (${acctType.toUpperCase()})`,
+              },
+            });
+            acctResults.closed++;
+          } catch (err) {
+            acctResults.errors.push(`Error closing ${existing.t212Ticker ?? existing.stock.ticker}: ${(err as Error).message}`);
           }
         }
-      } else if (existingTickerMap.size > 0) {
+      } else if (existingPositions.length > 0) {
         // Positions fetch failed — log warning but don't close anything
-        acctResults.errors.push(`Positions fetch degraded for ${acctType.toUpperCase()} — skipped auto-close of ${existingTickerMap.size} existing position(s)`);
+        acctResults.errors.push(`Positions fetch degraded for ${acctType.toUpperCase()} — skipped auto-close of ${existingPositions.length} existing position(s)`);
       }
     }
 

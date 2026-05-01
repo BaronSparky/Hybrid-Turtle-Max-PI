@@ -28,6 +28,15 @@ Each entry uses this shape (newest at top of the History section):
 ```
 
 ## History
+### 2026-05-01 — pending — auto-trade.ts: persist t212Ticker on Position.create
+
+- File(s): `src/cron/auto-trade.ts` (only the `tx.position.create` call inside Phase D)
+- Why (incident report): Today's hourly status report read "Positions: 9/4" with UNFI, GOOGL, and PWR each appearing twice. Auto-trade had created the rows correctly with the right entry-stop `initialRisk` math but left `t212Ticker = null`. The follow-up `/api/trading212/sync` then queried existing positions filtered by `source: 'trading212'`, missed the auto-trade rows, and re-created them as fresh trading212 rows — this time with `t212Ticker` set and `initialRisk` defaulted to 5% of entry. Result: every auto-traded ticker became two OPEN rows, the max-positions blocker tripped, and the dashboard showed 9/4 against 6 real T212 holdings.
+- Fix: pass `t212Ticker: t212Ticker` (the value already destructured from `candidate`) into the Position.create payload. The follow-up broker sync now resolves these rows by their full T212 ticker on the next run instead of treating them as missing.
+- Behaviour preserved: Order placement, fill detection, stop placement, regime gate, kill switch, attempt cap, terminal error abort, ISA/Invest routing, position sizing, FX, and TradeLog writes are all unchanged. The only schema-touching change is one additional non-null field on the new Position row — and the value is one already in scope from the candidate.
+- Tests: 22/22 existing auto-trade unit tests pass. New 15-test regression suite for the broker-sync merge logic (`src/lib/trading212-sync-merge.test.ts`) directly covers the matching path that failed: full T212 ticker primary key, bare-ticker fallback for null-t212Ticker rows, cross-account guard, close-detection. Plus a new A4 health check + 6 unit tests in `src/lib/health-check.test.ts` that fires RED whenever two OPEN rows share `(stockId, accountType)` so the next occurrence is caught within an hour rather than waiting for a Telegram report. Full suite: 109 files, 1565 tests pass.
+- Author: RPI Agent (incident response, 2026-05-01)
+
 ### 2026-04-30 — pending — auto-trade.ts: CRITICAL — attempt cap + terminal error abort + revert routing
 
 - File(s): `src/cron/auto-trade.ts`

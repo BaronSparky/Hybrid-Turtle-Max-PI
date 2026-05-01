@@ -371,6 +371,11 @@ async function executeTrade(
           protectionLevel: 'INITIAL',
           source: 'auto-trade',
           accountType: accountType,
+          // CRITICAL: persist the broker ticker so a follow-up broker sync
+          // recognises this position as already tracked. Without this,
+          // /api/trading212/sync re-creates the same holding as a 'trading212'
+          // row, producing duplicates in the OPEN positions list.
+          t212Ticker: t212Ticker,
           entryTrigger: candidate.entryPrice,
           notes: `Auto-trade: T212 order ${buyOrder.id} | Session ${getUKTimeString()}`,
         },

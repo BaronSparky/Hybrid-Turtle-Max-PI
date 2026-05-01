@@ -24,6 +24,11 @@ interface HealthCheckPosition {
   initialRisk: number;
   protectionLevel: string;
   status: string;
+  // Optional in the type so existing test fixtures (which mock partial rows
+  // for stop/sleeve/config checks) keep compiling. Production callers always
+  // populate them via Prisma's default `include: { stock: true }` shape.
+  stockId?: string;
+  accountType?: string | null;
   stock: { ticker: string; sleeve: string; currency: string | null; cluster?: string | null; sector?: string | null };
   stopHistory: { oldStop: number; newStop: number }[];
 }
@@ -63,6 +68,9 @@ export async function runHealthCheck(userId: string): Promise<HealthCheckReport>
 
   // ---- A3: Column Population ----
   results.push(await checkColumnPopulation());
+
+  // ---- A4: Open Position Uniqueness ----
+  results.push(checkOpenPositionUniqueness(user.positions));
 
   // ---- C1: Equity > £0 ----
   results.push(checkEquityPositive(user.equity));
@@ -209,6 +217,57 @@ async function checkColumnPopulation(): Promise<HealthCheckResult> {
   } catch {
     return { id: 'A3', label: 'Column Population', category: 'Data', status: 'GREEN', message: 'Column check passed' };
   }
+}
+
+/**
+ * A4 — Open Position Uniqueness.
+ *
+ * Flags any case where two OPEN Position rows share the same
+ * (stockId, accountType). This caught the 2026-05-01 "9 vs 6" bug where
+ * auto-trade and broker sync created parallel rows for the same holding.
+ *
+ * Pure function (no Prisma access) so it can be unit-tested directly.
+ * Exported because the unit test in health-check.test.ts imports it.
+ */
+export function checkOpenPositionUniqueness(positions: HealthCheckPosition[]): HealthCheckResult {
+  const groups = new Map<string, HealthCheckPosition[]>();
+  for (const p of positions) {
+    // Fall back to ticker when stockId is not populated (test fixtures only —
+    // real Prisma reads always include stockId). Two rows for the same ticker
+    // would still be duplicates regardless of which key we group by.
+    const stockKey = p.stockId ?? p.stock?.ticker ?? 'unknown';
+    const key = `${stockKey}::${p.accountType ?? 'invest'}`;
+    const list = groups.get(key) ?? [];
+    list.push(p);
+    groups.set(key, list);
+  }
+
+  const duplicates: string[] = [];
+  for (const [, list] of groups) {
+    if (list.length > 1) {
+      const ticker = list[0].stock?.ticker ?? 'unknown';
+      const acct = list[0].accountType ?? 'invest';
+      duplicates.push(`${ticker} (${acct}, ${list.length} rows)`);
+    }
+  }
+
+  if (duplicates.length > 0) {
+    return {
+      id: 'A4',
+      label: 'Open Position Uniqueness',
+      category: 'Data',
+      status: 'RED',
+      message: `Duplicate OPEN positions detected: ${duplicates.join(', ')}`,
+    };
+  }
+
+  return {
+    id: 'A4',
+    label: 'Open Position Uniqueness',
+    category: 'Data',
+    status: 'GREEN',
+    message: `${positions.length} unique OPEN position(s)`,
+  };
 }
 
 export function checkEquityPositive(equity: number): HealthCheckResult {
