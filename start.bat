@@ -8,7 +8,7 @@
 
 title HybridTurtle Dashboard
 color 0B
-setlocal
+setlocal EnableDelayedExpansion
 cd /d "%~dp0"
 
 echo.
@@ -112,19 +112,38 @@ if %errorlevel%==0 (
 :: Wait a moment for the port to free up
 timeout /t 1 /nobreak >nul
 
-:: Ensure production build exists (install.bat pre-builds; this catches edge cases)
-:: Check for BUILD_ID which next start specifically requires — a stale .next dir without it will fail
+:: Ensure production build exists AND is fresh.
+:: - Missing BUILD_ID → first run / corrupted build → must build.
+:: - BUILD_ID older than any source file under src/ or prisma/schema.prisma →
+::   stale build → must rebuild, otherwise next start serves yesterday's code
+::   and source edits silently fail to surface (this is the exact foot-gun that
+::   caused the 2026-05-02 "portfolio shows 3 of 6" confusion).
+:: Staleness detection lives in scripts/check-build-staleness.ps1 so the logic
+:: stays debuggable outside of cmd-escape hell.
+set NEED_BUILD=0
 if not exist ".next\BUILD_ID" (
+    set NEED_BUILD=1
+) else (
+    for /f %%n in ('powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\check-build-staleness.ps1"') do set NEWER_FILES=%%n
+    if not "!NEWER_FILES!"=="0" (
+        if not "!NEWER_FILES!"=="" (
+            echo  Source changed since last build ^(!NEWER_FILES! file^(s^) newer than .next\BUILD_ID^) — rebuilding...
+            set NEED_BUILD=1
+        )
+    )
+)
+
+if !NEED_BUILD!==1 (
     echo  Type-checking before build...
     call npm run typecheck
-    if %errorlevel% neq 0 (
+    if !errorlevel! neq 0 (
         echo  !! Type errors found. Fix the errors above before the dashboard can start.
         pause
         exit /b 1
     )
     echo  Building dashboard ^(this may take a few minutes^)...
     call npx next build
-    if %errorlevel% neq 0 (
+    if !errorlevel! neq 0 (
         echo  !! Build failed. Try running install.bat again.
         pause
         exit /b 1
