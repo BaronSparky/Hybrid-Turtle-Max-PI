@@ -70,8 +70,8 @@ If yes, also state:
 Always follow these:
 
 - Do not replace Yahoo Finance
-- Do not weaken Monday observation
-- Do not weaken Tuesday execution rhythm
+- Do not weaken weekday execution gates
+- Do not weaken weekend no-entry blocks
 - Stops must never decrease
 - Position sizing must use floorShares()
 - Prediction / analytics features must remain advisory-only unless explicitly instructed

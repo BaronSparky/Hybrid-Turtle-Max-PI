@@ -198,17 +198,13 @@ Shows:
 - review READY candidates
 - draft trade plan
 
-## Monday — OBSERVE
-- do not trade
-- watch market behavior and gaps
-
-## Tuesday — ACT
+## Monday to Friday — ACT
 - confirm plan checklist is green/yellow
 - verify candidates are still valid
 - size positions and execute
 - sync positions after execution
 
-## Wednesday to Friday — MANAGE
+## Saturday — MAINTAIN
 - check dashboard health daily
 - review stops and update when ladder thresholds are hit
 - monitor risk budget and concentration
@@ -220,13 +216,13 @@ Shows:
 The platform enforces hard safety constraints, including:
 
 - stops never move down
-- no entries on Monday
+- no entries on weekends
 - anti-chasing blocks excessive gap entries (tightened by historical slippage data)
 - position sizing is risk-capped and rounded down
 - total risk and concentration caps are enforced
 - stale heartbeat/data triggers warnings or failures
 - Yahoo Finance calls retry automatically on transient errors (3 attempts with backoff)
-- on Tuesdays (execution day), price data is force-refreshed to bypass cache
+- on execution days, use fresh scan and price data before sizing
 - a watchdog script alerts via Telegram if the nightly pipeline fails to run
 
 Treat these rules as safeguards, not optional suggestions.

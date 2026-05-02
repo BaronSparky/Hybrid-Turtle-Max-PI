@@ -15,6 +15,14 @@ describe('uk-time helpers', () => {
       expect(day).toBeLessThanOrEqual(6);
       expect(Number.isInteger(day)).toBe(true);
     });
+
+    it('maps 2026-05-02 to Saturday without locale date reparsing', () => {
+      expect(getUKDayOfWeek(new Date('2026-05-02T08:43:39.803Z'))).toBe(6);
+    });
+
+    it('maps 2026-05-03 to Sunday without locale date reparsing', () => {
+      expect(getUKDayOfWeek(new Date('2026-05-03T08:43:39.803Z'))).toBe(0);
+    });
   });
 
   describe('getUKHour', () => {

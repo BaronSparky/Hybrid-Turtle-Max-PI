@@ -23,6 +23,7 @@ import { generateStopRecommendations, generateTrailingStopRecommendations } from
 import { detectLaggards } from '@/lib/modules';
 import { apiError } from '@/lib/api-response';
 import { getExecutionMode } from '@/lib/execution-mode';
+import { getUKDayOfWeek } from '@/lib/uk-time';
 import { getKillSwitchSettings, isAutoTradingEnabled, getMarketDataSafetyStatus } from '../../../../../packages/workflow/src';
 import { RISK_PROFILES, OPERATING_MODES, type RiskProfileType, type OperatingMode, type Sleeve } from '@/types';
 
@@ -323,8 +324,7 @@ export async function GET(_request: NextRequest) {
   try {
     const userId = await ensureDefaultUser();
     const now = new Date();
-    // Use UK time for phase determination
-    const ukDay = new Date(now.toLocaleString('en-GB', { timeZone: 'Europe/London' })).getDay();
+    const ukDay = getUKDayOfWeek(now);
     const phase = getPhaseForDay(ukDay);
 
     // ── Parallel data fetch ──

@@ -30,7 +30,6 @@
         "./src/test/server-only.ts"
       ]
     },
-    "baseUrl": ".",
     "target": "ES2017"
   },
   "include": [

@@ -50,7 +50,7 @@ describe('audit-scheduled-tasks.mjs', () => {
     ]));
   });
 
-  it('downgrades missing target paths for disabled retired tasks', () => {
+  it('reports disabled retired tasks without missing-target noise', () => {
     const findings = auditScheduledTasks([
       {
         TaskName: '\\HybridTurtle Intraday Alert',
@@ -65,10 +65,9 @@ describe('audit-scheduled-tasks.mjs', () => {
       retiredTasks: [{ name: 'HybridTurtle Intraday Alert', reason: 'retired legacy task' }],
     });
 
-    expect(findings).toEqual(expect.arrayContaining([
+    expect(findings).toEqual([
       expect.objectContaining({ reason: 'RETIRED_TASK_DISABLED', severity: 'WARNING' }),
-      expect.objectContaining({ reason: 'MISSING_TARGET_PATH', severity: 'WARNING' }),
-    ]));
+    ]);
     expect(findings.some((finding) => finding.severity === 'ERROR')).toBe(false);
   });
 
@@ -87,10 +86,9 @@ describe('audit-scheduled-tasks.mjs', () => {
       retiredTasks: [{ name: 'HybridTurtle Intraday Alert', reason: 'retired legacy task' }],
     });
 
-    expect(findings).toEqual(expect.arrayContaining([
+    expect(findings).toEqual([
       expect.objectContaining({ reason: 'RETIRED_TASK_ENABLED', severity: 'ERROR' }),
-      expect.objectContaining({ reason: 'MISSING_TARGET_PATH', severity: 'ERROR' }),
-    ]));
+    ]);
   });
 
   it('passes expected current-repo tasks with valid command arguments', () => {

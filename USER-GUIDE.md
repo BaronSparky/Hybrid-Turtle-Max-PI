@@ -203,22 +203,18 @@ Shows:
 - review READY candidates
 - draft trade plan
 
-## Monday — OBSERVE
-- do not trade
-- watch market behavior and gaps
-
-## Tuesday — ACT
+## Monday to Friday — ACT
 - confirm plan checklist is green/yellow
 - verify candidates are still valid
 - size positions and execute
 - sync positions after execution
 
-## Wednesday to Friday — MANAGE
+## Saturday — MAINTAIN
 - check dashboard health daily
 - review stops and update when ladder thresholds are hit
 - monitor risk budget and concentration
 
-> **Mid-week entries:** Opportunistic entries are permitted Wed–Fri under stricter conditions: Auto-Yes only (NCS ≥ 70 AND FWS ≤ 30), BULLISH regime confirmed, maximum one new position per day. Monday remains a hard block with no exceptions.
+> **Weekday entries:** Entries are permitted Monday to Friday only when the execution checklist passes: BULLISH regime, GREEN/YELLOW health, risk capacity, fresh data, and anti-chase checks.
 
 ---
 
@@ -227,7 +223,7 @@ Shows:
 The platform enforces hard safety constraints, including:
 
 - stops never move down
-- no entries on Monday
+- no entries on weekends
 - anti-chasing blocks excessive gap entries (tightened by historical slippage data)
 - position sizing is risk-capped and rounded down
 - total risk and concentration caps are enforced

@@ -159,7 +159,7 @@ Read-only list of 10 rules the system enforces. These cannot be changed:
 4. Risk per trade ≤ profile limit
 5. Total open risk ≤ profile cap
 6. Position sizing always rounds DOWN
-7. No buying on Monday (Observation phase)
+7. No weekend buying
 8. Anti-chasing guard on gaps
 9. Super-cluster cap at 50%
 10. Heartbeat must be fresh
@@ -416,9 +416,8 @@ The Plan page is your pre-trade checklist and weekly battle plan. It follows the
 | Day | Phase | Action |
 |-----|-------|--------|
 | Sunday | 📋 Think | Review health, run scans, build plan |
-| Monday | 👁️ Observe | DO NOT TRADE — watch market reaction |
-| Tuesday | ⚡ Act | Execute planned trades |
-| Wed–Fri | 🔧 Manage | Monitor positions, update stops |
+| Monday–Friday | ⚡ Act | Execute only when regime, health, risk, and anti-chase gates pass |
+| Saturday | 🔧 Maintain | Markets closed, review positions and operations |
 
 ### Layout (3 Columns)
 
@@ -434,7 +433,7 @@ The Plan page is your pre-trade checklist and weekly battle plan. It follows the
   - Health report GREEN/YELLOW?
   - Risk budget available?
   - Regime BULLISH?
-  - Not Monday (Observation phase)?
+  - Weekday execution session?
   - Each item shows ✓ pass or ✗ fail
 
 ---
@@ -688,16 +687,9 @@ Or call the API directly: `POST /api/nightly` with `{"userId": "default-user"}`.
 3. Go to `/scan` → **Run Full Scan**
 4. Review READY candidates
 5. Go to `/plan` → review pre-trade checklist
-6. Build your execution list for Tuesday
+6. Build your execution list for the next weekday session
 
-### Monday — OBSERVE
-
-1. **DO NOT TRADE**
-2. Dashboard → watch market indices, check regime
-3. Review any overnight gaps on your READY candidates
-4. Anti-chasing guard will block Monday entries anyway
-
-### Tuesday — ACT
+### Monday to Friday — ACT
 
 1. Go to `/plan` → confirm pre-trade checklist is all-green
 2. For each planned trade:
@@ -708,7 +700,7 @@ Or call the API directly: `POST /api/nightly` with `{"userId": "default-user"}`.
 3. After trading → Sync positions from T212
 4. Verify positions appear correctly in Portfolio
 
-### Wednesday–Friday — MANAGE
+### Saturday — MAINTAIN
 
 1. Dashboard → check daily health + heartbeat
 2. Portfolio → review R-multiples on open positions
@@ -717,7 +709,7 @@ Or call the API directly: `POST /api/nightly` with `{"userId": "default-user"}`.
 4. Review the Plan page stop-update queue
 5. Risk page → check budget utilisation
 
-> **Mid-week entries:** Opportunistic entries are permitted Wed–Fri under stricter conditions: Auto-Yes only (NCS ≥ 70 AND FWS ≤ 30), BULLISH regime confirmed, maximum one new position per day. Monday remains a hard block with no exceptions.
+> **Weekday entries:** Entries are permitted Monday to Friday only when the execution checklist passes: BULLISH regime, GREEN/YELLOW health, risk capacity, fresh data, and anti-chase checks.
 
 ### Every Night (Automated)
 
@@ -841,8 +833,8 @@ These are hardcoded into the system and cannot be overridden:
 | 4 | **Risk per trade ≤ profile limit** — position sizer caps at profile % |
 | 5 | **Total open risk ≤ profile cap** — risk gate rejects if exceeded |
 | 6 | **Position sizing rounds DOWN** — fractional to 0.01 (T212), zero-size = skip |
-| 7 | **No buying on Monday** — Observation phase, anti-chasing guard active |
-| 8 | **Anti-chasing: gap > 0.75 ATR or > 3% blocks entry** — applies every day; Monday uses tighter thresholds |
+| 7 | **No weekend buying** — Saturday and Sunday block entries |
+| 8 | **Anti-chasing: gap > 0.75 ATR or > 3% blocks entry** — applies every execution day |
 | 9 | **Super-cluster cap at 50%** — concentration limit per super-cluster |
 | 10 | **Heartbeat must be fresh** — data > 2 days = warn, > 5 days = fail |
 

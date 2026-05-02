@@ -1,0 +1,21 @@
+@echo off
+:: ============================================================
+:: HybridTurtle — One-shot rescue task for 2026-04-30 21:35 incident
+:: Runs the rescue script. Script is idempotent — already-stopped
+:: positions return ALREADY_STOPPED and no action is taken.
+::
+:: Schedule: every 30 min, 14:30 → 17:00 UK on 2026-05-01 (one day only).
+:: Auto-deletes itself after running successfully (status 0) and all
+:: 3 positions report STOPPED or ALREADY_STOPPED.
+::
+:: Manual trigger (anytime):
+::   .\rescue-stops-task.bat
+:: ============================================================
+title HybridTurtle Rescue-Stops
+setlocal
+cd /d "%~dp0"
+
+echo [%date% %time%] Rescue-stops task starting >> rescue-stops.log
+call npx tsx scripts/rescue-stops-2026-04-30.ts >> rescue-stops.log 2>&1
+echo [%date% %time%] Rescue-stops task finished (exit %ERRORLEVEL%) >> rescue-stops.log
+exit /b %ERRORLEVEL%

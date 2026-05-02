@@ -33,9 +33,9 @@ const DAY_MAP: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4
 /**
  * Return the current day-of-week (0=Sun … 6=Sat) in UK local time.
  */
-export function getUKDayOfWeek(): number {
-  const parts = getUKParts();
-  return DAY_MAP[parts.weekday] ?? new Date().getDay();
+export function getUKDayOfWeek(now = new Date()): number {
+  const parts = getUKParts(now);
+  return DAY_MAP[parts.weekday] ?? now.getDay();
 }
 
 /**

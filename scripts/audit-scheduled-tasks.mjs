@@ -34,6 +34,10 @@ export const EXPECTED_TASKS = [
 
 export const RETIRED_TASKS = [
   {
+    name: 'HybridTurtle-RescueStops',
+    reason: 'One-shot 2026-04-30 incident rescue task. The rescued positions are stopped and the artifacts are archived under docs/incidents/2026-04-30-auto-trade-rescue/.',
+  },
+  {
     name: 'HybridTurtle Intraday Alert',
     reason: 'Legacy task target is absent from this repo; nightly near-stop checks and hourly status cover current monitoring paths.',
   },
@@ -139,6 +143,10 @@ export function auditScheduledTasks(tasks, options = {}) {
       findings.push({ severity: 'WARNING', taskName, reason: retired ? 'RETIRED_TASK_DISABLED' : 'TASK_DISABLED', detail: retired?.reason ?? 'Task is disabled' });
     } else if (retired) {
       findings.push({ severity: 'ERROR', taskName, reason: 'RETIRED_TASK_ENABLED', detail: retired.reason });
+    }
+
+    if (retired) {
+      continue;
     }
 
     if (lastResult && !['0', '267009', '267011'].includes(lastResult)) {

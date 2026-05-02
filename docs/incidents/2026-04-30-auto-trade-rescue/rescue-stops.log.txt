@@ -1,0 +1,105 @@
+[01/05/2026 14:30:00.67] Rescue-stops task starting 
+=== Rescue-stops for 2026-04-30 21:35 incident ===
+T212 ISA client OK
+
+--- GOOGL (order 50365601655) ---
+[T212] Rate quota low: 0/1 remaining on GET /equity/orders/50365601655
+  NOT_FILLED: Order 50365601655 pending, status=NEW
+
+--- PWR (order 50365601766) ---
+[T212] Rate quota low: 0/1 remaining on GET /equity/orders/50365601766
+  NOT_FILLED: Order 50365601766 pending, status=NEW
+
+--- UNFI (order 50365601971) ---
+[T212] Rate quota low: 0/1 remaining on GET /equity/positions
+[T212] Rate quota low: 0/1 remaining on GET /equity/positions
+[T212] Rate quota low: 0/1 remaining on GET /equity/orders
+[T212] Rate quota low: 0/1 remaining on POST /equity/orders/stop
+  STOPPED: Position cmomya25s0001u730efbrtpfk, stop @ 48.23 (T212 stop ID 50409051942)
+
+=== Summary ===
+  GOOGL: NOT_FILLED — Order 50365601655 pending, status=NEW
+  PWR: NOT_FILLED — Order 50365601766 pending, status=NEW
+  UNFI: STOPPED — Position cmomya25s0001u730efbrtpfk, stop @ 48.23 (T212 stop ID 50409051942)
+[01/05/2026 14:30:18.53] Rescue-stops task finished (exit 0) 
+[01/05/2026 15:00:01.71] Rescue-stops task starting 
+=== Rescue-stops for 2026-04-30 21:35 incident ===
+T212 ISA client OK
+
+--- GOOGL (order 50365601655) ---
+[T212] Rate quota low: 0/1 remaining on GET /equity/positions
+[T212] Rate quota low: 0/1 remaining on GET /equity/positions
+T212 rate limited on GET /equity/orders, retrying in 3554ms (attempt 1/2)
+[T212] Rate quota low: 0/1 remaining on GET /equity/orders
+[T212] Rate quota low: 0/1 remaining on POST /equity/orders/stop
+  STOPPED: Position cmomzck8l0001u7o4b9wmk3b0, stop @ 372.58 (T212 stop ID 50409083585)
+
+--- PWR (order 50365601766) ---
+[T212] Rate quota low: 0/1 remaining on GET /equity/positions
+[T212] Rate quota low: 0/1 remaining on GET /equity/positions
+[T212] Rate quota low: 0/1 remaining on GET /equity/orders
+[T212] Rate quota low: 0/1 remaining on POST /equity/orders/stop
+  STOPPED: Position cmomzcpbq0003u7o4e5cmm9va, stop @ 697.19 (T212 stop ID 50409083630)
+
+--- UNFI (order 50365601971) ---
+  ALREADY_STOPPED: Position cmomya25s0001u730efbrtpfk already exists with stop 48.23
+
+=== Summary ===
+  GOOGL: STOPPED — Position cmomzck8l0001u7o4b9wmk3b0, stop @ 372.58 (T212 stop ID 50409083585)
+  PWR: STOPPED — Position cmomzcpbq0003u7o4e5cmm9va, stop @ 697.19 (T212 stop ID 50409083630)
+  UNFI: ALREADY_STOPPED — Position cmomya25s0001u730efbrtpfk already exists with stop 48.23
+[01/05/2026 15:00:21.56] Rescue-stops task finished (exit 0) 
+[01/05/2026 15:30:01.67] Rescue-stops task starting 
+=== Rescue-stops for 2026-04-30 21:35 incident ===
+T212 ISA client OK
+
+--- GOOGL (order 50365601655) ---
+  ALREADY_STOPPED: Position cmomzck8l0001u7o4b9wmk3b0 already exists with stop 372.58
+
+--- PWR (order 50365601766) ---
+  ALREADY_STOPPED: Position cmomzcpbq0003u7o4e5cmm9va already exists with stop 700.16
+
+--- UNFI (order 50365601971) ---
+  ALREADY_STOPPED: Position cmomya25s0001u730efbrtpfk already exists with stop 48.73
+
+=== Summary ===
+  GOOGL: ALREADY_STOPPED — Position cmomzck8l0001u7o4b9wmk3b0 already exists with stop 372.58
+  PWR: ALREADY_STOPPED — Position cmomzcpbq0003u7o4e5cmm9va already exists with stop 700.16
+  UNFI: ALREADY_STOPPED — Position cmomya25s0001u730efbrtpfk already exists with stop 48.73
+[01/05/2026 15:30:04.13] Rescue-stops task finished (exit 0) 
+[01/05/2026 16:10:09.64] Rescue-stops task starting 
+=== Rescue-stops for 2026-04-30 21:35 incident ===
+T212 ISA client OK
+
+--- GOOGL (order 50365601655) ---
+  ALREADY_STOPPED: Position cmomzck8l0001u7o4b9wmk3b0 already exists with stop 372.58
+
+--- PWR (order 50365601766) ---
+  ALREADY_STOPPED: Position cmomzcpbq0003u7o4e5cmm9va already exists with stop 700.16
+
+--- UNFI (order 50365601971) ---
+  ALREADY_STOPPED: Position cmomya25s0001u730efbrtpfk already exists with stop 48.73
+
+=== Summary ===
+  GOOGL: ALREADY_STOPPED — Position cmomzck8l0001u7o4b9wmk3b0 already exists with stop 372.58
+  PWR: ALREADY_STOPPED — Position cmomzcpbq0003u7o4e5cmm9va already exists with stop 700.16
+  UNFI: ALREADY_STOPPED — Position cmomya25s0001u730efbrtpfk already exists with stop 48.73
+[01/05/2026 16:10:12.21] Rescue-stops task finished (exit 0) 
+[01/05/2026 16:30:01.70] Rescue-stops task starting 
+=== Rescue-stops for 2026-04-30 21:35 incident ===
+T212 ISA client OK
+
+--- GOOGL (order 50365601655) ---
+  ALREADY_STOPPED: Position cmomzck8l0001u7o4b9wmk3b0 already exists with stop 372.58
+
+--- PWR (order 50365601766) ---
+  ALREADY_STOPPED: Position cmomzcpbq0003u7o4e5cmm9va already exists with stop 700.16
+
+--- UNFI (order 50365601971) ---
+  ALREADY_STOPPED: Position cmomya25s0001u730efbrtpfk already exists with stop 48.73
+
+=== Summary ===
+  GOOGL: ALREADY_STOPPED — Position cmomzck8l0001u7o4b9wmk3b0 already exists with stop 372.58
+  PWR: ALREADY_STOPPED — Position cmomzcpbq0003u7o4e5cmm9va already exists with stop 700.16
+  UNFI: ALREADY_STOPPED — Position cmomya25s0001u730efbrtpfk already exists with stop 48.73
+[01/05/2026 16:30:04.83] Rescue-stops task finished (exit 0) 

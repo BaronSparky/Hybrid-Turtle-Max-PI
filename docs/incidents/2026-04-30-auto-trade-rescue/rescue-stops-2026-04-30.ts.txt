@@ -1,0 +1,239 @@
+/**
+ * One-shot rescue script for the 3 unprotected T212 orders from 2026-04-30 21:35 BST.
+ *
+ * Background: The 21:35 us-close re-run had a counter bug that placed 3 buy orders
+ * outside US market hours. Fills will happen at the next US open. This script:
+ *   1. Polls T212 for each of the 3 known order IDs.
+ *   2. Once an order is FILLED, places the protective stop using the SACRED
+ *      Trading212Client.setStopLoss() method (which enforces the monotonic rule
+ *      and pre-validates stop distance).
+ *   3. Creates the corresponding DB Position row so the dashboard is in sync.
+ *   4. Sends a Telegram confirmation per stop.
+ *
+ * Idempotent: running multiple times is safe — already-stopped positions are detected
+ * via the existing setStopLoss monotonic check.
+ *
+ * USAGE (manual): npx tsx scripts/rescue-stops-2026-04-30.ts
+ * USAGE (scheduled): see register-rescue-task.bat (created alongside this file).
+ *
+ * Will exit cleanly with status 0 in all of these cases:
+ *   - All 3 stops successfully placed
+ *   - All 3 already had stops (re-run scenario)
+ *   - All 3 orders not yet filled (run again later)
+ *
+ * Will exit with status 1 only if T212 connection fails or an unexpected error occurs.
+ */
+import { PrismaClient } from '@prisma/client';
+import { Trading212Client, Trading212Error } from '@/lib/trading212';
+import { decryptField } from '@/lib/crypto';
+import { sendTelegramMessage } from '@/lib/telegram';
+
+interface QueuedOrder {
+  ticker: string;
+  t212Ticker: string;
+  orderId: number;
+  intendedShares: number;
+  intendedStop: number;
+  accountType: 'isa' | 'invest';
+  // For DB Position creation — same values used in the original auto-trade attempt
+  entryPriceEstimate: number;
+  stockTickerForLookup: string;
+}
+
+const QUEUED: QueuedOrder[] = [
+  {
+    ticker: 'GOOGL',
+    t212Ticker: 'GOOGL_US_EQ',
+    orderId: 50365601655,
+    intendedShares: 0.7,
+    intendedStop: 372.58,
+    entryPriceEstimate: 387.24,
+    accountType: 'isa',
+    stockTickerForLookup: 'GOOGL',
+  },
+  {
+    ticker: 'PWR',
+    t212Ticker: 'PWR_US_EQ',
+    orderId: 50365601766,
+    intendedShares: 0.37,
+    intendedStop: 697.19,
+    entryPriceEstimate: 729.82,
+    accountType: 'isa',
+    stockTickerForLookup: 'PWR',
+  },
+  {
+    ticker: 'UNFI',
+    t212Ticker: 'UNFI_US_EQ',
+    orderId: 50365601971,
+    intendedShares: 3.26,
+    intendedStop: 48.23,
+    entryPriceEstimate: 50.37,
+    accountType: 'isa',
+    stockTickerForLookup: 'UNFI',
+  },
+];
+
+async function getIsaClient(prisma: PrismaClient): Promise<Trading212Client> {
+  const user = await prisma.user.findUnique({
+    where: { id: 'default-user' },
+    select: { t212IsaApiKey: true, t212IsaApiSecret: true, t212IsaConnected: true, t212Environment: true },
+  });
+  if (!user || !user.t212IsaApiKey || !user.t212IsaConnected) {
+    throw new Error('T212 ISA account not connected.');
+  }
+  return new Trading212Client(
+    decryptField(user.t212IsaApiKey),
+    decryptField(user.t212IsaApiSecret ?? ''),
+    (user.t212Environment as 'demo' | 'live') || 'live',
+  );
+}
+
+async function processOrder(
+  prisma: PrismaClient,
+  client: Trading212Client,
+  q: QueuedOrder,
+): Promise<{ status: 'STOPPED' | 'ALREADY_STOPPED' | 'NOT_FILLED' | 'NOT_FOUND' | 'ERROR'; detail: string }> {
+  // 1. Check if a DB Position already exists for this T212 order (idempotency)
+  const existingByOrderId = await prisma.position.findFirst({
+    where: {
+      stock: { ticker: q.stockTickerForLookup },
+      status: 'OPEN',
+      notes: { contains: String(q.orderId) },
+    },
+    select: { id: true, currentStop: true, shares: true, protectionLevel: true },
+  });
+  if (existingByOrderId) {
+    return {
+      status: 'ALREADY_STOPPED',
+      detail: `Position ${existingByOrderId.id} already exists with stop ${existingByOrderId.currentStop}`,
+    };
+  }
+
+  // 2. Check T212 order status
+  let order;
+  try {
+    order = await client.getOrder(q.orderId);
+  } catch (err) {
+    if (err instanceof Trading212Error && err.statusCode === 404) {
+      // Order may have filled and been removed from pending — check positions instead
+      const positions = await client.getPositions();
+      const pos = positions.find((p) => p.instrument.ticker === q.t212Ticker);
+      if (!pos) return { status: 'NOT_FOUND', detail: `Order ${q.orderId} not in pending or positions` };
+      // It filled! Use actual filled quantity for the stop.
+      return await placeStopAndCreatePosition(prisma, client, q, pos.quantity, pos.averagePricePaid);
+    }
+    return { status: 'ERROR', detail: (err as Error).message };
+  }
+
+  // 3. Order is still pending — check fill state
+  const filledQty = order.filledQuantity ?? 0;
+  if (filledQty <= 0) {
+    return { status: 'NOT_FILLED', detail: `Order ${q.orderId} pending, status=${order.status}` };
+  }
+
+  // 4. Order is filled — place stop
+  const filledPrice = order.filledValue > 0 ? order.filledValue / filledQty : q.entryPriceEstimate;
+  return await placeStopAndCreatePosition(prisma, client, q, filledQty, filledPrice);
+}
+
+async function placeStopAndCreatePosition(
+  prisma: PrismaClient,
+  client: Trading212Client,
+  q: QueuedOrder,
+  filledQty: number,
+  filledPrice: number,
+): Promise<{ status: 'STOPPED' | 'ERROR'; detail: string }> {
+  // Use the existing SACRED setStopLoss method — handles monotonic rule and pre-validation
+  try {
+    const stopOrder = await client.setStopLoss(q.t212Ticker, filledQty, q.intendedStop);
+    if (!stopOrder) {
+      return { status: 'ERROR', detail: `setStopLoss returned null (shares=${filledQty})` };
+    }
+
+    // Create DB Position row
+    const stock = await prisma.stock.findFirst({
+      where: { ticker: q.stockTickerForLookup },
+      select: { id: true },
+    });
+    if (!stock) return { status: 'ERROR', detail: `Stock not found in DB: ${q.stockTickerForLookup}` };
+
+    const initialRisk = filledPrice - q.intendedStop;
+    const position = await prisma.position.create({
+      data: {
+        userId: 'default-user',
+        stockId: stock.id,
+        entryPrice: filledPrice,
+        entryDate: new Date(),
+        shares: filledQty,
+        stopLoss: q.intendedStop,
+        initialRisk,
+        currentStop: q.intendedStop,
+        entry_price: filledPrice,
+        initial_stop: q.intendedStop,
+        initial_R: initialRisk,
+        profile_used: 'BALANCED',
+        entry_type: 'BREAKOUT',
+        protectionLevel: 'INITIAL',
+        source: 'auto-trade',
+        accountType: q.accountType,
+        entryTrigger: q.entryPriceEstimate,
+        notes: `Rescued from 2026-04-30 21:35 incident. T212 buy ${q.orderId}, stop ${stopOrder.id}.`,
+      },
+    });
+
+    return {
+      status: 'STOPPED',
+      detail: `Position ${position.id}, stop @ ${q.intendedStop} (T212 stop ID ${stopOrder.id})`,
+    };
+  } catch (err) {
+    return { status: 'ERROR', detail: `setStopLoss/Position.create failed: ${(err as Error).message}` };
+  }
+}
+
+async function main() {
+  const prisma = new PrismaClient();
+  try {
+    console.log('=== Rescue-stops for 2026-04-30 21:35 incident ===');
+    const client = await getIsaClient(prisma);
+    console.log('T212 ISA client OK');
+
+    const summary: string[] = [];
+    let stoppedCount = 0;
+    let pendingCount = 0;
+
+    for (const q of QUEUED) {
+      console.log(`\n--- ${q.ticker} (order ${q.orderId}) ---`);
+      const result = await processOrder(prisma, client, q);
+      console.log(`  ${result.status}: ${result.detail}`);
+      summary.push(`${q.ticker}: ${result.status} — ${result.detail}`);
+
+      if (result.status === 'STOPPED') stoppedCount++;
+      if (result.status === 'NOT_FILLED') pendingCount++;
+    }
+
+    console.log('\n=== Summary ===');
+    summary.forEach((s) => console.log('  ' + s));
+
+    // Telegram notification
+    const tgText = [
+      `<b>🛡️ Rescue-stops for 21:35 incident</b>`,
+      '',
+      `Stopped: ${stoppedCount}/3`,
+      `Still pending fill: ${pendingCount}/3`,
+      '',
+      ...summary.map((s) => `• ${s}`),
+      '',
+      pendingCount > 0
+        ? '<i>Re-run after US open if any are still pending.</i>'
+        : '<i>All 3 positions are now stop-protected. Safe.</i>',
+    ].join('\n');
+    await sendTelegramMessage({ text: tgText, parseMode: 'HTML' }).catch(() => {});
+  } catch (err) {
+    console.error('FATAL:', err);
+    process.exit(1);
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+main();

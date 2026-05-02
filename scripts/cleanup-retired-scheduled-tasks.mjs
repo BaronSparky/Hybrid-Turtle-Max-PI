@@ -30,6 +30,14 @@ export function cleanupRetiredScheduledTasks(options = {}) {
       results.push({ taskName: task.name, status: 'DELETED', detail: task.reason });
     } catch (error) {
       const output = `${error.stdout ?? ''}${error.stderr ?? ''}`.trim();
+      if (/cannot find the file specified/i.test(output) || /does not exist/i.test(output)) {
+        results.push({
+          taskName: task.name,
+          status: 'ABSENT',
+          detail: 'Retired scheduled task is already absent',
+        });
+        continue;
+      }
       results.push({
         taskName: task.name,
         status: 'FAILED',

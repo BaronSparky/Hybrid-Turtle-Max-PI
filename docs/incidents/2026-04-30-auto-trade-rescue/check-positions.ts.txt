@@ -1,0 +1,82 @@
+/**
+ * One-shot diagnostic: check tonight's 3 auto-trade positions for stop protection.
+ * Reports: position state in DB, T212 fill status, T212 stop order existence.
+ */
+import { PrismaClient } from '@prisma/client';
+
+async function main() {
+  const prisma = new PrismaClient();
+  try {
+    const T212_ORDER_IDS = ['50365601655', '50365601766', '50365601971'];
+    const TICKERS = ['GOOGL', 'PWR', 'UNFI'];
+
+    console.log('=== DB Position state ===');
+    const positions = await prisma.position.findMany({
+      where: {
+        OR: TICKERS.map((t) => ({
+          stock: { ticker: t },
+          status: 'OPEN',
+        })),
+      },
+      include: { stock: { select: { ticker: true, t212Ticker: true } } },
+      orderBy: { entryDate: 'desc' },
+    });
+
+    for (const p of positions) {
+      console.log({
+        ticker: p.stock.ticker,
+        t212Ticker: p.stock.t212Ticker,
+        shares: p.shares,
+        entryPrice: p.entryPrice,
+        currentStop: p.currentStop,
+        protectionLevel: p.protectionLevel,
+        accountType: p.accountType,
+        entryDate: p.entryDate?.toISOString(),
+        notes: p.notes?.substring(0, 80),
+      });
+    }
+
+    console.log(`\nFound ${positions.length} OPEN positions for tonight's tickers`);
+
+    // Look for the 3 specific T212 order IDs in execution logs to see what really happened
+    console.log('\n=== ExecutionLog for tonight\'s T212 order IDs ===');
+    const logs = await prisma.executionLog.findMany({
+      where: { orderId: { in: T212_ORDER_IDS } },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    for (const l of logs) {
+      console.log({
+        ticker: l.ticker,
+        phase: l.phase,
+        orderId: l.orderId,
+        accountType: l.accountType,
+        stopPrice: l.stopPrice,
+        quantity: l.quantity,
+        error: l.error?.substring(0, 100),
+        createdAt: l.createdAt?.toISOString(),
+      });
+    }
+    console.log(`\n${logs.length} ExecutionLog rows found`);
+
+    // Also fetch all execution log rows from the last 2 hours to see broader picture
+    const recentCutoff = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    const recent = await prisma.executionLog.findMany({
+      where: { createdAt: { gte: recentCutoff } },
+      orderBy: { createdAt: 'asc' },
+      select: { ticker: true, phase: true, orderId: true, error: true, createdAt: true },
+    });
+    console.log(`\n=== All ExecutionLog rows in last 2h (${recent.length}) ===`);
+    for (const r of recent) {
+      const errSnip = r.error ? r.error.substring(0, 60) : '';
+      console.log(`${r.createdAt?.toISOString()}  ${r.ticker.padEnd(10)} ${r.phase.padEnd(15)} ${r.orderId ?? ''.padEnd(12)} ${errSnip}`);
+    }
+
+    await prisma.$disconnect();
+  } catch (e) {
+    console.error(e);
+    process.exit(1);
+  }
+}
+
+main();

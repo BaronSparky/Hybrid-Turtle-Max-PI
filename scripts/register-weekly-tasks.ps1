@@ -64,12 +64,21 @@ schtasks /Create /TN "HybridTurtle-TickerAudit" /SC MONTHLY /D 1 /ST 06:00 /TR "
 $tickerXml = schtasks /Query /TN "HybridTurtle-TickerAudit" /XML | Out-String
 if ($tickerXml -match '<Compatibility>V1</Compatibility>') {
   $tickerXml = $tickerXml -replace '<Compatibility>V1</Compatibility>', '<Compatibility>V2</Compatibility>'
-  schtasks /Delete /TN "HybridTurtle-TickerAudit" /F | Out-Null
-  $tickerXmlPath = Join-Path $env:TEMP 'hybridturtle-ticker-audit.xml'
-  $tickerXml | Out-File -FilePath $tickerXmlPath -Encoding Unicode
-  schtasks /Create /TN "HybridTurtle-TickerAudit" /XML "`"$tickerXmlPath`"" /F | Out-Null
-  Remove-Item $tickerXmlPath -ErrorAction SilentlyContinue
 }
+$tickerXml = $tickerXml -replace '<DisallowStartIfOnBatteries>true</DisallowStartIfOnBatteries>', '<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>'
+$tickerXml = $tickerXml -replace '<StopIfGoingOnBatteries>true</StopIfGoingOnBatteries>', '<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>'
+$tickerXml = $tickerXml -replace '<StopOnIdleEnd>true</StopOnIdleEnd>', '<StopOnIdleEnd>false</StopOnIdleEnd>'
+if ($tickerXml -notmatch '<StartWhenAvailable>') {
+  $tickerXml = $tickerXml -replace '<Settings>', '<Settings><StartWhenAvailable>true</StartWhenAvailable>'
+}
+if ($tickerXml -notmatch '<ExecutionTimeLimit>') {
+  $tickerXml = $tickerXml -replace '</Settings>', '<ExecutionTimeLimit>PT10M</ExecutionTimeLimit></Settings>'
+}
+schtasks /Delete /TN "HybridTurtle-TickerAudit" /F | Out-Null
+$tickerXmlPath = Join-Path $env:TEMP 'hybridturtle-ticker-audit.xml'
+$tickerXml | Out-File -FilePath $tickerXmlPath -Encoding Unicode
+schtasks /Create /TN "HybridTurtle-TickerAudit" /XML "`"$tickerXmlPath`"" /F | Out-Null
+Remove-Item $tickerXmlPath -ErrorAction SilentlyContinue
 Set-TaskResilient "HybridTurtle-TickerAudit"
 Write-Host "Ticker Audit: $LASTEXITCODE"
 

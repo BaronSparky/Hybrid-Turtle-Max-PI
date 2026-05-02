@@ -27,6 +27,32 @@ if (-not $isAdmin) {
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Set-Location $repoRoot
 
+function Set-TaskResilient($TaskName) {
+  $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+  if (-not $task) { return }
+
+  if ($task.Settings.Compatibility -eq 'Vista' -or $task.Settings.Compatibility -eq 'V1') {
+    try {
+      $task.Settings.Compatibility = 'Win7'
+      Set-ScheduledTask -InputObject $task -ErrorAction Stop | Out-Null
+      $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    } catch {
+      Write-Host "  Could not bump compatibility for ${TaskName}: $_" -ForegroundColor Yellow
+    }
+  }
+
+  $task.Settings.DisallowStartIfOnBatteries = $false
+  $task.Settings.StopIfGoingOnBatteries = $false
+  $task.Settings.IdleSettings.StopOnIdleEnd = $false
+  $task.Settings.StartWhenAvailable = $true
+  $task.Settings.ExecutionTimeLimit = 'PT10M'
+  try {
+    Set-ScheduledTask -InputObject $task -ErrorAction Stop | Out-Null
+  } catch {
+    Write-Host "  Could not apply resilience settings to ${TaskName}: $_" -ForegroundColor Yellow
+  }
+}
+
 Write-Host ""
 Write-Host "===========================================================" -ForegroundColor Cyan
 Write-Host " HybridTurtle - Register All Scheduled Tasks" -ForegroundColor Cyan
@@ -73,6 +99,29 @@ foreach ($script in $registerScripts) {
   }
   Write-Host ""
 }
+
+$taskNames = @(
+  'HybridTurtle Nightly',
+  'HybridTurtle Watchdog',
+  'HybridTurtle Midday Sync',
+  'HybridTurtle-Scan',
+  'HybridTurtle-Trade-UK',
+  'HybridTurtle-Trade-US',
+  'HybridTurtle-Trade-USC',
+  'HybridTurtle-HourlyStatus',
+  'HybridTurtle-MondayBriefing',
+  'HybridTurtle-UKBriefing',
+  'HybridTurtle-USBriefing',
+  'HybridTurtle-WeeklyDigest',
+  'HybridTurtle-TickerAudit',
+  'HybridTurtle-ResearchRefresh'
+)
+
+Write-Host ">> Applying task resilience settings" -ForegroundColor Cyan
+foreach ($taskName in $taskNames) {
+  Set-TaskResilient $taskName
+}
+Write-Host ""
 
 Write-Host "===========================================================" -ForegroundColor Cyan
 Write-Host " Summary" -ForegroundColor Cyan

@@ -128,12 +128,12 @@ async function main(): Promise<void> {
       const j = json as { decision?: string; context?: { phase?: string } };
       const phase = j.context?.phase;
       if (!phase) return 'missing context.phase field';
-      // Phase regression check: weekday should be EXECUTION, weekend should be PLANNING
+      // Phase regression check: weekdays execute, weekends must be non-execution.
+      // Saturday is MAINTENANCE; Sunday is PLANNING.
       const day = new Date().getDay();
-      const isWeekday = day >= 1 && day <= 5;
-      const expected = isWeekday ? 'EXECUTION' : 'PLANNING';
+      const expected = day === 0 ? 'PLANNING' : day === 6 ? 'MAINTENANCE' : 'EXECUTION';
       if (phase !== expected) {
-        return `phase=${phase} but expected ${expected} for ${isWeekday ? 'weekday' : 'weekend'} (regression in getCurrentWeeklyPhase)`;
+        return `phase=${phase} but expected ${expected} (regression in UK phase mapping)`;
       }
       if (!j.decision) return 'missing decision field';
       return null;

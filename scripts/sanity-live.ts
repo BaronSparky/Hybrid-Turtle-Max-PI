@@ -181,11 +181,27 @@ async function checkAutoBuys(): Promise<SurfaceResult> {
 
 // ── Surface 3: Scan ──────────────────────────────────────────────────
 
-interface ScanCacheResp { regime?: string; totalScanned?: number; readyCount?: number; cachedAt?: string }
+interface ScanCacheResp {
+  regime?: string;
+  totalScanned?: number;
+  readyCount?: number;
+  cachedAt?: string;
+  error?: { code?: string; message?: string };
+}
 
 async function checkScan(): Promise<SurfaceResult> {
   const res = await fetchJson<ScanCacheResp>('/api/scan');
   if (!res.ok || !res.data) {
+    const code = res.data?.error?.code;
+    if (code === 'SCAN_CACHE_STALE' || code === 'SCAN_CACHE_MISS') {
+      const scanError = res.data?.error;
+      return {
+        surface: 'scan',
+        status: 'WARN',
+        message: scanError?.message ?? 'Scan cache is stale or missing. Run a fresh scan before trading.',
+        detail: { code },
+      };
+    }
     return { surface: 'scan', status: 'FAIL', message: `/api/scan unreachable: ${res.error ?? 'no data'}` };
   }
   const { regime, totalScanned, readyCount } = res.data;

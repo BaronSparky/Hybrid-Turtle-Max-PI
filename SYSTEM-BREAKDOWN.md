@@ -514,11 +514,10 @@ Runs daily at 10:00 AM UK time. Checks if nightly heartbeat is >26 hours stale. 
 | Day | Phase | Rules |
 |-----|-------|-------|
 | Sunday | PLANNING | Full scan, draft trade plan, prediction engine recalibration |
-| Monday | OBSERVATION | No trading. Anti-chase guard active. Study candidates. |
-| Tuesday | EXECUTION | Pre-trade checklist, execute planned trades via T212 |
-| Wed–Fri | MAINTENANCE | Stop updates, risk monitoring, laggard detection |
+| Monday–Friday | EXECUTION | Pre-trade checklist, execute only when regime, health, risk, and anti-chase gates pass |
+| Saturday | MAINTENANCE | Stop review, risk monitoring, laggard detection |
 
-The Monday trading block and Tuesday execution window are **behavioural guardrails**, not bugs.
+The weekday execution gates and weekend no-entry blocks are **behavioural guardrails**, not bugs.
 
 ---
 

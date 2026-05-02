@@ -120,7 +120,7 @@ SCAN PATH:
 
 ENTRY EXECUTION PATH (POST /api/positions):
   A) Hard server-side pre-trade gates
-    - block on Monday OBSERVATION phase
+    - block on weekend no-entry phases
     - block if regime != BULLISH
     - block if latest health check is RED
     - block if stop >= entry
@@ -741,12 +741,8 @@ For profitable exits (> 0.5R, NOT stop-hit):
 | Day | Phase | Trading Allowed? | Actions |
 |-----|-------|-----------------|---------|
 | Sunday | PLANNING | No | Review health, run scans |
-| Monday | OBSERVATION | **DO NOT TRADE** | Observe market, anti-chase guard active |
-| Tuesday | EXECUTION | **Yes** | Execute planned trades |
-| Wednesday | MAINTENANCE | Monitor only | Update stops, review positions |
-| Thursday | MAINTENANCE | Monitor only | Update stops, review positions |
-| Friday | MAINTENANCE | Monitor only | Update stops, review positions |
-| Saturday | — | No | — |
+| Monday–Friday | EXECUTION | **Yes, gated** | Execute only when regime, health, risk, and anti-chase gates pass |
+| Saturday | MAINTENANCE | No entries | Review positions and operations |
 
 ---
 

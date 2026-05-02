@@ -68,6 +68,8 @@ data/sentiment-trends.json
 smoke.log
 auto-trade.log
 midday-sync.log
+research-refresh.log
+rescue-stops.log
 
 # HVE-Core AI workflow artifacts (local only)
 .copilot-tracking/

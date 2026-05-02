@@ -177,28 +177,22 @@ The "Buy" button on each candidate card respects these rules:
 | Day | Phase | Buy Button | Behaviour |
 |-----|-------|-----------|-----------|
 | Sunday | PLANNING | Disabled (grey) | Tooltip: "Planning day — review only" |
-| **Monday** | **OBSERVATION** | **Disabled (red outline)** | **Hard block. Tooltip: "Monday observation day — no trading"** |
-| **Tuesday** | **EXECUTION** | **Enabled (green)** | Full functionality |
-| Wednesday | MAINTENANCE | Enabled (amber outline) | Soft advisory: "Mid-week entry — confirm this was pre-planned" |
-| Thursday | MAINTENANCE | Enabled (amber outline) | Same soft advisory |
-| Friday | MAINTENANCE | Enabled (amber outline) | Same soft advisory |
+| **Monday–Friday** | **EXECUTION** | **Enabled (green)** | Full functionality when gates pass |
 | Saturday | MAINTENANCE | Disabled (grey) | Tooltip: "Markets closed" |
 
-**Implementation:** Uses `useWeeklyPhase()` hook. The phase check is UI-only guidance — the server-side `POST /api/positions` handler also enforces its own phase blocking (rejects OBSERVATION phase). This means:
-- Monday hard block is enforced at **both** client and server
-- Wed-Fri soft advisory is client-only (server allows it — these are valid trading days)
-- Sunday/Saturday disabled in UI only (server would also block if called)
+**Implementation:** Uses `useWeeklyPhase()` hook. The phase check is UI-only guidance, and server-side entry handlers also enforce execution-mode blocking. This means:
+- Monday to Friday execution is enforced through regime, risk, health, and anti-chase gates
+- Sunday/Saturday disabled in UI only (server also blocks entries through execution mode)
 
 **Buy button color logic:**
 ```typescript
-const { phase, canPlaceNewTrades, isObserveOnly } = useWeeklyPhase();
+const { phase, canPlaceNewTrades } = useWeeklyPhase();
 const day = new Date().getDay();
 const isWeekend = day === 0 || day === 6;
 
-if (isObserveOnly) → disabled, red outline, "Monday observation day"
 if (isWeekend) → disabled, grey, "Markets closed" / "Planning day"
-if (canPlaceNewTrades) → enabled, green (Tuesday)
-else → enabled, amber outline, soft advisory (Wed-Fri)
+if (canPlaceNewTrades) → enabled, green (weekday execution)
+else → disabled, grey, "Execution gates not met"
 ```
 
 ---

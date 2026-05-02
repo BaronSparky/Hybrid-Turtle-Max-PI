@@ -122,17 +122,16 @@ unless explicitly instructed otherwise.
 These are intentional operating rules, not bugs:
 
 - Sunday = planning
-- Monday = observation only
-- Tuesday = execution
-- Wednesday to Friday = maintenance
+- Monday to Friday = execution, regime-gated
+- Saturday = maintenance
 
 Do not weaken or remove these rules unless explicitly instructed.
 
 ## Non-Negotiable Trading Constraints
 
 - Do not replace Yahoo Finance.
-- Do not remove Monday observation.
-- Do not remove Tuesday execution rhythm.
+- Do not remove weekday execution gating.
+- Do not remove weekend no-entry blocks.
 - Stops must never decrease.
 - Position sizing must use floorShares(), never round up.
 - All 6 risk gates must pass.

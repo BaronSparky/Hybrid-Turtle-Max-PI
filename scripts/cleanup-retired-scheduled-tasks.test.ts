@@ -47,4 +47,20 @@ describe('cleanup-retired-scheduled-tasks.mjs', () => {
       { taskName: 'HybridTurtle Intraday Alert', status: 'FAILED', detail: 'ERROR: Access is denied.' },
     ]);
   });
+
+  it('treats missing retired tasks as already absent', () => {
+    const error = new Error('Command failed');
+    Object.assign(error, { stderr: 'ERROR: The system cannot find the file specified.' });
+    const execFileSync = vi.fn(() => { throw error; });
+
+    const results = cleanupRetiredScheduledTasks({
+      dryRun: false,
+      execFileSync,
+      retiredTasks: [{ name: 'HybridTurtle Intraday Alert', reason: 'retired legacy task' }],
+    });
+
+    expect(results).toEqual([
+      { taskName: 'HybridTurtle Intraday Alert', status: 'ABSENT', detail: 'Retired scheduled task is already absent' },
+    ]);
+  });
 });
