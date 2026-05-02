@@ -149,11 +149,16 @@ async function runWatchdog(): Promise<void> {
   }
 }
 
-runWatchdog()
-  .catch((err) => {
-    log.error('Watchdog error', { error: (err as Error).message });
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+// Only auto-execute when run as a script, not when imported by a test.
+// Production cron invokes via watchdog-task.bat → tsx with neither VITEST
+// nor NODE_ENV=test set, so this gate is a no-op there.
+if (process.env.VITEST !== 'true' && process.env.NODE_ENV !== 'test') {
+  runWatchdog()
+    .catch((err) => {
+      log.error('Watchdog error', { error: (err as Error).message });
+      process.exit(1);
+    })
+    .finally(async () => {
+      await prisma.$disconnect();
+    });
+}

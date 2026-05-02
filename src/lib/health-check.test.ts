@@ -220,4 +220,17 @@ describe('checkOpenPositionUniqueness', () => {
     expect(result.status).toBe('GREEN');
     expect(result.message).toContain('0 unique');
   });
+
+  // Regression: orphan accountType=null rows are invisible to per-account
+  // counters in /api/trading212/sync (which only count 'invest' or 'isa').
+  // A null orphan would silently under-report holdings on the dashboard.
+  it('returns RED when an OPEN position has NULL accountType, even if otherwise unique', () => {
+    const result = checkOpenPositionUniqueness([
+      { ...makePos({ ticker: 'AAPL' }), stockId: 's1', accountType: 'isa' },
+      { ...makePos({ ticker: 'ORPHAN' }), stockId: 's2', accountType: null },
+    ]);
+    expect(result.status).toBe('RED');
+    expect(result.message).toContain('NULL accountType');
+    expect(result.message).toContain('ORPHAN');
+  });
 });

@@ -484,13 +484,16 @@ export async function GET(request: NextRequest) {
     // Detect if Invest and ISA use the same API key (user entered same key twice)
     const isDuplicateKey = !!(user.t212ApiKey && user.t212IsaApiKey && user.t212ApiKey === user.t212IsaApiKey);
 
-    // Count positions per account type
+    // Count positions per account type.
+    // Do NOT filter by source: auto-trade rows are real T212 holdings carrying
+    // the same accountType. Filtering by source='trading212' here was the same
+    // bug class that hid 3 of 6 positions on the portfolio screen.
     const [investPositionCount, isaPositionCount] = await Promise.all([
       prisma.position.count({
-        where: { userId, source: 'trading212', status: 'OPEN', accountType: 'invest' },
+        where: { userId, status: 'OPEN', accountType: 'invest' },
       }),
       prisma.position.count({
-        where: { userId, source: 'trading212', status: 'OPEN', accountType: 'isa' },
+        where: { userId, status: 'OPEN', accountType: 'isa' },
       }),
     ]);
 
@@ -505,6 +508,12 @@ export async function GET(request: NextRequest) {
     const isaInvested = isDuplicateKey ? 0 : (user.t212IsaInvested ?? 0);
     const isaUnrealisedPL = isDuplicateKey ? 0 : (user.t212IsaUnrealisedPL ?? 0);
 
+    // Effective ISA position count: zero when invest+ISA share an API key,
+    // since the duplicate-key guard suppresses ISA writes and the ISA tile
+    // is already force-zeroed below. Keeping the top-level total in lockstep
+    // prevents the dashboard reading "6 positions" while the ISA card shows 0.
+    const effectiveIsaPositionCount = isDuplicateKey ? 0 : isaPositionCount;
+
     return NextResponse.json({
       // Backward-compatible top-level fields
       connected: user.t212Connected || user.t212IsaConnected,
@@ -512,7 +521,7 @@ export async function GET(request: NextRequest) {
       accountId: primaryAccountId,
       currency: primaryCurrency,
       environment: user.t212Environment,
-      positionCount: investPositionCount + isaPositionCount,
+      positionCount: investPositionCount + effectiveIsaPositionCount,
       account: {
         totalValue: (user.t212TotalValue ?? 0) + isaTotalValue,
         cash: (user.t212Cash ?? 0) + isaCash,

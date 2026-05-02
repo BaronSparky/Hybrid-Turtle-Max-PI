@@ -262,14 +262,18 @@ async function runHourlyStatus() {
   }
 }
 
-// ── Entry point ──────────────────────────────────────────────
+// ── Entry point ───────────────────────────────
+// Only auto-execute when run as a script, not when imported by a test.
+// Production cron invokes via hourly-status-task.bat → tsx with neither
+// VITEST nor NODE_ENV=test set, so this gate is a no-op there.
+if (process.env.VITEST !== 'true' && process.env.NODE_ENV !== 'test') {
+  const args = process.argv.slice(2);
+  if (args.includes('--run-now')) {
+    console.log('[HybridTurtle] Running hourly status immediately');
+  }
 
-const args = process.argv.slice(2);
-if (args.includes('--run-now')) {
-  console.log('[HybridTurtle] Running hourly status immediately');
+  runHourlyStatus().then(() => process.exit(0)).catch((err) => {
+    console.error('Fatal error in hourly status:', err);
+    process.exit(1);
+  });
 }
-
-runHourlyStatus().then(() => process.exit(0)).catch((err) => {
-  console.error('Fatal error in hourly status:', err);
-  process.exit(1);
-});

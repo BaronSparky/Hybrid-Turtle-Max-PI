@@ -143,12 +143,15 @@ function PositionsPageInner() {
   const [journalPositionId, setJournalPositionId] = useState<string | null>(null);
   const [journalInitialTab, setJournalInitialTab] = useState<'entry' | 'trade' | 'close'>('entry');
 
-  // Fetch T212 positions from the database (enriched with live Yahoo prices)
+  // Fetch ALL OPEN positions (regardless of how they originated — broker sync,
+  // auto-trade, or manual). Filtering by source='trading212' previously hid
+  // auto-traded positions that are real T212 holdings, causing the portfolio
+  // screen to under-report by exactly the count of auto-trade-originated rows.
   const fetchPositions = useCallback(async (forceRefresh = false) => {
     try {
       const refreshParam = forceRefresh ? '&refresh=true' : '';
       const data = await apiRequest<PositionApiResponse[]>(
-        `/api/positions?userId=${DEFAULT_USER_ID}&source=trading212&status=OPEN${refreshParam}`
+        `/api/positions?userId=${DEFAULT_USER_ID}&status=OPEN${refreshParam}`
       );
 
       // Map API response to table format

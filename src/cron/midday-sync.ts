@@ -18,6 +18,44 @@ process.env.HYBRIDTURTLE_SKIP_STARTUP_PRECACHE = 'true';
 
 const log = createCronLogger('midday-sync');
 
+/**
+ * Maximum allowed change in open-position count between same-day midday-sync
+ * runs before a drift alert is raised. Set to 2 because legitimate intra-day
+ * activity (a new buy + an exit) can plausibly shift the count by ±2 without
+ * being a duplication bug. Anything larger is suspicious.
+ */
+export const POSITION_DRIFT_THRESHOLD = 2;
+
+export interface DriftDecision {
+  /** Whether the drift exceeds the threshold and an alert should be raised. */
+  shouldAlert: boolean;
+  /** Absolute change in count. Always non-negative. */
+  delta: number;
+  /** Human-readable direction, useful for alert text. */
+  direction: 'increased' | 'decreased' | 'unchanged';
+}
+
+/**
+ * Pure drift evaluator — extracted so it can be unit-tested without prisma.
+ *
+ * Returns `shouldAlert=false` when there is no prior measurement to compare
+ * against (first run of the day). Threshold is exclusive: a delta exactly
+ * equal to the threshold does NOT alert.
+ */
+export function evaluatePositionDrift(
+  prior: number | null,
+  current: number,
+  threshold: number = POSITION_DRIFT_THRESHOLD,
+): DriftDecision {
+  if (prior == null) {
+    return { shouldAlert: false, delta: 0, direction: 'unchanged' };
+  }
+  const delta = Math.abs(current - prior);
+  const direction: DriftDecision['direction'] =
+    current > prior ? 'increased' : current < prior ? 'decreased' : 'unchanged';
+  return { shouldAlert: delta > threshold, delta, direction };
+}
+
 async function runMiddaySync() {
   const userId = 'default-user';
 
@@ -71,6 +109,55 @@ async function runMiddaySync() {
       // Alert is already sent by syncClosedPositions — just log for the batch file
     }
 
+    // ── Drift detection ──
+    // Compare today's open count against the most recent prior midday-sync
+    // heartbeat. A swing >POSITION_DRIFT_THRESHOLD between runs is a strong
+    // signal that the auto-trade × broker-sync duplication bug class has
+    // recurred (see incident 2026-05-01 "9 vs 6"). The alert is throttled
+    // by dedupe key so we don't spam if the drift persists across runs.
+    try {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const priorMidday = await prisma.heartbeat.findFirst({
+        where: {
+          status: 'OK',
+          timestamp: { gte: todayStart },
+          details: { contains: '"type":"midday-sync"' },
+        },
+        orderBy: { timestamp: 'desc' },
+      });
+      let priorChecked: number | null = null;
+      if (priorMidday?.details) {
+        try {
+          const parsed = JSON.parse(priorMidday.details) as { checked?: number };
+          if (typeof parsed.checked === 'number') priorChecked = parsed.checked;
+        } catch {
+          // Heartbeat details not parseable — treat as no prior measurement.
+        }
+      }
+      const drift = evaluatePositionDrift(priorChecked, openCount);
+      if (drift.shouldAlert && priorChecked != null) {
+        log.warn('Position count drift detected', {
+          prior: priorChecked,
+          current: openCount,
+          delta: drift.delta,
+        });
+        await sendAlert({
+          type: 'SYSTEM',
+          title: `Position count ${drift.direction} by ${drift.delta} since last midday sync`,
+          message: `Open positions ${drift.direction} from ${priorChecked} to ${openCount} between midday-sync runs today. ` +
+            `A swing this large within the same trading day usually means duplicate rows were created (auto-trade × broker-sync) or a sync collapsed real holdings. ` +
+            `Check the portfolio screen and run scripts/dedupe-broker-vs-autotrade-positions.ts if duplicates are confirmed.`,
+          data: { prior: priorChecked, current: openCount, delta: drift.delta },
+          priority: 'WARNING',
+          telegramDedupeKey: `midday-sync:drift:${todayStart.toISOString().slice(0, 10)}`,
+        });
+      }
+    } catch (driftErr) {
+      // Drift check is advisory — never block the sync on it
+      console.warn(`  Drift check failed: ${(driftErr as Error).message}`);
+    }
+
     // Write a heartbeat so the dashboard knows the midday sync ran
     await prisma.heartbeat.create({
       data: {
@@ -112,7 +199,13 @@ async function runMiddaySync() {
 
 
 // ── Entry point ──────────────────────────────────────────────────────
-runMiddaySync().catch((err) => {
-  console.error('Fatal error in midday sync:', err);
-  process.exit(1);
-});
+// Only auto-execute when run as a script (via `tsx src/cron/midday-sync.ts`),
+// not when imported by a test or another module. The previous unconditional
+// call ran the full sync on `import` from vitest, which only happened to be
+// safe because today was a weekend (the function early-returned on day=0/6).
+if (process.env.VITEST !== 'true' && process.env.NODE_ENV !== 'test') {
+  runMiddaySync().catch((err) => {
+    console.error('Fatal error in midday sync:', err);
+    process.exit(1);
+  });
+}

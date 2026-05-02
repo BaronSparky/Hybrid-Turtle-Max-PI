@@ -201,8 +201,11 @@ export default function PlanPage() {
 
   const fetchPositions = useCallback(async () => {
     try {
+      // Fetch ALL OPEN positions (any source). Plan-side risk gates need the
+      // full picture — filtering by source='trading212' would hide auto-traded
+      // positions and under-count exposure when sizing/gating new buys.
       const data = await apiRequest<PositionApiResponse[]>(
-        `/api/positions?userId=${DEFAULT_USER_ID}&source=trading212&status=OPEN`
+        `/api/positions?userId=${DEFAULT_USER_ID}&status=OPEN`
       );
       const mapped: PositionData[] = data.map((p) => ({
         id: p.id,

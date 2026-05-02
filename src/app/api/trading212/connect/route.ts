@@ -113,9 +113,12 @@ export async function DELETE(request: NextRequest) {
             t212IsaTotalValue: null,
           },
         }),
-        // Close orphaned positions for this account type
+        // Close orphaned positions for this account type (any source: broker
+        // sync, auto-trade, or manual entries tagged to this account). Filtering
+        // by source='trading212' previously left auto-trade rows orphaned with
+        // no broker linkage after disconnect.
         prisma.position.updateMany({
-          where: { userId, source: 'trading212', accountType: 'isa', status: 'OPEN' },
+          where: { userId, accountType: 'isa', status: 'OPEN' },
           data: { status: 'CLOSED', exitDate: new Date(), exitReason: 'ISA account disconnected' },
         }),
       ]);
@@ -136,9 +139,10 @@ export async function DELETE(request: NextRequest) {
             t212TotalValue: null,
           },
         }),
-        // Close orphaned positions for this account type
+        // Close orphaned positions for this account type (any source). See
+        // the matching ISA branch above for the rationale.
         prisma.position.updateMany({
-          where: { userId, source: 'trading212', accountType: 'invest', status: 'OPEN' },
+          where: { userId, accountType: 'invest', status: 'OPEN' },
           data: { status: 'CLOSED', exitDate: new Date(), exitReason: 'Invest account disconnected' },
         }),
       ]);

@@ -226,16 +226,29 @@ async function checkColumnPopulation(): Promise<HealthCheckResult> {
  * (stockId, accountType). This caught the 2026-05-01 "9 vs 6" bug where
  * auto-trade and broker sync created parallel rows for the same holding.
  *
+ * Also flags OPEN positions with NULL accountType: such rows are invisible
+ * to per-account counters in /api/trading212/sync (they only count
+ * accountType='invest'|'isa'), so a null orphan would silently under-report
+ * holdings on the dashboard.
+ *
  * Pure function (no Prisma access) so it can be unit-tested directly.
  * Exported because the unit test in health-check.test.ts imports it.
  */
 export function checkOpenPositionUniqueness(positions: HealthCheckPosition[]): HealthCheckResult {
   const groups = new Map<string, HealthCheckPosition[]>();
+  const orphans: string[] = [];
   for (const p of positions) {
     // Fall back to ticker when stockId is not populated (test fixtures only —
     // real Prisma reads always include stockId). Two rows for the same ticker
     // would still be duplicates regardless of which key we group by.
     const stockKey = p.stockId ?? p.stock?.ticker ?? 'unknown';
+
+    // Track NULL accountType separately. Grouping these under 'invest' (the
+    // historical default) would mask the orphan as a duplicate-vs-nothing.
+    if (p.accountType == null) {
+      orphans.push(p.stock?.ticker ?? stockKey);
+    }
+
     const key = `${stockKey}::${p.accountType ?? 'invest'}`;
     const list = groups.get(key) ?? [];
     list.push(p);
@@ -251,13 +264,16 @@ export function checkOpenPositionUniqueness(positions: HealthCheckPosition[]): H
     }
   }
 
-  if (duplicates.length > 0) {
+  if (duplicates.length > 0 || orphans.length > 0) {
+    const parts: string[] = [];
+    if (duplicates.length > 0) parts.push(`Duplicate OPEN positions: ${duplicates.join(', ')}`);
+    if (orphans.length > 0) parts.push(`OPEN positions with NULL accountType (invisible to per-account counters): ${orphans.join(', ')}`);
     return {
       id: 'A4',
       label: 'Open Position Uniqueness',
       category: 'Data',
       status: 'RED',
-      message: `Duplicate OPEN positions detected: ${duplicates.join(', ')}`,
+      message: parts.join(' | '),
     };
   }
 

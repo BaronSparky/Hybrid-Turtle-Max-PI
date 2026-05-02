@@ -31,7 +31,9 @@ interface PreTradeChecklistProps {
   healthReport?: {
     overall: string;
     checks: Record<string, string>;
-    results: Array<{ id: string; status: string }>;
+    // results carries label + message so the UI can show the WHY of a
+    // non-GREEN check (e.g. A4 duplicate-position detail), not just the id.
+    results: Array<{ id: string; label?: string; status: string; message?: string }>;
   } | null;
   riskBudget?: {
     usedRiskPercent: number;
@@ -99,6 +101,14 @@ export default function PreTradeChecklist({
   // Entry-only failures (no candidates) aren't a trading danger — use softer language
   const allEntryFailures = criticalFailed.length > 0 && criticalFailed.every(c => c.category === 'EXECUTION');
 
+  // Surface non-GREEN health checks with their actual messages so the user
+  // can see WHY health is degraded — not just that something is wrong.
+  // Without this, A4 (Open Position Uniqueness) and others only contributed
+  // to a yellow badge with no detail visible anywhere except Telegram/logs.
+  const failingHealthChecks = (healthReport?.results ?? [])
+    .filter((r) => r.status !== 'GREEN')
+    .map((r) => ({ id: r.id, label: r.label, status: r.status, message: r.message }));
+
   return (
     <div className="card-surface p-4">
       <div className="flex items-center justify-between mb-4">
@@ -120,6 +130,34 @@ export default function PreTradeChecklist({
           </span>
         )}
       </div>
+
+      {failingHealthChecks.length > 0 && (
+        <div className="rounded-lg p-3 mb-4 border bg-loss/10 border-loss/30">
+          <div className="flex items-center gap-2 text-sm font-semibold mb-1 text-loss">
+            <AlertTriangle className="w-4 h-4" />
+            HEALTH ALERTS ({failingHealthChecks.length})
+          </div>
+          <p className="text-xs text-muted-foreground mb-2">
+            One or more system health checks are not GREEN:
+          </p>
+          <ul className="space-y-1.5">
+            {failingHealthChecks.map((c) => (
+              <li key={c.id} className="text-xs">
+                <span className={cn(
+                  'inline-block px-1.5 py-0.5 rounded text-[10px] font-mono mr-2',
+                  c.status === 'RED' ? 'bg-loss/30 text-loss' : 'bg-warning/30 text-warning'
+                )}>
+                  {c.id} {c.status}
+                </span>
+                <span className="text-loss/90">{c.label ?? c.id}</span>
+                {c.message && (
+                  <div className="text-[11px] text-muted-foreground ml-1 mt-0.5">{c.message}</div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {criticalFailed.length > 0 && (
         <div className={cn(
