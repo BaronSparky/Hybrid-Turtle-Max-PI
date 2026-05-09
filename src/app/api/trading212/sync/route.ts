@@ -30,6 +30,7 @@ import {
   isExistingStillActive,
   shouldSkipForCrossAccountDuplicate,
 } from '@/lib/trading212-sync-merge';
+import { calcSyncedPositionRisk } from '@/lib/synced-position-risk';
 import { z } from 'zod';
 import { parseJsonBody } from '@/lib/request-validation';
 import type { RiskProfileType, Sleeve } from '@/types';
@@ -194,8 +195,15 @@ export async function POST(request: NextRequest) {
               acctResults.updated++;
             } else {
               // Create new position
-              const initialRisk = pos.entryPrice * 0.05; // Default 5% stop-loss for synced positions
-              const stopLoss = pos.entryPrice - initialRisk;
+              // Behaviour-preserving: passing knownStopPrice=undefined keeps
+              // the legacy 5%-of-entry default. Future change can fetch the
+              // T212 pending stop order for this ticker and pass it here so
+              // manual buys with custom stops record the user's actual risk
+              // (e.g. RBOTl 8 May 2026 was synced with 5% default but user
+              // had set $19.81 in T212 — see scripts/backfill-rbotl-audit-fields.ts).
+              const risk = calcSyncedPositionRisk(pos.entryPrice);
+              const initialRisk = risk.initialRisk;
+              const stopLoss = risk.stopLoss;
 
               await tx.position.create({
                 data: {

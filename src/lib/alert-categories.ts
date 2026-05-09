@@ -12,6 +12,8 @@ export const ALERT_CATEGORY = {
   WATCHDOG_DASHBOARD: 'watchdog:dashboard',
   WATCHDOG_NIGHTLY: 'watchdog:nightly',
   WATCHDOG_MIDDAY: 'watchdog:midday',
+  WATCHDOG_SCHEDULER_KILL: 'watchdog:scheduler-kill',
+  WATCHDOG_NO_TRADES_BULLISH: 'watchdog:no-trades-bullish',
   NIGHTLY_FAIL: 'nightly:fail',
   STOP_TRIGGER: 'stop:trigger',
   T212_QUOTA: 't212:quota',

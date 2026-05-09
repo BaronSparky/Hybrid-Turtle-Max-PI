@@ -13,12 +13,39 @@ import prisma from '@/lib/prisma';
 import { sendThrottledTelegramAlert } from '@/lib/telegram';
 import { ALERT_CATEGORY, buildAlertKey } from '@/lib/alert-categories';
 import { createCronLogger } from '@/lib/cron-logger';
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import path from 'path';
 import { waitForDashboardRecovery } from './watchdog-recovery';
+import { getUKDayOfWeek, getUKHour } from '@/lib/uk-time';
+import { checkSchedulerKills, checkZeroTradesOnBullishDay, type AuditFinding } from './watchdog-checks';
 
 const log = createCronLogger('watchdog');
 const NIGHTLY_STALE_HOURS = 26;
+
+/**
+ * Run the scheduler audit script and parse its findings. Returns [] when the
+ * audit is unavailable (non-Windows, missing script, or unexpected error).
+ * The audit script writes one finding per line to stdout in the form
+ * `[scheduler-audit] SEVERITY: TaskName REASON - detail`.
+ */
+async function fetchAuditFindings(): Promise<AuditFinding[]> {
+  if (process.platform !== 'win32') return [];
+  const auditScript = path.resolve(__dirname, '..', '..', 'scripts', 'audit-scheduled-tasks.mjs');
+  return new Promise((resolve) => {
+    execFile('node', [auditScript], { timeout: 30_000 }, (_err, stdout) => {
+      // Audit exits 1 on any ERROR finding; that's expected here, not a failure.
+      const findings: AuditFinding[] = [];
+      const lineRegex = /^\[scheduler-audit\]\s+(ERROR|WARNING):\s+(\S+)\s+([A-Z_]+)\s+-\s+(.+)$/;
+      for (const line of stdout.split(/\r?\n/)) {
+        const match = lineRegex.exec(line.trim());
+        if (match) {
+          findings.push({ severity: match[1], taskName: match[2], reason: match[3], detail: match[4] });
+        }
+      }
+      resolve(findings);
+    });
+  });
+}
 
 async function runWatchdog(): Promise<void> {
   log.info('Watchdog check starting');
@@ -113,6 +140,57 @@ async function runWatchdog(): Promise<void> {
           '🚨 WATCHDOG: Dashboard was not responding on port 3000. Auto-restart FAILED — manual intervention required (run start.bat).'
         );
       }
+    }
+  }
+
+  // Check 4: scheduler-killed tasks (Last Result = 267014). Catches the
+  // 5–8 May 2026 silent failure pattern where Windows Task Scheduler killed
+  // every auto-trade session at PT10M before any buy was placed.
+  try {
+    const findings = await fetchAuditFindings();
+    alerts.push(...checkSchedulerKills(findings));
+  } catch (err) {
+    log.warn('Scheduler audit check failed', { error: (err as Error).message });
+  }
+
+  // Check 5: BULLISH regime + valid A-grade candidates + zero buy attempts
+  // today. On a normal trading day all three auto-trade sessions complete by
+  // ~21:00 UK; checking after 16:00 catches problems while there's still
+  // time to react. Skipped on weekends.
+  if (isWeekday) {
+    try {
+      const ukDay = getUKDayOfWeek(now);
+      const ukHour = getUKHour();
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
+      const buyAttemptsToday = await prisma.executionLog.count({
+        where: { createdAt: { gte: todayStart } },
+      });
+
+      const latestScan = await prisma.scan.findFirst({
+        orderBy: { runDate: 'desc' },
+        select: { id: true, regime: true },
+      });
+
+      let aGradeWithShares = 0;
+      if (latestScan) {
+        aGradeWithShares = await prisma.scanResult.count({
+          where: { scanId: latestScan.id, grade: 'A_GRADE_BUY', shares: { gt: 0 } },
+        });
+      }
+
+      alerts.push(
+        ...checkZeroTradesOnBullishDay({
+          regime: latestScan?.regime,
+          aGradeWithShares,
+          buyAttemptsToday,
+          ukDayOfWeek: ukDay,
+          ukHourOfDay: ukHour,
+        })
+      );
+    } catch (err) {
+      log.warn('Zero-trades check failed', { error: (err as Error).message });
     }
   }
 

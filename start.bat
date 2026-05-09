@@ -112,6 +112,15 @@ if %errorlevel%==0 (
 :: Wait a moment for the port to free up
 timeout /t 1 /nobreak >nul
 
+:: Surface scheduler ERRORs visibly so silent failures (Windows Task Scheduler
+:: killed an auto-trade run, time-limit drift after a registration script
+:: change, etc.) cannot go unnoticed for days. This is read-only and never
+:: blocks the dashboard from starting.
+echo.
+echo  Checking scheduled tasks...
+powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\check-scheduler-on-start.ps1"
+echo.
+
 :: Ensure production build exists AND is fresh.
 :: - Missing BUILD_ID → first run / corrupted build → must build.
 :: - BUILD_ID older than any source file under src/ or prisma/schema.prisma →

@@ -10,7 +10,7 @@ vi.mock('fs', async () => {
   };
 });
 
-const { auditScheduledTasks, parseCsvLine, parseSchtasksCsv, auditRegisterScripts, auditDatabaseBackup, EXPECTED_TASKS } = await import('./audit-scheduled-tasks.mjs');
+const { auditScheduledTasks, parseCsvLine, parseSchtasksCsv, auditRegisterScripts, auditDatabaseBackup, auditTimeLimits, EXPECTED_TASKS } = await import('./audit-scheduled-tasks.mjs');
 
 describe('audit-scheduled-tasks.mjs', () => {
   it('parses schtasks CSV rows with quoted commands', () => {
@@ -179,6 +179,84 @@ describe('audit-scheduled-tasks.mjs', () => {
 
     expect(findings).toEqual([]);
   });
+
+  it('flags SCHEDULER_TERMINATED_LAST_RUN as ERROR for trade-critical tasks (267014)', () => {
+    const findings = auditScheduledTasks([
+      {
+        TaskName: '\\HybridTurtle-Trade-UK',
+        'Task To Run': 'C:\\Repo\\auto-trade-task.bat uk --scheduled',
+        'Start In': 'N/A',
+        'Scheduled Task State': 'Enabled',
+        'Last Result': '267014',
+      },
+      {
+        TaskName: '\\HybridTurtle-Scan',
+        'Task To Run': 'C:\\Repo\\auto-trade-task.bat scan --scheduled',
+        'Start In': 'N/A',
+        'Scheduled Task State': 'Enabled',
+        'Last Result': '267014',
+      },
+      {
+        TaskName: '\\HybridTurtle Nightly',
+        'Task To Run': 'C:\\Repo\\nightly-task.bat',
+        'Start In': 'N/A',
+        'Scheduled Task State': 'Enabled',
+        'Last Result': '267014',
+      },
+    ], {
+      repoRoot: 'C:\\Repo',
+      expectedTasks: [
+        { name: 'HybridTurtle-Trade-UK', requiredPath: 'auto-trade-task.bat', requiredArgument: 'uk' },
+        { name: 'HybridTurtle-Scan', requiredPath: 'auto-trade-task.bat', requiredArgument: 'scan' },
+        { name: 'HybridTurtle Nightly', requiredPath: 'nightly-task.bat' },
+      ],
+    });
+
+    expect(findings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ reason: 'SCHEDULER_TERMINATED_LAST_RUN', severity: 'ERROR', taskName: 'HybridTurtle-Trade-UK' }),
+      expect.objectContaining({ reason: 'SCHEDULER_TERMINATED_LAST_RUN', severity: 'ERROR', taskName: 'HybridTurtle-Scan' }),
+      expect.objectContaining({ reason: 'SCHEDULER_TERMINATED_LAST_RUN', severity: 'ERROR', taskName: 'HybridTurtle Nightly' }),
+    ]));
+    expect(findings.some((f: { reason: string }) => f.reason === 'NON_ZERO_LAST_RESULT')).toBe(false);
+  });
+
+  it('flags SCHEDULER_TERMINATED_LAST_RUN as WARNING for non-trading tasks (267014)', () => {
+    const findings = auditScheduledTasks([
+      {
+        TaskName: '\\HybridTurtle-WeeklyDigest',
+        'Task To Run': 'C:\\Repo\\weekly-digest-task.bat',
+        'Start In': 'N/A',
+        'Scheduled Task State': 'Enabled',
+        'Last Result': '267014',
+      },
+    ], {
+      repoRoot: 'C:\\Repo',
+      expectedTasks: [{ name: 'HybridTurtle-WeeklyDigest', requiredPath: 'weekly-digest-task.bat' }],
+    });
+
+    expect(findings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ reason: 'SCHEDULER_TERMINATED_LAST_RUN', severity: 'WARNING', taskName: 'HybridTurtle-WeeklyDigest' }),
+    ]));
+  });
+
+  it('keeps NON_ZERO_LAST_RESULT for other non-zero results', () => {
+    const findings = auditScheduledTasks([
+      {
+        TaskName: '\\HybridTurtle-Trade-US',
+        'Task To Run': 'C:\\Repo\\auto-trade-task.bat us --scheduled',
+        'Start In': 'N/A',
+        'Scheduled Task State': 'Enabled',
+        'Last Result': '1',
+      },
+    ], {
+      repoRoot: 'C:\\Repo',
+      expectedTasks: [{ name: 'HybridTurtle-Trade-US', requiredPath: 'auto-trade-task.bat', requiredArgument: 'us' }],
+    });
+
+    expect(findings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ reason: 'NON_ZERO_LAST_RESULT', severity: 'WARNING' }),
+    ]));
+  });
 });
 
 describe('auditRegisterScripts', () => {
@@ -336,4 +414,82 @@ describe('EXPECTED_TASKS manifest integrity', () => {
       expect(realExistsSync(targetPath), `Target not found: ${task.requiredPath}`).toBe(true);
     },
   );
+});
+
+describe('auditTimeLimits', () => {
+  function xmlWith(limit: string): string {
+    return `<?xml version="1.0"?>\n<Task><Settings><ExecutionTimeLimit>${limit}</ExecutionTimeLimit></Settings></Task>`;
+  }
+
+  it('returns no findings when every task matches its expected time limit', () => {
+    const xmlByName = new Map<string, string>([
+      ['HybridTurtle-Trade-UK', xmlWith('PT20M')],
+      ['HybridTurtle Nightly', xmlWith('PT45M')],
+    ]);
+    const findings = auditTimeLimits({
+      expectedTasks: [
+        { name: 'HybridTurtle-Trade-UK', requiredPath: 'auto-trade-task.bat', expectedTimeLimit: 'PT20M' },
+        { name: 'HybridTurtle Nightly', requiredPath: 'nightly-task.bat', expectedTimeLimit: 'PT45M' },
+      ],
+      xmlByName,
+    });
+    expect(findings).toEqual([]);
+  });
+
+  it('flags trade-critical drift as ERROR with the apply-limits remediation', () => {
+    const xmlByName = new Map<string, string>([
+      ['HybridTurtle-Trade-UK', xmlWith('PT10M')],
+      ['HybridTurtle-Scan', xmlWith('PT10M')],
+      ['HybridTurtle Nightly', xmlWith('PT10M')],
+      ['HybridTurtle Midday Sync', xmlWith('PT10M')],
+    ]);
+    const findings = auditTimeLimits({
+      expectedTasks: [
+        { name: 'HybridTurtle-Trade-UK', requiredPath: 'auto-trade-task.bat', expectedTimeLimit: 'PT20M' },
+        { name: 'HybridTurtle-Scan', requiredPath: 'auto-trade-task.bat', expectedTimeLimit: 'PT20M' },
+        { name: 'HybridTurtle Nightly', requiredPath: 'nightly-task.bat', expectedTimeLimit: 'PT45M' },
+        { name: 'HybridTurtle Midday Sync', requiredPath: 'midday-sync-task.bat', expectedTimeLimit: 'PT15M' },
+      ],
+      xmlByName,
+    });
+    expect(findings).toHaveLength(4);
+    for (const f of findings) {
+      expect(f.severity).toBe('ERROR');
+      expect(f.reason).toBe('EXECUTION_TIME_LIMIT_DRIFT');
+      expect(f.detail).toMatch(/tasks:apply-limits/);
+    }
+  });
+
+  it('flags non-trading drift as WARNING', () => {
+    const xmlByName = new Map<string, string>([
+      ['HybridTurtle-WeeklyDigest', xmlWith('PT5M')],
+    ]);
+    const findings = auditTimeLimits({
+      expectedTasks: [
+        { name: 'HybridTurtle-WeeklyDigest', requiredPath: 'weekly-digest-task.bat', expectedTimeLimit: 'PT10M' },
+      ],
+      xmlByName,
+    });
+    expect(findings).toHaveLength(1);
+    expect(findings[0].severity).toBe('WARNING');
+  });
+
+  it('skips tasks without expectedTimeLimit field', () => {
+    const xmlByName = new Map<string, string>([
+      ['HybridTurtle-Foo', xmlWith('PT10M')],
+    ]);
+    const findings = auditTimeLimits({
+      expectedTasks: [{ name: 'HybridTurtle-Foo', requiredPath: 'foo.bat' }],
+      xmlByName,
+    });
+    expect(findings).toEqual([]);
+  });
+
+  it('skips tasks whose XML is missing (would be flagged by auditScheduledTasks)', () => {
+    const findings = auditTimeLimits({
+      expectedTasks: [{ name: 'HybridTurtle-Bar', requiredPath: 'bar.bat', expectedTimeLimit: 'PT20M' }],
+      xmlByName: new Map(),
+    });
+    expect(findings).toEqual([]);
+  });
 });

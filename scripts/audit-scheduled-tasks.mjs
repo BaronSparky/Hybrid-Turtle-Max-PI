@@ -16,20 +16,20 @@ const ROOT = path.resolve(__dirname, '..');
 const QUIET = process.argv.includes('--quiet');
 
 export const EXPECTED_TASKS = [
-  { name: 'HybridTurtle Nightly', requiredPath: 'nightly-task.bat', registerScript: 'register-nightly-task.ps1' },
-  { name: 'HybridTurtle Watchdog', requiredPath: 'watchdog-task.bat', registerScript: 'register-watchdog-task.bat' },
-  { name: 'HybridTurtle Midday Sync', requiredPath: 'midday-sync-task.bat', registerScript: 'register-midday-sync.ps1' },
-  { name: 'HybridTurtle-Scan', requiredPath: 'auto-trade-task.bat', requiredArgument: 'scan', registerScript: 'register-auto-trade.bat' },
-  { name: 'HybridTurtle-Trade-UK', requiredPath: 'auto-trade-task.bat', requiredArgument: 'uk', registerScript: 'register-auto-trade.bat' },
-  { name: 'HybridTurtle-Trade-US', requiredPath: 'auto-trade-task.bat', requiredArgument: 'us', registerScript: 'register-auto-trade.bat' },
-  { name: 'HybridTurtle-Trade-USC', requiredPath: 'auto-trade-task.bat', requiredArgument: 'us-close', registerScript: 'register-auto-trade.bat' },
-  { name: 'HybridTurtle-HourlyStatus', requiredPath: 'hourly-status-task.bat', registerScript: 'register-auto-trade.bat' },
-  { name: 'HybridTurtle-MondayBriefing', requiredPath: 'monday-briefing-task.bat', registerScript: 'scripts/register-weekly-tasks.ps1' },
-  { name: 'HybridTurtle-UKBriefing', requiredPath: 'uk-briefing-task.bat', registerScript: 'scripts/register-weekly-tasks.ps1' },
-  { name: 'HybridTurtle-USBriefing', requiredPath: 'us-briefing-task.bat', registerScript: 'scripts/register-weekly-tasks.ps1' },
-  { name: 'HybridTurtle-WeeklyDigest', requiredPath: 'weekly-digest-task.bat', registerScript: 'scripts/register-weekly-tasks.ps1' },
-  { name: 'HybridTurtle-TickerAudit', requiredPath: 'ticker-audit-task.bat', registerScript: 'scripts/register-weekly-tasks.ps1' },
-  { name: 'HybridTurtle-ResearchRefresh', requiredPath: 'research-refresh-task.bat', requiredArgument: '--scheduled', registerScript: 'scripts/register-weekly-tasks.ps1' },
+  { name: 'HybridTurtle Nightly', requiredPath: 'nightly-task.bat', registerScript: 'register-nightly-task.ps1', expectedTimeLimit: 'PT45M' },
+  { name: 'HybridTurtle Watchdog', requiredPath: 'watchdog-task.bat', registerScript: 'register-watchdog-task.bat', expectedTimeLimit: 'PT10M' },
+  { name: 'HybridTurtle Midday Sync', requiredPath: 'midday-sync-task.bat', registerScript: 'register-midday-sync.ps1', expectedTimeLimit: 'PT15M' },
+  { name: 'HybridTurtle-Scan', requiredPath: 'auto-trade-task.bat', requiredArgument: 'scan', registerScript: 'register-auto-trade.bat', expectedTimeLimit: 'PT20M' },
+  { name: 'HybridTurtle-Trade-UK', requiredPath: 'auto-trade-task.bat', requiredArgument: 'uk', registerScript: 'register-auto-trade.bat', expectedTimeLimit: 'PT20M' },
+  { name: 'HybridTurtle-Trade-US', requiredPath: 'auto-trade-task.bat', requiredArgument: 'us', registerScript: 'register-auto-trade.bat', expectedTimeLimit: 'PT20M' },
+  { name: 'HybridTurtle-Trade-USC', requiredPath: 'auto-trade-task.bat', requiredArgument: 'us-close', registerScript: 'register-auto-trade.bat', expectedTimeLimit: 'PT20M' },
+  { name: 'HybridTurtle-HourlyStatus', requiredPath: 'hourly-status-task.bat', registerScript: 'register-auto-trade.bat', expectedTimeLimit: 'PT5M' },
+  { name: 'HybridTurtle-MondayBriefing', requiredPath: 'monday-briefing-task.bat', registerScript: 'scripts/register-weekly-tasks.ps1', expectedTimeLimit: 'PT10M' },
+  { name: 'HybridTurtle-UKBriefing', requiredPath: 'uk-briefing-task.bat', registerScript: 'scripts/register-weekly-tasks.ps1', expectedTimeLimit: 'PT10M' },
+  { name: 'HybridTurtle-USBriefing', requiredPath: 'us-briefing-task.bat', registerScript: 'scripts/register-weekly-tasks.ps1', expectedTimeLimit: 'PT10M' },
+  { name: 'HybridTurtle-WeeklyDigest', requiredPath: 'weekly-digest-task.bat', registerScript: 'scripts/register-weekly-tasks.ps1', expectedTimeLimit: 'PT10M' },
+  { name: 'HybridTurtle-TickerAudit', requiredPath: 'ticker-audit-task.bat', registerScript: 'scripts/register-weekly-tasks.ps1', expectedTimeLimit: 'PT10M' },
+  { name: 'HybridTurtle-ResearchRefresh', requiredPath: 'research-refresh-task.bat', requiredArgument: '--scheduled', registerScript: 'scripts/register-weekly-tasks.ps1', expectedTimeLimit: 'PT10M' },
 ];
 
 export const RETIRED_TASKS = [
@@ -150,7 +150,22 @@ export function auditScheduledTasks(tasks, options = {}) {
     }
 
     if (lastResult && !['0', '267009', '267011'].includes(lastResult)) {
-      findings.push({ severity: 'WARNING', taskName, reason: 'NON_ZERO_LAST_RESULT', detail: `Last Result is ${lastResult}` });
+      // 267014 (0x41306 SCHED_S_TASK_TERMINATED) and 267015 (0x41307) almost
+      // always mean Windows Task Scheduler killed the .bat at its
+      // ExecutionTimeLimit. For load-bearing trading tasks this means the
+      // session ran but never placed any trades — promote to ERROR so it
+      // can't be ignored. For other tasks keep it as WARNING.
+      if (lastResult === '267014' || lastResult === '267015') {
+        const tradeCritical = expected && /^HybridTurtle(-Trade-|-Scan$|\sNightly$)/.test(taskName);
+        findings.push({
+          severity: tradeCritical ? 'ERROR' : 'WARNING',
+          taskName,
+          reason: 'SCHEDULER_TERMINATED_LAST_RUN',
+          detail: `Last Result is ${lastResult} (SCHED_S_TASK_TERMINATED). Windows Task Scheduler killed the task at its ExecutionTimeLimit before it finished. Re-run npm run tasks:apply-limits (admin) to push the updated PT20M/PT45M limits to live tasks.`,
+        });
+      } else {
+        findings.push({ severity: 'WARNING', taskName, reason: 'NON_ZERO_LAST_RESULT', detail: `Last Result is ${lastResult}` });
+      }
     }
 
     // Vista-compat tasks (created by `schtasks /SC MONTHLY`) cannot accept
@@ -190,6 +205,59 @@ export function runSchedulerAudit(options = {}) {
 
   const output = options.schtasksOutput ?? execFileSync('schtasks', ['/Query', '/FO', 'CSV', '/V'], { encoding: 'utf8' });
   return auditScheduledTasks(parseSchtasksCsv(output), options);
+}
+
+/**
+ * Compare the live ExecutionTimeLimit on each registered task against the
+ * expected value declared in EXPECTED_TASKS. Catches the common drift class
+ * where the registration scripts are updated (e.g. PT10M → PT20M) but
+ * `tasks:apply-limits` was never run, so the live tasks still carry the old
+ * value. Returns ERROR for trade-critical drift, WARNING otherwise.
+ *
+ * Live values are read via `schtasks /Query /TN <task> /XML`; in tests pass
+ * `xmlByName` to avoid spawning processes.
+ */
+export function auditTimeLimits(options = {}) {
+  const expectedTasks = options.expectedTasks ?? EXPECTED_TASKS;
+  const xmlByName = options.xmlByName;
+  // When the caller supplies xmlByName (tests), treat it as authoritative and
+  // do not spawn schtasks. Without it, fall back to live schtasks queries on
+  // Windows, and skip entirely off-Windows.
+  const useLive = xmlByName === undefined;
+  if (useLive && process.platform !== 'win32') {
+    return [];
+  }
+  const tradeCriticalRegex = /^HybridTurtle(-Trade-|-Scan$|\sNightly$|\sMidday\sSync$)/;
+  const findings = [];
+
+  for (const expected of expectedTasks) {
+    if (!expected.expectedTimeLimit) continue;
+    let xml;
+    if (useLive) {
+      try {
+        xml = execFileSync('schtasks', ['/Query', '/TN', expected.name, '/XML'], { encoding: 'utf8' });
+      } catch {
+        // Task missing — auditScheduledTasks already raises EXPECTED_TASK_MISSING.
+        continue;
+      }
+    } else {
+      xml = xmlByName.get(expected.name);
+    }
+    if (!xml) continue;
+    const match = /<ExecutionTimeLimit>([^<]+)<\/ExecutionTimeLimit>/.exec(xml);
+    const liveLimit = match ? match[1] : null;
+    if (liveLimit && liveLimit !== expected.expectedTimeLimit) {
+      const tradeCritical = tradeCriticalRegex.test(expected.name);
+      findings.push({
+        severity: tradeCritical ? 'ERROR' : 'WARNING',
+        taskName: expected.name,
+        reason: 'EXECUTION_TIME_LIMIT_DRIFT',
+        detail: `Live ExecutionTimeLimit is ${liveLimit}, expected ${expected.expectedTimeLimit}. Run npm run tasks:apply-limits (admin) to align.`,
+      });
+    }
+  }
+
+  return findings;
 }
 
 function escapeRegex(value) {
@@ -294,6 +362,7 @@ function logFindings(findings) {
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const findings = [
     ...runSchedulerAudit(),
+    ...auditTimeLimits(),
     ...auditRegisterScripts(),
     ...auditDatabaseBackup(),
   ];
