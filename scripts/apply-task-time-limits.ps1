@@ -14,12 +14,20 @@ if (-not $isAdmin) {
 }
 
 $limits = @{
-  'HybridTurtle-Scan'        = 'PT20M'
-  'HybridTurtle-Trade-UK'    = 'PT20M'
-  'HybridTurtle-Trade-US'    = 'PT20M'
-  'HybridTurtle-Trade-USC'   = 'PT20M'
-  'HybridTurtle Nightly'     = 'PT45M'
-  'HybridTurtle Midday Sync' = 'PT15M'
+  'HybridTurtle Nightly'           = 'PT45M'
+  'HybridTurtle Watchdog'          = 'PT10M'
+  'HybridTurtle Midday Sync'       = 'PT15M'
+  'HybridTurtle-Scan'              = 'PT20M'
+  'HybridTurtle-Trade-UK'          = 'PT20M'
+  'HybridTurtle-Trade-US'          = 'PT20M'
+  'HybridTurtle-Trade-USC'         = 'PT20M'
+  'HybridTurtle-HourlyStatus'     = 'PT5M'
+  'HybridTurtle-MondayBriefing'   = 'PT10M'
+  'HybridTurtle-UKBriefing'       = 'PT10M'
+  'HybridTurtle-USBriefing'       = 'PT10M'
+  'HybridTurtle-WeeklyDigest'     = 'PT10M'
+  'HybridTurtle-TickerAudit'      = 'PT10M'
+  'HybridTurtle-ResearchRefresh'  = 'PT10M'
 }
 
 $results = @()
