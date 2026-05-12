@@ -62,14 +62,23 @@ export interface T212AccountSummary {
 }
 
 export interface T212Instrument {
+  /** Full T212 instrument identifier, e.g. AAPL_US_EQ, AZNl_EQ. */
   ticker: string;
+  /** Bare/display ticker, e.g. AAPL, AZN, RBOT. Prefer this over stripping
+   *  the suffix off `ticker` — it's what T212 considers the canonical name. */
+  shortName?: string;
   isin: string;
   currencyCode: string;
   name: string;
   type: string;
-  exchange: string;
-  minTradeQuantity: number;
+  /** Internal T212 schedule id; not a tradable concept but useful for grouping. */
+  workingScheduleId?: number;
+  /** Documented in T212 docs but not actually returned by the live API
+   *  in our tenant — keep optional for forward-compat but never rely on it. */
+  exchange?: string;
+  minTradeQuantity?: number;
   maxOpenQuantity: number;
+  extendedHours?: boolean;
   addedOn: string;
 }
 
@@ -206,7 +215,9 @@ export interface T212OrderHistoryOptions {
  */
 const MIN_INTERVAL_MS: Record<string, number> = {
   // Orders
-  'GET /equity/orders': 5_100,             // 1 req / 5s
+  'GET /equity/orders': 5_100,             // 1 req / 5s — pending-orders list
+  'GET /equity/orders/_id': 1_100,         // 1 req / 1s — single order by id
+  'DELETE /equity/orders/_id': 1_300,      // 50 req / 1m — cancel order by id
   'POST /equity/orders/market': 1_300,     // 50 req / 1m ≈ 1.2s avg; pace at 1.3s
   'POST /equity/orders/stop': 2_100,       // 1 req / 2s
   'POST /equity/orders/limit': 2_100,      // 1 req / 2s
@@ -329,6 +340,18 @@ export class Trading212Client {
         if (errorDetail.includes('selling-equity-not-owned')) {
           errorDetail += '. T212 says you don\'t own this equity on this account. This usually means the position is in a different account (ISA vs Invest) — check the accountType on the position matches where the shares are actually held.';
         }
+        // 404 "entity not found" on order endpoints almost always means the
+        // instrument identifier we sent (the Stock.t212Ticker) does not match
+        // any T212 instrument. Diagnosed during the 11 May 2026 RBOT incident
+        // (Stock.t212Ticker was bare 'RBOT' instead of 'RBOTl_EQ'). Hint
+        // the operator at the repair script that uses the cached instruments
+        // snapshot to find the right value.
+        if (
+          response.status === 404 &&
+          (errorDetail.includes('entity-not-found') || errorDetail.includes('Requested entity not found'))
+        ) {
+          errorDetail += '. T212 does not recognise the instrument identifier sent in this request. This is almost always a Stock.t212Ticker mapping problem (the value is missing the _EQ suffix or points at a delisted/wrong-region listing). Run `npx tsx scripts/fix-invalid-t212-tickers.ts` (database-only) and `npx tsx scripts/repair-t212-tickers-from-instruments.ts` (queries the live T212 instruments universe) to identify and repair the mapping.';
+        }
 
         throw new Trading212Error(
           `Trading 212 API error ${response.status}: ${errorDetail}`,
@@ -379,8 +402,13 @@ export class Trading212Client {
   private async paceCall(method: string, path: string): Promise<void> {
     if (process.env.VITEST || process.env.NODE_ENV === 'test') return;
 
-    // Normalise path → strip query, collapse numeric ids
-    const cleanPath = path.split('?')[0].replace(/\/\d+(?=\/|$)/g, '');
+    // Normalise path → strip query, replace numeric ids with `/_id` sentinel.
+    // Sentinel preserves the distinction between list endpoints (e.g. GET /equity/orders
+    // at 1 req/5s) and per-id endpoints (e.g. GET /equity/orders/{id} at 1 req/1s).
+    // Stripping ids outright caused getOrder(buyOrderId) polling to inherit the 5s
+    // list-endpoint pacing, slowing Phase B fill detection ~5× and producing orphan
+    // positions when the actual fill arrived after the poll loop had given up.
+    const cleanPath = path.split('?')[0].replace(/\/\d+(?=\/|$)/g, '/_id');
     const key = `${method} ${cleanPath}`;
     const minInterval = MIN_INTERVAL_MS[key];
     if (!minInterval) return; // Endpoint isn't on the tight list — no pacing needed

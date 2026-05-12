@@ -639,22 +639,26 @@ async function runNightlyProcess() {
     console.log(`        Near-stop alerts: ${nearStopCount} sent`);
 
     // Step 3g: Auto-push updated stops to T212 (requires ENABLE_AUTO_TRADING)
+    // Pushes the union of {positions whose stop changed tonight} ∪ {orphans —
+    // open positions with no STOP/SELL order at the broker}. The orphan path
+    // catches the case where execute/route.ts skipped Phase C (e.g. UK fill
+    // confirmation timeout left a position at the broker with no stop attached).
     const autoTradingEnabled = await isAutoTradingEnabled();
     let stopsPushedToT212 = 0;
     let stopsPushFailed = 0;
-    if (autoTradingEnabled && (stopChanges.length > 0 || trailingStopChanges.length > 0)) {
+    let orphanStopsPlaced = 0;
+    const orphanTickersPlaced: string[] = [];
+    if (autoTradingEnabled) {
       console.log('  [3g] Auto-pushing stops to Trading 212...');
       try {
-        // Only push stops for positions that actually changed (not all positions)
         const changedTickers = new Set([
           ...stopChanges.map(s => s.ticker),
           ...trailingStopChanges.map(s => s.ticker),
         ]);
 
-        // Group changed positions by account type
-        const changedPositions = positions.filter(p => changedTickers.has(p.stock.ticker));
+        // Group ALL open positions by account so we can detect orphans per account
         const positionsByAccount = new Map<T212AccountType, typeof positions>();
-        for (const p of changedPositions) {
+        for (const p of positions) {
           const acctType: T212AccountType = p.accountType === 'isa' ? 'isa' : 'invest';
           const group = positionsByAccount.get(acctType) ?? [];
           group.push(p);
@@ -668,11 +672,35 @@ async function runNightlyProcess() {
             continue;
           }
 
-          // Build batch of stops to push (only positions with t212Ticker)
+          // Detect orphans: fetch pending orders once per account and find
+          // open positions whose t212Ticker has no STOP/SELL order at the broker.
+          const orphanT212Tickers = new Set<string>();
+          try {
+            const pending = await client.getPendingOrders();
+            const brokerStopTickers = new Set(
+              pending
+                .filter(o => o.type === 'STOP' && o.side === 'SELL')
+                .map(o => o.ticker)
+            );
+            for (const p of acctPositions) {
+              const t = p.t212Ticker || p.stock.t212Ticker;
+              if (t && !brokerStopTickers.has(t) && p.currentStop > 0) {
+                orphanT212Tickers.add(t);
+              }
+            }
+          } catch (err) {
+            console.warn(`  [3g] Orphan detection failed for ${acctType}: ${(err as Error).message}`);
+          }
+
+          // Build push batch: positions in {changed ∪ orphans} only.
+          // Positions whose broker stop merely differs (but exists) are left
+          // to step 3h's drift detection — avoids tripping the monotonic rule
+          // on stops the user manually moved at the broker.
           const batchInput = acctPositions
             .filter(p => {
               const t212Ticker = p.t212Ticker || p.stock.t212Ticker;
-              return t212Ticker && p.currentStop > 0;
+              if (!t212Ticker || p.currentStop <= 0) return false;
+              return changedTickers.has(p.stock.ticker) || orphanT212Tickers.has(t212Ticker);
             })
             .map(p => ({
               t212Ticker: (p.t212Ticker || p.stock.t212Ticker)!,
@@ -687,6 +715,13 @@ async function runNightlyProcess() {
             for (const r of results) {
               if (r.action === 'PLACED' || r.action === 'UPDATED') {
                 stopsPushedToT212++;
+                if (orphanT212Tickers.has(r.t212Ticker)) {
+                  orphanStopsPlaced++;
+                  orphanTickersPlaced.push(r.t212Ticker);
+                  console.warn(`  [3g] Orphan stop placed for ${r.t212Ticker} @ ${r.stopPrice} — position had no broker stop`);
+                }
+              } else if (r.action === 'SKIPPED_SAME') {
+                // Already correct at broker — no-op, no alert
               } else {
                 stopsPushFailed++;
                 console.warn(`  [3g] Stop push ${r.action} for ${r.t212Ticker}: ${r.error || ''}`);
@@ -701,6 +736,9 @@ async function runNightlyProcess() {
         if (stopsPushedToT212 > 0) {
           alerts.push(`✅ ${stopsPushedToT212} stop(s) auto-pushed to T212`);
         }
+        if (orphanStopsPlaced > 0) {
+          alerts.push(`⚠ Orphan stop(s) placed for ${orphanTickersPlaced.join(', ')} — position(s) had no broker stop (initial Phase C likely skipped)`);
+        }
         if (stopsPushFailed > 0) {
           alerts.push(`⚠ ${stopsPushFailed} stop(s) failed to push to T212 — check manually`);
         }
@@ -709,7 +747,7 @@ async function runNightlyProcess() {
         alerts.push('⚠ Auto stop-push to T212 failed — check manually');
       }
     }
-    console.log(`        T212 stop push: ${stopsPushedToT212} pushed, ${stopsPushFailed} failed`);
+    console.log(`        T212 stop push: ${stopsPushedToT212} pushed (${orphanStopsPlaced} orphans), ${stopsPushFailed} failed`);
 
     // Step 3h: Stop–Broker sync check — compare DB stops vs T212 pending orders
     if (process.env.BROKER_ADAPTER === 'trading212') {
