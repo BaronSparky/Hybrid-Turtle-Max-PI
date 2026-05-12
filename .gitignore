@@ -65,6 +65,8 @@ prisma/cache/
 data/alert-throttle.json
 data/t212-quota-events.json
 data/sentiment-trends.json
+data/apply-task-time-limits-result.json
+data/t212-instruments-cache.json
 smoke.log
 auto-trade.log
 midday-sync.log
