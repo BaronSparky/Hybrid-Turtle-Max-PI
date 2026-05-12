@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { checkStopIntegrity, checkConfigCoherence, checkSleeveLimits, checkOpenPositionUniqueness } from './health-check';
+import { checkStopIntegrity, checkConfigCoherence, checkSleeveLimits, checkOpenPositionUniqueness, tallyInvalidT212TickerRows, tallyInvalidYahooTickerRows } from './health-check';
 import type { RiskProfileType } from '@/types';
 
 // ── Helper: make a minimal position for health checks ──
@@ -232,5 +232,125 @@ describe('checkOpenPositionUniqueness', () => {
     expect(result.status).toBe('RED');
     expect(result.message).toContain('NULL accountType');
     expect(result.message).toContain('ORPHAN');
+  });
+});
+
+// ── A5: T212 Ticker Mappings (post-RBOT-incident defence-in-depth) ──
+
+describe('tallyInvalidT212TickerRows', () => {
+  it('returns GREEN when every populated t212Ticker is well-shaped', () => {
+    const result = tallyInvalidT212TickerRows([
+      { ticker: 'AAPL', t212Ticker: 'AAPL_US_EQ' },
+      { ticker: 'AZN', t212Ticker: 'AZNl_EQ' },
+      { ticker: 'SAP', t212Ticker: 'SAPd_EQ' },
+    ]);
+    expect(result.status).toBe('GREEN');
+    expect(result.id).toBe('A5');
+    expect(result.label).toBe('T212 Ticker Mappings');
+    expect(result.message).toContain('3 populated');
+  });
+
+  it('ignores null/empty t212Ticker (those are "unmapped", not "invalid")', () => {
+    const result = tallyInvalidT212TickerRows([
+      { ticker: 'AAPL', t212Ticker: 'AAPL_US_EQ' },
+      { ticker: 'EVO.ST', t212Ticker: null },
+      { ticker: 'CATT.L', t212Ticker: '' },
+    ]);
+    expect(result.status).toBe('GREEN');
+  });
+
+  it('returns YELLOW (never RED) when bare values are present', () => {
+    // The 11 May 2026 RBOT incident root cause: bare 'RBOT' instead of 'RBOTl_EQ'.
+    const result = tallyInvalidT212TickerRows([
+      { ticker: 'AAPL', t212Ticker: 'AAPL_US_EQ' },
+      { ticker: 'RBOT', t212Ticker: 'RBOT' },
+    ]);
+    expect(result.status).toBe('YELLOW');
+    expect(result.message).toContain('1 stock');
+    expect(result.message).toContain('RBOT');
+    expect(result.message).toContain('missing _EQ suffix');
+    expect(result.message).toContain('repair-t212-tickers-from-instruments');
+  });
+
+  it('lists at most 5 ticker examples and indicates more were detected', () => {
+    const rows = [
+      { ticker: 'A1', t212Ticker: 'A1' },
+      { ticker: 'A2', t212Ticker: 'A2' },
+      { ticker: 'A3', t212Ticker: 'A3' },
+      { ticker: 'A4', t212Ticker: 'A4' },
+      { ticker: 'A5', t212Ticker: 'A5' },
+      { ticker: 'A6', t212Ticker: 'A6' },
+      { ticker: 'A7', t212Ticker: 'A7' },
+    ];
+    const result = tallyInvalidT212TickerRows(rows);
+    expect(result.status).toBe('YELLOW');
+    expect(result.message).toContain('7 stock');
+    expect(result.message).toContain('A1, A2, A3, A4, A5');
+    expect(result.message).toContain('…');
+    expect(result.message).not.toContain('A6');
+    expect(result.message).not.toContain('A7');
+  });
+
+  it('handles an empty input list', () => {
+    const result = tallyInvalidT212TickerRows([]);
+    expect(result.status).toBe('GREEN');
+    expect(result.message).toContain('All 0');
+  });
+});
+
+// ── A6: Yahoo Ticker Mappings (defence-in-depth on the price feed) ──
+
+describe('tallyInvalidYahooTickerRows', () => {
+  it('returns GREEN when every populated yahooTicker is well-shaped', () => {
+    const result = tallyInvalidYahooTickerRows([
+      { ticker: 'AAPL', yahooTicker: 'AAPL' },
+      { ticker: 'AZN', yahooTicker: 'AZN.L' },
+      { ticker: 'SAP', yahooTicker: 'SAP.DE' },
+      { ticker: 'NOVO-B', yahooTicker: 'NOVO-B.CO' },
+    ]);
+    expect(result.status).toBe('GREEN');
+    expect(result.id).toBe('A6');
+    expect(result.label).toBe('Yahoo Ticker Mappings');
+  });
+
+  it('ignores null/empty yahooTicker (those rows fall back to ticker-as-Yahoo-symbol)', () => {
+    const result = tallyInvalidYahooTickerRows([
+      { ticker: 'AAPL', yahooTicker: null },
+      { ticker: 'MSFT', yahooTicker: '' },
+    ]);
+    expect(result.status).toBe('GREEN');
+  });
+
+  it('flags T212-style _EQ values as wrong-shape (the most common copy-paste mistake)', () => {
+    const result = tallyInvalidYahooTickerRows([
+      { ticker: 'AAPL', yahooTicker: 'AAPL_US_EQ' },
+      { ticker: 'AZN', yahooTicker: 'AZNl_EQ' },
+    ]);
+    expect(result.status).toBe('YELLOW');
+    expect(result.message).toContain('AAPL→AAPL_US_EQ');
+    expect(result.message).toContain('AZN→AZNl_EQ');
+  });
+
+  it('flags unknown exchange suffixes', () => {
+    const result = tallyInvalidYahooTickerRows([
+      { ticker: 'WEIRD', yahooTicker: 'WEIRD.NOPE' },
+    ]);
+    expect(result.status).toBe('YELLOW');
+  });
+
+  it('caps message at 5 examples', () => {
+    const rows = [
+      { ticker: 'A1', yahooTicker: 'A1_EQ' },
+      { ticker: 'A2', yahooTicker: 'A2_EQ' },
+      { ticker: 'A3', yahooTicker: 'A3_EQ' },
+      { ticker: 'A4', yahooTicker: 'A4_EQ' },
+      { ticker: 'A5', yahooTicker: 'A5_EQ' },
+      { ticker: 'A6', yahooTicker: 'A6_EQ' },
+    ];
+    const result = tallyInvalidYahooTickerRows(rows);
+    expect(result.status).toBe('YELLOW');
+    expect(result.message).toContain('6 stock');
+    expect(result.message).toContain('…');
+    expect(result.message).not.toContain('A6→');
   });
 });

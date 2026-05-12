@@ -20,6 +20,7 @@ import {
   validateDualCredentials,
   type T212AccountCredentials,
 } from '@/lib/trading212-dual';
+import { stripT212Suffix } from '@/lib/t212-ticker-validator';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -81,27 +82,10 @@ export interface ImportReport {
 
 // ── Ticker Mapping ───────────────────────────────────────────────────
 
-/**
- * Strip T212 suffixes to get a base ticker.
- * e.g. AME_US_EQ → AME, AZN_UK_EQ → AZN, BESIa_EQ → BESIa
- */
-function stripT212Suffix(t212Ticker: string): string {
-  return t212Ticker
-    .replace(/_US_EQ$/, '')
-    .replace(/_UK_EQ$/, '')
-    .replace(/_NL_EQ$/, '')
-    .replace(/_DE_EQ$/, '')
-    .replace(/_FR_EQ$/, '')
-    .replace(/_CH_EQ$/, '')
-    .replace(/_DK_EQ$/, '')
-    .replace(/_SE_EQ$/, '')
-    .replace(/_FI_EQ$/, '')
-    .replace(/_IT_EQ$/, '')
-    .replace(/_ES_EQ$/, '')
-    .replace(/_LSE_EQ$/, '')
-    .replace(/_EQ$/, '')
-    .replace(/_ETF$/, '');
-}
+// `stripT212Suffix` lives in t212-ticker-validator.ts — the single source
+// of truth for the T212 instrument-suffix list. Imported above; do not
+// redefine here (the duplicate copy was removed on 11 May 2026 to prevent
+// the suffix list drifting between modules).
 
 /**
  * Build a lookup map from T212 ticker → Stock record.

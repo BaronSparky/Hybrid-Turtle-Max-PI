@@ -13,6 +13,7 @@
 import type { HealthStatus, HealthCheckResult, RiskProfileType } from '@/types';
 import { HEALTH_CHECK_ITEMS, RISK_PROFILES, SLEEVE_CAPS, CLUSTER_CAP, SECTOR_CAP, getProfileCaps } from '@/types';
 import { getBatchPrices, normalizeBatchPricesToGBP } from '@/lib/market-data';
+import { looksLikeValidT212Ticker } from '@/lib/t212-ticker-validator';
 import prisma from './prisma';
 
 /** Shape of a position as loaded by the health-check Prisma query. */
@@ -71,6 +72,12 @@ export async function runHealthCheck(userId: string): Promise<HealthCheckReport>
 
   // ---- A4: Open Position Uniqueness ----
   results.push(checkOpenPositionUniqueness(user.positions));
+
+  // ---- A5: T212 Ticker Mappings ----
+  results.push(await checkInvalidT212Tickers());
+
+  // ---- A6: Yahoo Ticker Mappings ----
+  results.push(await checkInvalidYahooTickers());
 
   // ---- C1: Equity > £0 ----
   results.push(checkEquityPositive(user.equity));
@@ -217,6 +224,179 @@ async function checkColumnPopulation(): Promise<HealthCheckResult> {
   } catch {
     return { id: 'A3', label: 'Column Population', category: 'Data', status: 'GREEN', message: 'Column check passed' };
   }
+}
+
+/**
+ * A5 — T212 Ticker Mappings.
+ *
+ * Background — 11 May 2026 RBOT 404 incident
+ * ──────────────────────────────────────────
+ * Auto-trade tried to buy `RBOT` because `Stock.t212Ticker` was the bare
+ * value `'RBOT'` instead of a structurally valid `_EQ`-suffixed identifier
+ * (T212 actually wanted `RBOTl_EQ`). T212 returned HTTP 404 and the trade
+ * silently failed. The cleanup wave (validator + repair scripts + seed
+ * write-side guard) eliminated all invalid rows, but a future schema
+ * change, manual import, or third-party tool could reintroduce one.
+ *
+ * This check counts populated `Stock.t212Ticker` values that fail the
+ * structural validator. Status:
+ *   - GREEN  → all populated values are well-shaped
+ *   - YELLOW → one or more bare/wrong-shape values present
+ *
+ * Never RED — auto-trade now skips invalid mappings with a clear reason
+ * before they reach T212, so the worst case is "those tickers are not
+ * tradable until remapped" rather than a money-loss scenario.
+ *
+ * Implemented as a thin Prisma wrapper around the pure
+ * `tallyInvalidT212TickerRows` helper below, so the bucketing logic can
+ * be unit-tested without a database.
+ */
+async function checkInvalidT212Tickers(): Promise<HealthCheckResult> {
+  try {
+    const rows = await prisma.stock.findMany({
+      where: { t212Ticker: { not: null } },
+      select: { ticker: true, t212Ticker: true },
+    });
+    return tallyInvalidT212TickerRows(
+      rows as Array<{ ticker: string; t212Ticker: string | null }>,
+    );
+  } catch {
+    return {
+      id: 'A5',
+      label: 'T212 Ticker Mappings',
+      category: 'Data',
+      status: 'YELLOW',
+      message: 'T212 ticker mapping check failed — unable to query stocks',
+    };
+  }
+}
+
+/**
+ * Pure helper for the A5 check. Inputs are Stock rows (only the two
+ * fields we examine). Returns the same HealthCheckResult shape that the
+ * Prisma-fronted check produces. Exported for unit testing.
+ *
+ * Listing examples in the message are capped at five tickers to keep the
+ * dashboard widget readable; an "…" suffix indicates more were detected.
+ */
+export function tallyInvalidT212TickerRows(
+  rows: Array<{ ticker: string; t212Ticker: string | null }>,
+): HealthCheckResult {
+  const invalid = rows.filter((r) => {
+    if (!r.t212Ticker || r.t212Ticker === '') return false;
+    return !looksLikeValidT212Ticker(r.t212Ticker);
+  });
+  if (invalid.length === 0) {
+    return {
+      id: 'A5',
+      label: 'T212 Ticker Mappings',
+      category: 'Data',
+      status: 'GREEN',
+      message: `All ${rows.length} populated t212Ticker value(s) are well-shaped`,
+    };
+  }
+  const sample = invalid.slice(0, 5).map((r) => r.ticker).join(', ');
+  const more = invalid.length > 5 ? ', …' : '';
+  return {
+    id: 'A5',
+    label: 'T212 Ticker Mappings',
+    category: 'Data',
+    status: 'YELLOW',
+    message: `${invalid.length} stock(s) have bare/invalid t212Ticker (missing _EQ suffix): ${sample}${more}. Run scripts/repair-t212-tickers-from-instruments.ts to remap.`,
+  };
+}
+
+/**
+ * A6 — Yahoo Ticker Mappings.
+ *
+ * Defence-in-depth analogue to A5 for the price-feed side. Yahoo Finance
+ * tickers must either be a bare alphanumeric symbol (e.g. AAPL) or
+ * carry an exchange suffix the price loader recognises (.L, .DE, .PA,
+ * .MI, .MC, .AS, .CO, .ST, .HE, .SW, .AX, .TO, .HK, .T). Anything else
+ * triggers a silent miss in `getBatchPrices` — the candidate disappears
+ * from the scan with no operator-visible signal.
+ *
+ * Status:
+ *   - GREEN  → all populated `yahooTicker` values look like valid Yahoo symbols
+ *   - YELLOW → one or more wrong-shape values present
+ *
+ * Never RED — a bad Yahoo ticker degrades data freshness for that one
+ * stock; auto-trade's `A1: Data Freshness` check already catches the
+ * downstream effect at the portfolio level.
+ */
+async function checkInvalidYahooTickers(): Promise<HealthCheckResult> {
+  try {
+    const rows = await prisma.stock.findMany({
+      where: { yahooTicker: { not: null } },
+      select: { ticker: true, yahooTicker: true },
+    });
+    return tallyInvalidYahooTickerRows(
+      rows as Array<{ ticker: string; yahooTicker: string | null }>,
+    );
+  } catch {
+    return {
+      id: 'A6',
+      label: 'Yahoo Ticker Mappings',
+      category: 'Data',
+      status: 'YELLOW',
+      message: 'Yahoo ticker mapping check failed — unable to query stocks',
+    };
+  }
+}
+
+/**
+ * Pure helper for the A6 check. Recognises the same Yahoo exchange
+ * suffix set the seed and the price loader use. Exported for testing.
+ *
+ * Listing examples in the message are capped at five tickers.
+ */
+export function tallyInvalidYahooTickerRows(
+  rows: Array<{ ticker: string; yahooTicker: string | null }>,
+): HealthCheckResult {
+  const invalid = rows.filter((r) => {
+    if (!r.yahooTicker || r.yahooTicker === '') return false;
+    return !looksLikeValidYahooTicker(r.yahooTicker);
+  });
+  if (invalid.length === 0) {
+    return {
+      id: 'A6',
+      label: 'Yahoo Ticker Mappings',
+      category: 'Data',
+      status: 'GREEN',
+      message: `All ${rows.length} populated yahooTicker value(s) are well-shaped`,
+    };
+  }
+  const sample = invalid.slice(0, 5).map((r) => `${r.ticker}→${r.yahooTicker}`).join(', ');
+  const more = invalid.length > 5 ? ', …' : '';
+  return {
+    id: 'A6',
+    label: 'Yahoo Ticker Mappings',
+    category: 'Data',
+    status: 'YELLOW',
+    message: `${invalid.length} stock(s) have wrong-shape yahooTicker: ${sample}${more}. Yahoo expects a bare symbol or one of the supported exchange suffixes (.L, .DE, .PA, .MI, .MC, .AS, .CO, .ST, .HE, .SW, .AX, .TO, .HK, .T).`,
+  };
+}
+
+/**
+ * Structural check for Yahoo Finance symbols. Mirrors the suffix list
+ * used by `src/lib/ticker-maps.ts:toYahooTicker` and `prisma/seed.ts:findRegion`.
+ *
+ * Accepts:
+ *   - Bare alphanumeric (1–6 chars): AAPL, MSFT, BRK
+ *   - Bare with hyphen segment: BRK-B, NOVO-B
+ *   - Exchange-suffixed: AZN.L, SAP.DE, MC.PA, etc.
+ *
+ * Rejects: empty, whitespace, lowercase-only, embedded `_EQ`, etc.
+ */
+function looksLikeValidYahooTicker(value: string): boolean {
+  if (!value) return false;
+  // Reject T212-style identifiers (the most common copy-paste mistake).
+  if (/_EQ$/.test(value)) return false;
+  // Strip a trailing `.SUFFIX` if it matches a known Yahoo exchange.
+  const known = /\.(L|DE|PA|MI|MC|AS|CO|ST|HE|SW|AX|TO|V|HK|T|KS|TW|SA|SI|MX|JK|BO|NS)$/;
+  const base = value.replace(known, '');
+  // Bare base must be 1–6 chars of [A-Z0-9-].
+  return /^[A-Z0-9]([A-Z0-9-]{0,5})$/.test(base);
 }
 
 /**

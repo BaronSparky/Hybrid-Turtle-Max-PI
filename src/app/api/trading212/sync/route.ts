@@ -30,6 +30,10 @@ import {
   isExistingStillActive,
   shouldSkipForCrossAccountDuplicate,
 } from '@/lib/trading212-sync-merge';
+import {
+  getCanonicalStockTickerCandidates,
+  looksLikeValidT212Ticker,
+} from '@/lib/t212-ticker-validator';
 import { calcSyncedPositionRisk } from '@/lib/synced-position-risk';
 import { z } from 'zod';
 import { parseJsonBody } from '@/lib/request-validation';
@@ -160,9 +164,23 @@ export async function POST(request: NextRequest) {
         try {
           // Atomic: ensure stock exists + create/update position in one transaction
           await prisma.$transaction(async (tx) => {
-            let stock = await tx.stock.findUnique({
-              where: { ticker: pos.ticker },
+            // Probe canonical-Yahoo equivalents before stub-creating a new Stock
+            // row. This collapses listing-variant duplicates such as RBOTl ↔ RBOT
+            // (lowercase-l = LSE listing of the same iShares ETF) onto a single
+            // canonical Stock row, instead of stamping out a bare-ticker stub
+            // that the auto-trader's t212Ticker would later 404 against.
+            //
+            // Behaviour for non-listing-variant tickers (the vast majority) is
+            // unchanged: getCanonicalStockTickerCandidates returns just
+            // [pos.ticker], and findFirst over a one-element list is equivalent
+            // to findUnique.
+            const candidates = getCanonicalStockTickerCandidates(pos.ticker);
+            const matches = await tx.stock.findMany({
+              where: { ticker: { in: candidates } },
             });
+            // Prefer an exact match on pos.ticker (preserves prior behaviour);
+            // otherwise fall back to the first canonical alternative.
+            let stock = matches.find((s) => s.ticker === pos.ticker) ?? matches[0] ?? null;
 
             if (!stock) {
               stock = await tx.stock.create({
@@ -172,12 +190,37 @@ export async function POST(request: NextRequest) {
                   sleeve: 'CORE', // Default — user can reclassify
                 },
               });
+            } else if (
+              stock.ticker !== pos.ticker &&
+              !looksLikeValidT212Ticker(stock.t212Ticker)
+            ) {
+              // Reconciled onto a canonical-Yahoo equivalent row (e.g. broker
+              // reported RBOTl, matched canonical RBOT). Backfill the canonical
+              // row's t212Ticker from the broker's full ticker so future
+              // auto-trades on the canonical scanner ticker resolve to a valid
+              // T212 instrument identifier instead of 404ing.
+              stock = await tx.stock.update({
+                where: { id: stock.id },
+                data: { t212Ticker: pos.fullTicker },
+              });
+              acctResults.errors.push(
+                `Reconciled ${pos.ticker} → canonical Stock '${stock.ticker}' and backfilled t212Ticker=${pos.fullTicker}`,
+              );
             }
 
             // Match by full T212 ticker first (the strong key); fall back to
             // bare stock ticker so legacy rows with t212Ticker=null (e.g. older
             // auto-trade or manual entries) merge instead of duplicate.
-            const existing = findExistingForSync(existingIndex, pos);
+            //
+            // When we reconciled `pos` onto a canonical Stock row whose ticker
+            // differs from `pos.ticker` (e.g. RBOTl → RBOT), also probe for an
+            // existing position attached to that canonical Stock. Without this
+            // probe a pre-existing manual/auto-trade position on the canonical
+            // row would be missed and we'd create a duplicate.
+            let existing = findExistingForSync(existingIndex, pos);
+            if (!existing && stock.ticker !== pos.ticker) {
+              existing = existingIndex.byBareTicker.get(stock.ticker) ?? null;
+            }
 
             if (existing) {
               // Update existing position — ONLY update shares count and

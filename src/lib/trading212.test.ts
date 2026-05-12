@@ -65,6 +65,101 @@ describe('Trading212Error', () => {
   });
 });
 
+// ── Diagnostic hints in T212 error messages ──
+//
+// Auto-trade catches `Trading212Error` and surfaces `err.message` directly
+// to the per-trade Telegram alert. The hints we attach to specific error
+// bodies turn opaque T212 strings into actionable operator instructions.
+
+describe('Trading212Client error diagnostic hints', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function stubErrorResponse(status: number, body: unknown) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status,
+        statusText: 'Error',
+        headers: new Headers(),
+        text: async () => (typeof body === 'string' ? body : JSON.stringify(body)),
+      } as unknown as Response),
+    );
+  }
+
+  it('attaches the price-too-far hint when present', async () => {
+    stubErrorResponse(400, { code: 'price-too-far' });
+    const client = new Trading212Client('key', '', 'demo');
+    await expect(client.getPositions()).rejects.toMatchObject({
+      message: expect.stringContaining('Consider using a tighter stop'),
+    });
+  });
+
+  it('attaches the selling-equity-not-owned hint when present', async () => {
+    stubErrorResponse(400, { code: 'selling-equity-not-owned' });
+    const client = new Trading212Client('key', '', 'demo');
+    await expect(client.getPositions()).rejects.toMatchObject({
+      message: expect.stringContaining('check the accountType on the position'),
+    });
+  });
+
+  it('attaches the 404 entity-not-found hint when T212 returns the canonical body', async () => {
+    // The exact body shape from the 11 May 2026 RBOT incident:
+    //   "Trading 212 API error 404: Requested entity not found
+    //    (/api-errors/entity-not-found)"
+    stubErrorResponse(404, {
+      code: 'entity-not-found',
+      message: 'Requested entity not found',
+      type: '/api-errors/entity-not-found',
+    });
+    const client = new Trading212Client('key', '', 'demo');
+    let caught: Trading212Error | undefined;
+    try {
+      await client.getPositions();
+    } catch (err) {
+      caught = err as Trading212Error;
+    }
+    expect(caught).toBeInstanceOf(Trading212Error);
+    expect(caught?.statusCode).toBe(404);
+    expect(caught?.message).toContain('Stock.t212Ticker mapping problem');
+    expect(caught?.message).toContain('scripts/fix-invalid-t212-tickers.ts');
+    expect(caught?.message).toContain('scripts/repair-t212-tickers-from-instruments.ts');
+  });
+
+  it('does NOT attach the 404 hint to non-404 entity-not-found bodies', async () => {
+    // Defensive: only attach when status really is 404.
+    stubErrorResponse(400, { code: 'entity-not-found' });
+    const client = new Trading212Client('key', '', 'demo');
+    let caught: Trading212Error | undefined;
+    try {
+      await client.getPositions();
+    } catch (err) {
+      caught = err as Trading212Error;
+    }
+    expect(caught?.statusCode).toBe(400);
+    expect(caught?.message).not.toContain('Stock.t212Ticker mapping problem');
+  });
+
+  it('does NOT attach the 404 hint to 404s without entity-not-found in the body', async () => {
+    // The auto-trade poll-fill path uses a 404 to detect "order vanished
+    // because it filled". That body doesn't say entity-not-found, and the
+    // existing handler doesn't read err.message, but we explicitly verify
+    // the hint stays off so future readers aren't misled by the 404 text.
+    stubErrorResponse(404, { message: 'something else' });
+    const client = new Trading212Client('key', '', 'demo');
+    let caught: Trading212Error | undefined;
+    try {
+      await client.getPositions();
+    } catch (err) {
+      caught = err as Trading212Error;
+    }
+    expect(caught?.statusCode).toBe(404);
+    expect(caught?.message).not.toContain('Stock.t212Ticker mapping problem');
+  });
+});
+
 // ── getOrderHistory pagination ──
 
 describe('Trading212Client.getOrderHistory', () => {

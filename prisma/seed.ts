@@ -11,6 +11,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import bcrypt from 'bcryptjs';
+import { assertValidT212TickerOrNull } from '../src/lib/t212-ticker-validator';
 
 const prisma = new PrismaClient();
 
@@ -263,7 +264,7 @@ async function main() {
       superCluster: findInMap(superClusterMap, ticker),
       region: region?.region || null,
       currency: region?.currency || null,
-      t212Ticker: findInMap(tickerMap, ticker),
+      t212Ticker: assertValidT212TickerOrNull(findInMap(tickerMap, ticker), `seed:CORE:${ticker}`),
     });
   }
 
@@ -280,7 +281,7 @@ async function main() {
       superCluster: findInMap(superClusterMap, ticker),
       region: region?.region || 'ETF',
       currency: region?.currency || null,
-      t212Ticker: findInMap(tickerMap, ticker),
+      t212Ticker: assertValidT212TickerOrNull(findInMap(tickerMap, ticker), `seed:ETF:${ticker}`),
     });
   }
 
@@ -297,7 +298,7 @@ async function main() {
       superCluster: findInMap(superClusterMap, ticker),
       region: region?.region || null,
       currency: region?.currency || null,
-      t212Ticker: findInMap(tickerMap, ticker),
+      t212Ticker: assertValidT212TickerOrNull(findInMap(tickerMap, ticker), `seed:HIGH_RISK:${ticker}`),
     });
   }
 
@@ -314,7 +315,7 @@ async function main() {
       superCluster: findInMap(superClusterMap, ticker),
       region: region?.region || null,
       currency: region?.currency || null,
-      t212Ticker: findInMap(tickerMap, ticker),
+      t212Ticker: assertValidT212TickerOrNull(findInMap(tickerMap, ticker), `seed:HEDGE:${ticker}`),
     });
   }
 
