@@ -56,6 +56,7 @@ export async function POST(_request: NextRequest) {
   try {
     const heartbeat = await prisma.heartbeat.create({
       data: {
+        kind: 'STARTUP',
         status: 'OK',
         details: JSON.stringify({ source: 'app-startup', timestamp: new Date().toISOString() }),
       },

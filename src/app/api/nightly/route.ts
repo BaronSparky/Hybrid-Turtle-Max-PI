@@ -746,6 +746,7 @@ export async function POST(request: NextRequest) {
     // Step 9: Write heartbeat
     await prisma.heartbeat.create({
       data: {
+        kind: 'NIGHTLY',
         status: hadFailure ? 'FAILED' : 'SUCCESS',
         details: JSON.stringify({
           healthStatus: healthReport.overall,
@@ -792,6 +793,7 @@ export async function POST(request: NextRequest) {
     try {
       await prisma.heartbeat.create({
         data: {
+          kind: 'NIGHTLY',
           status: 'FAILED',
           details: JSON.stringify({ error: (error as Error).message }),
         },

@@ -11,6 +11,7 @@
 // ============================================================
 
 import prisma from '@/lib/prisma';
+import { decryptField } from '@/lib/crypto';
 
 interface TelegramMessage {
   text: string;
@@ -189,10 +190,19 @@ async function getTelegramCredentials(): Promise<{ botToken: string; chatId: str
     return null;
   }
 
-  return {
-    botToken: user.telegramBotToken,
-    chatId: user.telegramChatId,
-  };
+  // Decrypt in case the values are encrypted (M2). decryptField is a
+  // pass-through for plaintext, so legacy rows still work. Any malformed
+  // ciphertext makes the credentials unusable — surface as null so the
+  // caller treats Telegram as unconfigured rather than throwing.
+  try {
+    return {
+      botToken: decryptField(user.telegramBotToken),
+      chatId: decryptField(user.telegramChatId),
+    };
+  } catch (err) {
+    console.warn('[telegram] credential decrypt failed:', (err as Error).message);
+    return null;
+  }
 }
 
 /**

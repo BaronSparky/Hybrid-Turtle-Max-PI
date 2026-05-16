@@ -259,6 +259,7 @@ async function runWeeklyDigest() {
   // Write heartbeat
   await prisma.heartbeat.create({
     data: {
+      kind: 'WEEKLY_DIGEST',
       status: 'OK',
       details: JSON.stringify({
         type: 'weekly-digest',

@@ -67,6 +67,7 @@ async function runMiddaySync() {
     console.log('  Weekend — skipping sync.');
     await prisma.heartbeat.create({
       data: {
+        kind: 'MIDDAY_SYNC',
         status: 'SKIPPED',
         details: JSON.stringify({ type: 'midday-sync', reason: 'weekend', ranAt: new Date().toISOString() }),
       },
@@ -84,6 +85,7 @@ async function runMiddaySync() {
       console.log('  No open positions — nothing to sync.');
       await prisma.heartbeat.create({
         data: {
+          kind: 'MIDDAY_SYNC',
           status: 'SKIPPED',
           details: JSON.stringify({ type: 'midday-sync', reason: 'no-open-positions', ranAt: new Date().toISOString() }),
         },
@@ -120,9 +122,9 @@ async function runMiddaySync() {
       todayStart.setHours(0, 0, 0, 0);
       const priorMidday = await prisma.heartbeat.findFirst({
         where: {
+          kind: 'MIDDAY_SYNC',
           status: 'OK',
           timestamp: { gte: todayStart },
-          details: { contains: '"type":"midday-sync"' },
         },
         orderBy: { timestamp: 'desc' },
       });
@@ -161,6 +163,7 @@ async function runMiddaySync() {
     // Write a heartbeat so the dashboard knows the midday sync ran
     await prisma.heartbeat.create({
       data: {
+        kind: 'MIDDAY_SYNC',
         status: 'OK',
         details: JSON.stringify({
           type: 'midday-sync',

@@ -1,6 +1,12 @@
 import { PrismaClient } from '@prisma/client';
 import '@/lib/env';
 
+// SHARED SINGLETON across the monorepo.
+// Two modules construct Prisma clients (this one + packages/data/src/prisma.ts).
+// To guarantee they share one connection pool in production as well as dev,
+// we ALWAYS publish via globalThis (not just when NODE_ENV !== 'production').
+// Whichever module loads first wins; the other reuses through the `??` check.
+// See audit 2026-05-16 (H1) for the bug this fixes.
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
@@ -11,7 +17,7 @@ export const prisma =
     log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
   });
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+globalForPrisma.prisma = prisma;
 
 // SQLite concurrency: WAL allows reads during writes, busy_timeout retries
 // instead of failing immediately with SQLITE_BUSY.

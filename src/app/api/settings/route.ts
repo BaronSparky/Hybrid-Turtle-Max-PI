@@ -7,6 +7,7 @@ import { recordEquitySnapshot } from '@/lib/equity-snapshot';
 import { apiError } from '@/lib/api-response';
 import { z } from 'zod';
 import { isT212FromEnv, isTelegramFromEnv } from '@/lib/secrets';
+import { encryptField, isEncrypted, decryptField } from '@/lib/crypto';
 
 const settingsPutSchema = z.object({
   userId: z.string().trim().min(1).optional(),
@@ -93,9 +94,16 @@ export async function GET(request: NextRequest) {
     // Mask T212 keys — show last 4 chars only
     const maskKey = (k: string | null) => k ? '****' + k.slice(-4) : null;
 
-    // Mask Telegram bot token — show last 4 chars only
-    const maskedTelegramToken = user.telegramBotToken
-      ? '****' + user.telegramBotToken.slice(-4)
+    // Telegram: decrypt before masking/exposing (M2). decryptField is a
+    // pass-through for plaintext rows, so legacy data still works.
+    const safeDecrypt = (v: string | null): string | null => {
+      if (!v) return null;
+      try { return decryptField(v); } catch { return null; }
+    };
+    const decryptedTelegramToken = safeDecrypt(user.telegramBotToken);
+    const decryptedTelegramChatId = safeDecrypt(user.telegramChatId);
+    const maskedTelegramToken = decryptedTelegramToken
+      ? '****' + decryptedTelegramToken.slice(-4)
       : null;
 
     // Settings change rarely — cache for 5 minutes, serve stale for 1 min while revalidating
@@ -111,7 +119,7 @@ export async function GET(request: NextRequest) {
       // Telegram: mask token, expose chatId for display
       telegramBotToken: maskedTelegramToken,
       telegramBotTokenSet: !!user.telegramBotToken,
-      telegramChatId: user.telegramChatId,
+      telegramChatId: decryptedTelegramChatId,
       // Credential source flags — used by Settings UI to show read-only when from ENV
       t212FromEnv: isT212FromEnv(),
       telegramFromEnv: isTelegramFromEnv(),
@@ -171,13 +179,20 @@ export async function PUT(request: NextRequest) {
     if (applyKellyMultiplier !== undefined) data.applyKellyMultiplier = applyKellyMultiplier;
     if (rlShadowMode !== undefined) data.rlShadowMode = rlShadowMode;
     if (modelLayerEnabled !== undefined) data.modelLayerEnabled = modelLayerEnabled;
-    // Telegram credentials — only update if not masked
+    // Telegram credentials — only update if not masked.
+    // Encrypt at rest per audit 2026-05-16 (M2). decryptField() in the read
+    // path is backward-compatible with any historical plaintext rows; a
+    // one-shot script (scripts/migrate-encrypt-keys.ts --apply) encrypts those.
     const { telegramBotToken, telegramChatId } = parsed.data;
     if (telegramBotToken !== undefined && telegramBotToken !== null && !telegramBotToken.startsWith('****')) {
-      data.telegramBotToken = telegramBotToken || null;
+      data.telegramBotToken = telegramBotToken
+        ? (isEncrypted(telegramBotToken) ? telegramBotToken : encryptField(telegramBotToken))
+        : null;
     }
     if (telegramChatId !== undefined) {
-      data.telegramChatId = telegramChatId || null;
+      data.telegramChatId = telegramChatId
+        ? (isEncrypted(telegramChatId) ? telegramChatId : encryptField(telegramChatId))
+        : null;
     }
 
     const user = await prisma.user.update({

@@ -95,7 +95,7 @@ async function runMondayBriefing() {
   log.info('Monday briefing sent');
 
   await prisma.heartbeat.create({
-    data: { status: 'OK', details: JSON.stringify({ type: 'monday-briefing', ranAt: new Date().toISOString(), regime: ctx.regime, positions: ctx.openPositions.length, readyCandidates: ctx.candidates.length }) },
+    data: { kind: 'MONDAY_BRIEFING', status: 'OK', details: JSON.stringify({ type: 'monday-briefing', ranAt: new Date().toISOString(), regime: ctx.regime, positions: ctx.openPositions.length, readyCandidates: ctx.candidates.length }) },
   });
 }
 

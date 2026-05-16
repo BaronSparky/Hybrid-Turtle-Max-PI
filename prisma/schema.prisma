@@ -250,9 +250,16 @@ model Heartbeat {
   id        String   @id @default(cuid())
   timestamp DateTime @default(now())
   status    String
+  /// Cron pipeline that wrote this heartbeat. Lets readers filter by source
+  /// instead of the brittle `details.contains(...)` JSON-string match.
+  /// Nullable for backward compatibility with legacy rows. See audit
+  /// 2026-05-16 (M1). Known values: NIGHTLY, MIDDAY_SYNC, AUTO_TRADE,
+  /// WEEKLY_DIGEST, MONDAY_BRIEFING, MANUAL.
+  kind      String?
   details   String?
 
   @@index([timestamp])
+  @@index([kind])
 }
 
 model TradeLog {

@@ -25,6 +25,7 @@ const KEY_FIELDS = [
   't212IsaApiKey',
   't212IsaApiSecret',
   'telegramBotToken',
+  'telegramChatId',
 ] as const;
 
 async function main() {
@@ -42,6 +43,7 @@ async function main() {
       t212IsaApiKey: true,
       t212IsaApiSecret: true,
       telegramBotToken: true,
+      telegramChatId: true,
     },
   });
 

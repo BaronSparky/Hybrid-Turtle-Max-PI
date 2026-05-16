@@ -34,12 +34,15 @@ export function apiError(
 /**
  * Verify the CRON_SECRET header on scheduled/cron endpoints.
  * Returns null if valid, or a 401 NextResponse if invalid.
- * Skips validation when DISABLE_API_AUTH is true (local desktop mode).
+ *
+ * CRON_SECRET is enforced even when DISABLE_API_AUTH=true. The desktop
+ * auth-bypass flag governs session-based UI auth only; cron endpoints
+ * trigger real-money pipelines (nightly stop ladder, workflow tonight)
+ * and must remain protected so a stray HTTP request on localhost cannot
+ * fire them. The audit on 2026-05-16 flagged the previous bypass as a
+ * defence-in-depth gap.
  */
 export function verifyCronSecret(request: NextRequest): NextResponse | null {
-  if (process.env.DISABLE_API_AUTH === 'true') {
-    return null;
-  }
   const secret = request.headers.get('x-cron-secret') || request.headers.get('authorization')?.replace('Bearer ', '');
   if (!secret || secret !== process.env.CRON_SECRET) {
     return NextResponse.json(

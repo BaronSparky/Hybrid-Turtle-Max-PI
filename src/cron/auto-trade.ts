@@ -66,6 +66,26 @@ const SCAN_MAX_AGE_HOURS = 18;
 const POLL_INTERVAL_MS = 3000;
 const MAX_POLLS = 20;
 
+// ── Stop-loss retry strategy (audit 2026-05-16 H4) ────────────
+// On stop-placement failure, retry up to 3 times with progressively wider
+// stops. Index 0 = original price, 1.33× = ~33% wider, 1.67× = ~67% wider.
+// Each step trades protection for placement probability. After all attempts
+// fail, the existing UNPROTECTED_POSITION alert path runs unchanged.
+export const STOP_RETRY_WIDEN_FACTORS = [1.0, 1.33, 1.67] as const;
+export const STOP_RETRY_DELAY_MS = 500;
+// 401/403 won't be fixed by widening — abort retries on these.
+export const STOP_TERMINAL_STATUS_CODES = [401, 403] as const;
+
+/** Compute a widened stop price by a given gap multiplier.
+ *  widenStop(100, 95, 1.0)  -> 95   (original)
+ *  widenStop(100, 95, 1.33) -> 93.35
+ *  widenStop(100, 95, 1.67) -> 91.65
+ *  Floor at 0.01 to avoid negative or zero stops on extreme inputs. */
+export function widenStop(filledPrice: number, originalStop: number, factor: number): number {
+  const gap = filledPrice - originalStop;
+  return Math.max(0.01, filledPrice - gap * factor);
+}
+
 type Session = 'uk' | 'us' | 'us-close' | 'scan';
 
 interface SessionConfig {
@@ -311,36 +331,80 @@ async function executeTrade(
 
   console.log(`    ✓ Filled ${filledQuantity} shares @ ${filledPrice.toFixed(4)}`);
 
-  // ── Phase C: Place Stop-Loss (negative quantity) ──
+  // ── Phase C: Place Stop-Loss with retry-wider strategy (audit 2026-05-16 H4) ──
+  // T212 occasionally rejects stop orders (price-too-close, transient 5xx).
+  // Previous behaviour: single attempt, leave position UNPROTECTED on failure.
+  // New behaviour: up to 3 attempts with progressively wider stops. Skip retry
+  // on terminal auth errors (401/403). Track the actual stop placed so the
+  // DB row matches what's live at T212.
   let stopPlaced = false;
+  let actualStopPrice = stopPrice;
   const stopQuantity = -Math.abs(filledQuantity);
-  const stopRequest = { quantity: stopQuantity, stopPrice, ticker: t212Ticker, timeValidity: 'GOOD_TILL_CANCEL' as const };
+  const originalGap = filledPrice - stopPrice; // positive for long
+  const stopAttempts: Array<{ attempt: number; stopPrice: number; orderId?: string; error?: string; statusCode?: number | null }> = [];
 
-  try {
-    const stopOrder = await client.placeStopOrder(stopRequest);
-    await logExecution({
-      ticker, phase: 'STOP_PLACED', orderId: String(stopOrder.id),
-      requestBody: JSON.stringify(stopRequest), responseStatus: 200,
-      responseBody: JSON.stringify(stopOrder), stopPrice, quantity: stopQuantity, accountType,
-    });
-    stopPlaced = true;
-    tradeLog?.info('Stop-loss placed', { ticker, stopPrice, orderId: stopOrder.id });
-    console.log(`    ✓ Stop-loss placed @ ${stopPrice.toFixed(4)} (ID: ${stopOrder.id})`);
-  } catch (err) {
-    const msg = err instanceof Trading212Error ? `T212 ${err.statusCode}: ${err.message}` : (err as Error).message;
-    await logExecution({
-      ticker, phase: 'STOP_FAILED', requestBody: JSON.stringify(stopRequest),
-      responseStatus: err instanceof Trading212Error ? err.statusCode : null,
-      accountType, error: msg, stopPrice, quantity: stopQuantity,
-    });
-    console.error(`    ✗ CRITICAL: Stop-loss FAILED — ${msg}`);
-    tradeLog?.error('CRITICAL: Stop-loss FAILED', { ticker, error: msg });
+  for (let i = 0; i < STOP_RETRY_WIDEN_FACTORS.length; i++) {
+    const factor = STOP_RETRY_WIDEN_FACTORS[i];
+    const widenedStop = widenStop(filledPrice, stopPrice, factor);
+    const stopRequest = { quantity: stopQuantity, stopPrice: widenedStop, ticker: t212Ticker, timeValidity: 'GOOD_TILL_CANCEL' as const };
+
+    try {
+      const stopOrder = await client.placeStopOrder(stopRequest);
+      await logExecution({
+        ticker, phase: 'STOP_PLACED', orderId: String(stopOrder.id),
+        requestBody: JSON.stringify({ ...stopRequest, attempt: i + 1, widenFactor: factor }),
+        responseStatus: 200,
+        responseBody: JSON.stringify(stopOrder), stopPrice: widenedStop, quantity: stopQuantity, accountType,
+      });
+      stopPlaced = true;
+      actualStopPrice = widenedStop;
+      stopAttempts.push({ attempt: i + 1, stopPrice: widenedStop, orderId: String(stopOrder.id) });
+      if (i === 0) {
+        tradeLog?.info('Stop-loss placed', { ticker, stopPrice: widenedStop, orderId: stopOrder.id });
+        console.log(`    ✓ Stop-loss placed @ ${widenedStop.toFixed(4)} (ID: ${stopOrder.id})`);
+      } else {
+        tradeLog?.warn('Stop-loss placed on retry with wider stop', {
+          ticker, attempt: i + 1, widenFactor: factor,
+          originalStop: stopPrice, finalStop: widenedStop,
+          previousErrors: stopAttempts.slice(0, -1).map(a => a.error),
+        });
+        console.log(`    ✓ Stop-loss placed on attempt ${i + 1} (widened ${((factor - 1) * 100).toFixed(0)}%) @ ${widenedStop.toFixed(4)} (ID: ${stopOrder.id})`);
+      }
+      break;
+    } catch (err) {
+      const statusCode: number | null = err instanceof Trading212Error ? err.statusCode : null;
+      const msg = err instanceof Trading212Error ? `T212 ${err.statusCode}: ${err.message}` : (err as Error).message;
+      stopAttempts.push({ attempt: i + 1, stopPrice: widenedStop, error: msg, statusCode });
+      await logExecution({
+        ticker, phase: 'STOP_FAILED',
+        requestBody: JSON.stringify({ ...stopRequest, attempt: i + 1, widenFactor: factor }),
+        responseStatus: statusCode,
+        accountType, error: msg, stopPrice: widenedStop, quantity: stopQuantity,
+      });
+
+      // Terminal errors (auth/permission) won't be fixed by widening.
+      const isTerminal = statusCode !== null && (STOP_TERMINAL_STATUS_CODES as readonly number[]).includes(statusCode);
+      if (isTerminal) {
+        console.error(`    ✗ Stop-loss FAILED — terminal error ${statusCode}: ${msg}. No retry.`);
+        tradeLog?.error('Stop-loss FAILED — terminal error, no retry', { ticker, statusCode, error: msg });
+        break;
+      }
+
+      const isLastAttempt = i === STOP_RETRY_WIDEN_FACTORS.length - 1;
+      if (!isLastAttempt) {
+        console.warn(`    ⚠ Stop attempt ${i + 1} failed: ${msg}. Retrying with wider stop...`);
+        await new Promise(r => setTimeout(r, STOP_RETRY_DELAY_MS));
+      } else {
+        console.error(`    ✗ CRITICAL: Stop-loss FAILED after ${STOP_RETRY_WIDEN_FACTORS.length} attempts. Final error: ${msg}`);
+        tradeLog?.error('CRITICAL: Stop-loss FAILED after all retries', { ticker, attempts: stopAttempts, finalError: msg });
+      }
+    }
   }
 
   // ── Phase D: Create DB Position (direct Prisma — no dashboard needed) ──
   let positionId: string | undefined;
   try {
-    const initialRisk = filledPrice - stopPrice;
+    const initialRisk = filledPrice - actualStopPrice;
     const regime = await getMarketRegime();
 
     // FX rate for trade log
@@ -359,11 +423,11 @@ async function executeTrade(
           entryPrice: filledPrice,
           entryDate: new Date(),
           shares: filledQuantity,
-          stopLoss: stopPrice,
+          stopLoss: actualStopPrice,
           initialRisk,
-          currentStop: stopPrice,
+          currentStop: actualStopPrice,
           entry_price: filledPrice,
-          initial_stop: stopPrice,
+          initial_stop: actualStopPrice,
           initial_R: initialRisk,
           atr_at_entry: candidate.atr ?? null,
           profile_used: 'BALANCED',
@@ -392,7 +456,7 @@ async function executeTrade(
             tradeType: 'ENTRY',
             decision: 'TAKEN',
             entryPrice: filledPrice,
-            initialStop: stopPrice,
+            initialStop: actualStopPrice,
             initialR: initialRisk,
             shares: filledQuantity,
             positionSizeGbp: filledQuantity * filledPrice * fxToGbp,
@@ -419,7 +483,7 @@ async function executeTrade(
     await logExecution({
       ticker, phase: 'COMPLETE', orderId: String(buyOrder.id),
       requestBody: JSON.stringify({ positionId }), responseStatus: 201,
-      quantity: filledQuantity, accountType, stopPrice,
+      quantity: filledQuantity, accountType, stopPrice: actualStopPrice,
     });
   } catch (err) {
     const msg = (err as Error).message;
@@ -429,13 +493,13 @@ async function executeTrade(
     });
     console.error(`    ✗ DB position failed — trade IS live on T212. ${msg}`);
     return {
-      ticker, success: true, shares: filledQuantity, filledPrice, stopPrice,
+      ticker, success: true, shares: filledQuantity, filledPrice, stopPrice: actualStopPrice,
       stopPlaced, error: `DB save failed: ${msg}`, critical: true,
     };
   }
 
   return {
-    ticker, success: true, shares: filledQuantity, filledPrice, stopPrice,
+    ticker, success: true, shares: filledQuantity, filledPrice, stopPrice: actualStopPrice,
     stopPlaced, positionId,
     critical: !stopPlaced ? true : undefined,
   };
@@ -602,7 +666,7 @@ async function runAutoTrade(session: Session) {
     log.info('Gate 1 BLOCKED: weekend', { ukDay });
     console.log('  Weekend — skipping.');
     await prisma.heartbeat.create({
-      data: { status: 'SKIPPED', details: JSON.stringify({ type: 'auto-trade', session, reason: 'weekend' }) },
+      data: { kind: 'AUTO_TRADE', status: 'SKIPPED', details: JSON.stringify({ type: 'auto-trade', session, reason: 'weekend' }) },
     });
     await prisma.$disconnect();
     return;
@@ -614,7 +678,7 @@ async function runAutoTrade(session: Session) {
     log.info('Gate 1a BLOCKED: market holiday', { holiday: holiday?.label });
     console.log(`  Market holiday: ${holiday?.label} — skipping trades (scan-only allowed).`);
     await prisma.heartbeat.create({
-      data: { status: 'SKIPPED', details: JSON.stringify({ type: 'auto-trade', session, reason: 'market-holiday', holiday: holiday?.label }) },
+      data: { kind: 'AUTO_TRADE', status: 'SKIPPED', details: JSON.stringify({ type: 'auto-trade', session, reason: 'market-holiday', holiday: holiday?.label }) },
     });
     await prisma.$disconnect();
     return;
@@ -629,7 +693,7 @@ async function runAutoTrade(session: Session) {
     console.log(`  Early-close day (${earlyClose} ET) — us-close session skipped.`);
     await sendTelegramMessage({ text: `📅 Early-close day today (market closes ${earlyClose} ET). The us-close session is skipped — only UK and early US sessions will trade.` });
     await prisma.heartbeat.create({
-      data: { status: 'SKIPPED', details: JSON.stringify({ type: 'auto-trade', session, reason: 'early-close', closeTime: earlyClose }) },
+      data: { kind: 'AUTO_TRADE', status: 'SKIPPED', details: JSON.stringify({ type: 'auto-trade', session, reason: 'early-close', closeTime: earlyClose }) },
     });
     await prisma.$disconnect();
     return;
@@ -648,7 +712,7 @@ async function runAutoTrade(session: Session) {
       BK1(AC1.AUTO_TRADE_BLOCKED, `kill-switch:${session}`)
     );
     await prisma.heartbeat.create({
-      data: { status: 'SKIPPED', details: JSON.stringify({ type: 'auto-trade', session, reason: 'kill-switch', message: msg }) },
+      data: { kind: 'AUTO_TRADE', status: 'SKIPPED', details: JSON.stringify({ type: 'auto-trade', session, reason: 'kill-switch', message: msg }) },
     });
     await prisma.$disconnect();
     return;
@@ -677,7 +741,7 @@ async function runAutoTrade(session: Session) {
       BK2(AC2.AUTO_TRADE_BLOCKED, `mode:${modeKey}:${session}`)
     );
     await prisma.heartbeat.create({
-      data: { status: 'SKIPPED', details: JSON.stringify({ type: 'auto-trade', session, reason: `operating-mode-${modeKey}` }) },
+      data: { kind: 'AUTO_TRADE', status: 'SKIPPED', details: JSON.stringify({ type: 'auto-trade', session, reason: `operating-mode-${modeKey}` }) },
     });
     await prisma.$disconnect();
     return;
@@ -728,7 +792,7 @@ async function runAutoTrade(session: Session) {
     console.log(`  ✗ Regime is ${scanResult.regime} — no new entries allowed.`);
     await sendSessionSummary(session, { regime: scanResult.regime, readyCount: scanResult.readyCount, totalScanned: scanResult.totalScanned }, [], [], [{ ticker: '*', reason: `Regime: ${scanResult.regime}` }]);
     await prisma.heartbeat.create({
-      data: { status: 'OK', details: JSON.stringify({ type: 'auto-trade', session, reason: `regime-${scanResult.regime}`, scanned: scanResult.totalScanned }) },
+      data: { kind: 'AUTO_TRADE', status: 'OK', details: JSON.stringify({ type: 'auto-trade', session, reason: `regime-${scanResult.regime}`, scanned: scanResult.totalScanned }) },
     });
     await prisma.$disconnect();
     return;
@@ -823,7 +887,7 @@ async function runAutoTrade(session: Session) {
 
     await sendSessionSummary('scan', { regime: scanResult.regime, readyCount: scanResult.readyCount, totalScanned: scanResult.totalScanned }, allEligible, [], []);
     await prisma.heartbeat.create({
-      data: { status: 'OK', details: JSON.stringify({ type: 'auto-trade', session: 'scan', scanned: scanResult.totalScanned, ready: allReady.length }) },
+      data: { kind: 'AUTO_TRADE', status: 'OK', details: JSON.stringify({ type: 'auto-trade', session: 'scan', scanned: scanResult.totalScanned, ready: allReady.length }) },
     });
     await prisma.$disconnect();
     return;
@@ -1112,6 +1176,7 @@ async function runAutoTrade(session: Session) {
 
   await prisma.heartbeat.create({
     data: {
+      kind: 'AUTO_TRADE',
       status: heartbeatStatus,
       details: JSON.stringify({
         type: 'auto-trade',

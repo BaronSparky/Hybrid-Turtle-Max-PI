@@ -122,6 +122,10 @@ for /f "tokens=*" %%i in ('powershell -NoProfile -Command "$b = New-Object byte[
 >> ".env" echo NEXTAUTH_SECRET=!NEXTAUTH_SECRET!
 >> ".env" echo ENCRYPTION_SECRET=!NEXTAUTH_SECRET!
 >> ".env" echo CRON_SECRET=!CRON_SECRET!
+>> ".env" echo # DISABLE_API_AUTH skips session auth on UI routes for local desktop use.
+>> ".env" echo # The dashboard binds to 127.0.0.1 only (see package.json start script),
+>> ".env" echo # so this is safe on a single-user machine. CRON_SECRET is still required
+>> ".env" echo # on scheduled/cron endpoints regardless of this flag.
 >> ".env" echo DISABLE_API_AUTH=true
 >> ".env" echo.
 >> ".env" echo # Broker adapter: disabled, mock, or trading212

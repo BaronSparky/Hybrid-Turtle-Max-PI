@@ -29,6 +29,7 @@ const KEY_FIELDS = [
   't212IsaApiKey',
   't212IsaApiSecret',
   'telegramBotToken',
+  'telegramChatId',
 ] as const;
 
 function deriveKey(secret: string): Buffer {
@@ -86,7 +87,7 @@ async function main() {
   }
 
   const users = await prisma.user.findMany({
-    select: { id: true, t212ApiKey: true, t212ApiSecret: true, t212IsaApiKey: true, t212IsaApiSecret: true, telegramBotToken: true },
+    select: { id: true, t212ApiKey: true, t212ApiSecret: true, t212IsaApiKey: true, t212IsaApiSecret: true, telegramBotToken: true, telegramChatId: true },
   });
 
   let totalReEncrypted = 0;

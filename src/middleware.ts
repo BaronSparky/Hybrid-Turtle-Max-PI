@@ -9,8 +9,14 @@ import { checkRateLimit, getRateLimitCategory, RATE_LIMITS } from '@/lib/rate-li
  * Uses the NextAuth JWT token to verify session — no DB call required.
  *
  * API auth is enforced by default. For local single-user desktop mode,
- * set DISABLE_API_AUTH=true in .env. This is safe because start.bat
- * binds to localhost only.
+ * set DISABLE_API_AUTH=true in .env. This is safe because `npm start`
+ * runs `next start -H 127.0.0.1`, which binds the dashboard to loopback
+ * only (no LAN exposure). To deliberately expose to LAN, use
+ * `npm run start:lan` and set a NEXTAUTH_SECRET to keep auth on.
+ *
+ * NOTE: DISABLE_API_AUTH does NOT bypass CRON_SECRET on cron endpoints
+ * (see lib/api-response.ts verifyCronSecret). Cron endpoints stay
+ * protected even in desktop mode.
  */
 
 const PUBLIC_PATHS = [

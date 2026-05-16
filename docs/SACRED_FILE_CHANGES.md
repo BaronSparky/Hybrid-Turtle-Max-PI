@@ -28,6 +28,30 @@ Each entry uses this shape (newest at top of the History section):
 ```
 
 ## History
+### 2026-05-16 — pending — auto-trade.ts: H4 stop-retry-widen + M1 heartbeat.kind stamping
+
+- File(s): `src/cron/auto-trade.ts` (Phase C of `executeTrade`, Phase D `actualStopPrice` propagation, 8 heartbeat sites, top-of-file helpers); supporting test `src/cron/auto-trade-stop-retry.test.ts` (new).
+- Why (audit 2026-05-16): Two findings landed in the same sacred file, so they are bundled into one edit:
+  - **H4 (HIGH)** — single-attempt stop placement left positions UNPROTECTED on any T212 error. A transient 5xx or price-too-close 400 on the first try meant a live long position with no stop until manual intervention. The catch path raised a CRITICAL alert but did not retry.
+  - **M1 (MEDIUM)** — the watchdog and midday-sync drift detector matched heartbeats by `details.contains(...)` JSON-string search, which is brittle and (per the H2 fix in Stage 1) was masking a missed nightly when a midday-OK heartbeat coincidentally matched. The structural fix is a `kind` discriminator column on Heartbeat; this sacred edit stamps `kind: 'AUTO_TRADE'` on the 8 heartbeat writes in this file.
+- Fix:
+  1. **H4 retry-widen loop**: Phase C of `executeTrade` now attempts stop placement up to 3 times with progressively wider stops (factors `1.0, 1.33, 1.67` applied to the entry-stop gap). Each attempt is logged via `logExecution(STOP_FAILED ...)` with the attempt number and widen factor. 401/403 (terminal auth/permission) short-circuit the loop. A 500 ms delay separates attempts. The variable `actualStopPrice` tracks the price that succeeded and is used for the DB Position write (`stopLoss`, `currentStop`, `initial_stop`, `initialRisk`), the TradeLog write (`initialStop`, `initialR`), the `COMPLETE` execution log, and the `TradeResult` return value — so the DB matches what is live at the broker, not the originally-requested price. After all retries fail, the existing UNPROTECTED_POSITION alert path runs unchanged.
+  2. **M1 kind stamping**: added `kind: 'AUTO_TRADE'` to every `prisma.heartbeat.create` in this file (8 sites: weekend skip, market-holiday skip, early-close skip, kill-switch skip, operating-mode skip, regime-block, scan-session done, final summary). Schema migration `20260516120000_add_heartbeat_kind` adds the nullable column and an index.
+  3. **Helpers extracted to top-of-file**: `STOP_RETRY_WIDEN_FACTORS`, `STOP_RETRY_DELAY_MS`, `STOP_TERMINAL_STATUS_CODES`, and the pure `widenStop(filledPrice, originalStop, factor)` function. All exported so the contract is locked down by the new test file.
+- Behaviour preserved:
+  - Phase A (market buy) and Phase B (fill polling) are unchanged.
+  - Buy-failure / fill-timeout / DB-failure paths are unchanged.
+  - The CRITICAL UNPROTECTED_POSITION alert + Telegram notification still fires when all 3 stop attempts fail (`stopPlaced === false && success === true`).
+  - First attempt uses the original `stopPrice` exactly (factor `1.0`) — for a well-formed stop request, behaviour is byte-identical to the previous single-attempt path.
+  - All 8 gate paths still return early after writing their heartbeat; nothing in the gating logic changed.
+  - Auto-trade kill switch (Gate 2), regime gate (Gate 4), health gate (Gate 5), per-session attempt cap, terminal-error abort, and ISA-routing rule from prior incidents (2026-04-30) are unchanged.
+  - Position-sizer, scan-engine, dual-score, regime-detector, stop-manager, risk-gates are not touched.
+- Tests:
+  - New `src/cron/auto-trade-stop-retry.test.ts` — 11 tests covering `widenStop()` math, factor monotonicity, three-attempt cap, retry-delay non-zero, terminal-status-code set.
+  - Existing 22 auto-trade.test.ts contract tests still pass (they test TradeResult shape, not the loop body, so are unaffected).
+  - Heartbeat readers in watchdog.ts and midday-sync.ts already migrated in the same audit batch to filter by `kind: 'NIGHTLY'` / `kind: 'MIDDAY_SYNC'`; auto-trade heartbeats are not queried by those readers.
+- Author: ORACLE AUDIT remediation agent (2026-05-16)
+
 ### 2026-05-01 — pending — auto-trade.ts: persist t212Ticker on Position.create
 
 - File(s): `src/cron/auto-trade.ts` (only the `tx.position.create` call inside Phase D)

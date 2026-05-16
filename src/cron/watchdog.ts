@@ -16,6 +16,13 @@ import { createCronLogger } from '@/lib/cron-logger';
 import { exec, execFile } from 'child_process';
 import path from 'path';
 import { waitForDashboardRecovery } from './watchdog-recovery';
+import {
+  readRestartState,
+  recordFailure,
+  recordRecovery,
+  isBudgetExhausted,
+  MAX_CONSECUTIVE_RESTART_FAILURES,
+} from './watchdog-restart-budget';
 import { getUKDayOfWeek, getUKHour } from '@/lib/uk-time';
 import { checkSchedulerKills, checkZeroTradesOnBullishDay, type AuditFinding } from './watchdog-checks';
 
@@ -52,11 +59,12 @@ async function runWatchdog(): Promise<void> {
 
   const alerts: string[] = [];
 
-  // Check nightly heartbeat
+  // Check nightly heartbeat.
+  // Nightly writes kind = 'NIGHTLY'. Midday-sync writes kind = 'MIDDAY_SYNC',
+  // auto-trade writes its own kind. Filter strictly by NIGHTLY so a daily
+  // midday-OK row can never silently mask a missed nightly. Audit 2026-05-16 (H2/M1).
   const latestNightly = await prisma.heartbeat.findFirst({
-    where: {
-      status: { in: ['SUCCESS', 'FAILED', 'PARTIAL', 'OK'] },
-    },
+    where: { kind: 'NIGHTLY' },
     orderBy: { timestamp: 'desc' },
   });
 
@@ -85,7 +93,7 @@ async function runWatchdog(): Promise<void> {
     const middayHeartbeat = await prisma.heartbeat.findFirst({
       where: {
         timestamp: { gte: todayStart },
-        details: { contains: 'midday' },
+        kind: 'MIDDAY_SYNC',
       },
       orderBy: { timestamp: 'desc' },
     });
@@ -122,23 +130,57 @@ async function runWatchdog(): Promise<void> {
         );
       }
     } catch {
-      // Attempt auto-restart and confirm recovery before alerting
-      const rootDir = path.resolve(__dirname, '..', '..');
-      const startBat = path.join(rootDir, 'start.bat');
-      log.warn('Dashboard not responding — attempting auto-restart via start.bat');
-      exec(`start "" /min cmd /c "${startBat}"`, { cwd: rootDir });
-
-      const recovered = await waitForDashboardRecovery();
-      if (recovered) {
-        log.info('Dashboard recovered after auto-restart');
+      // Auto-restart with a failure budget. A broken build/install can leave
+      // start.bat exiting immediately; without a budget the watchdog would
+      // restart the dead process every 10 minutes forever, hidden behind
+      // Telegram throttling on identical alerts. See audit 2026-05-16 (H5).
+      const priorState = await readRestartState();
+      if (isBudgetExhausted(priorState)) {
+        log.error('Auto-restart budget exhausted — skipping restart attempt', {
+          consecutiveFailures: priorState.consecutiveFailures,
+          budget: MAX_CONSECUTIVE_RESTART_FAILURES,
+        });
         alerts.push(
-          '✅ WATCHDOG: Dashboard was not responding on port 3000. Auto-restart succeeded — dashboard recovered.'
+          `🚨 WATCHDOG: Dashboard down and auto-restart budget exhausted (${priorState.consecutiveFailures} consecutive failures). ` +
+          `Restart attempts are now PAUSED. Run start.bat manually, then delete .watchdog-restart-state.json to re-enable auto-restart. ` +
+          `Likely cause: broken build, failing typecheck, DB migration issue, or port 3000 stuck.`
         );
       } else {
-        log.error('Dashboard auto-restart failed to recover within timeout');
-        alerts.push(
-          '🚨 WATCHDOG: Dashboard was not responding on port 3000. Auto-restart FAILED — manual intervention required (run start.bat).'
-        );
+        const rootDir = path.resolve(__dirname, '..', '..');
+        const startBat = path.join(rootDir, 'start.bat');
+        log.warn('Dashboard not responding — attempting auto-restart via start.bat', {
+          consecutiveFailures: priorState.consecutiveFailures,
+          budget: MAX_CONSECUTIVE_RESTART_FAILURES,
+        });
+        exec(`start "" /min cmd /c "${startBat}"`, { cwd: rootDir });
+
+        const recovered = await waitForDashboardRecovery();
+        if (recovered) {
+          await recordRecovery().catch((err) =>
+            log.warn('Failed to persist recovery state', { error: (err as Error).message })
+          );
+          log.info('Dashboard recovered after auto-restart');
+          alerts.push(
+            '✅ WATCHDOG: Dashboard was not responding on port 3000. Auto-restart succeeded — dashboard recovered.'
+          );
+        } else {
+          const nextState = await recordFailure().catch((err) => {
+            log.warn('Failed to persist failure state', { error: (err as Error).message });
+            return null;
+          });
+          const failsNow = nextState?.consecutiveFailures ?? priorState.consecutiveFailures + 1;
+          log.error('Dashboard auto-restart failed to recover within timeout', {
+            consecutiveFailures: failsNow,
+            budget: MAX_CONSECUTIVE_RESTART_FAILURES,
+          });
+          alerts.push(
+            `🚨 WATCHDOG: Dashboard was not responding on port 3000. Auto-restart FAILED ` +
+            `(${failsNow}/${MAX_CONSECUTIVE_RESTART_FAILURES} consecutive failures). ` +
+            (failsNow >= MAX_CONSECUTIVE_RESTART_FAILURES
+              ? 'Budget exhausted — restart attempts will pause until manually cleared. Run start.bat.'
+              : 'Will retry on next watchdog tick. Run start.bat to recover manually.')
+          );
+        }
       }
     }
   }

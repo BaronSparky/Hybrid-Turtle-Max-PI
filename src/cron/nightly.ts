@@ -72,25 +72,78 @@ import { recomputeLeadLagGraph } from '@/lib/prediction/lead-lag-graph';
 import { runGNNTraining } from '@/lib/prediction/gnn/gnn-trainer';
 import { RISK_PROFILES, EQUITY_REVIEW_THRESHOLDS, type RiskProfileType, type Sleeve } from '@/types';
 
+// Track which (accountType) decrypt failures have already alerted this
+// process so we send exactly one CRITICAL alert per account per nightly run,
+// not one per call site. See audit 2026-05-16 (H3).
+const t212CredentialAlertsSent = new Set<T212AccountType>();
+
 async function getNightlyT212Client(userId: string, accountType: T212AccountType): Promise<Trading212Client | null> {
+  let user:
+    | {
+        t212ApiKey: string | null;
+        t212ApiSecret: string | null;
+        t212Environment: string;
+        t212Connected: boolean;
+        t212IsaApiKey: string | null;
+        t212IsaApiSecret: string | null;
+        t212IsaConnected: boolean;
+      }
+    | null = null;
   try {
-    const user = await prisma.user.findUnique({
+    user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
         t212ApiKey: true, t212ApiSecret: true, t212Environment: true, t212Connected: true,
         t212IsaApiKey: true, t212IsaApiSecret: true, t212IsaConnected: true,
       },
     });
-    if (!user) return null;
-    if (accountType === 'isa') {
-      if (!user.t212IsaApiKey || !user.t212IsaConnected) return null;
-      return new Trading212Client(decryptField(user.t212IsaApiKey), decryptField(user.t212IsaApiSecret ?? ''), user.t212Environment as 'demo' | 'live');
-    }
-    if (!user.t212ApiKey || !user.t212Connected) return null;
-    return new Trading212Client(decryptField(user.t212ApiKey), decryptField(user.t212ApiSecret ?? ''), user.t212Environment as 'demo' | 'live');
-  } catch {
+  } catch (err) {
+    // DB read failed \u2014 distinct from "user not connected". Surface but stay safe.
+    console.warn(`[Nightly] T212 ${accountType} credential lookup failed: ${(err as Error).message}`);
     return null;
   }
+  if (!user) return null;
+
+  const apiKey = accountType === 'isa' ? user.t212IsaApiKey : user.t212ApiKey;
+  const apiSecret = accountType === 'isa' ? user.t212IsaApiSecret : user.t212ApiSecret;
+  const connected = accountType === 'isa' ? user.t212IsaConnected : user.t212Connected;
+
+  // Not configured \u2014 silently skip (legitimate state for ISA-only / Invest-only users).
+  if (!apiKey || !connected) return null;
+
+  // Decrypt \u2014 this is where ENCRYPTION_SECRET rotation or DB corruption surfaces.
+  // If we silently swallow this (the pre-2026-05-16 behaviour), broker stop sync
+  // is disabled for the rest of the process with no signal to the operator.
+  let decryptedKey: string;
+  let decryptedSecret: string;
+  try {
+    decryptedKey = decryptField(apiKey);
+    decryptedSecret = decryptField(apiSecret ?? '');
+  } catch (err) {
+    const errMsg = (err as Error).message;
+    if (!t212CredentialAlertsSent.has(accountType)) {
+      t212CredentialAlertsSent.add(accountType);
+      // Fire-and-forget alert; we do not want to block the nightly on telegram.
+      sendAlert({
+        type: 'SYSTEM',
+        title: `T212 ${accountType.toUpperCase()} credential decryption FAILED`,
+        message:
+          `getNightlyT212Client could not decrypt the T212 ${accountType} credentials. ` +
+          `Likely cause: ENCRYPTION_SECRET (or NEXTAUTH_SECRET) was rotated since the credentials were saved, ` +
+          `or the encrypted value in the DB is corrupted. ` +
+          `Broker stop sync is DISABLED for this account until the credentials are re-entered via /settings. ` +
+          `Local stop ladder updates continue, but T212 stops will drift from DB stops. ` +
+          `Error: ${errMsg}`,
+        priority: 'CRITICAL',
+        telegramDedupeKey: `t212-decrypt-fail:${accountType}`,
+      }).catch(() => {
+        // Alert dispatch itself failed \u2014 nothing more we can do here.
+      });
+    }
+    return null;
+  }
+
+  return new Trading212Client(decryptedKey, decryptedSecret, user.t212Environment as 'demo' | 'live');
 }
 
 async function runNightlyProcess() {
@@ -153,7 +206,7 @@ async function runNightlyProcess() {
   try {
     // Write RUNNING heartbeat so the dashboard knows we're active
     await prisma.heartbeat.create({
-      data: { status: 'RUNNING', details: JSON.stringify({ startedAt: new Date().toISOString() }) },
+      data: { kind: 'NIGHTLY', status: 'RUNNING', details: JSON.stringify({ startedAt: new Date().toISOString() }) },
     });
     console.log('  [---] RUNNING heartbeat written');
 
@@ -1868,6 +1921,7 @@ async function runNightlyProcess() {
     }
     await prisma.heartbeat.create({
       data: {
+        kind: 'NIGHTLY',
         status: heartbeatStatus,
         details: JSON.stringify({
           healthStatus: healthReport.overall,
@@ -1934,6 +1988,7 @@ async function runNightlyProcess() {
     try {
       await prisma.heartbeat.create({
         data: {
+          kind: 'NIGHTLY',
           status: 'FAILED',
           details: JSON.stringify({ error: (error as Error).message }),
         },
@@ -1946,6 +2001,7 @@ async function runNightlyProcess() {
       if (latest?.status === 'RUNNING') {
         await prisma.heartbeat.create({
           data: {
+            kind: 'NIGHTLY',
             status: 'FAILED',
             details: JSON.stringify({ error: 'Pipeline exited with RUNNING status — forced to FAILED' }),
           },
