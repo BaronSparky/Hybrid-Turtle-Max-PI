@@ -1,7 +1,11 @@
 # Register HybridTurtle weekly digest + Monday briefing in Windows Task Scheduler
 # Run as Administrator
 
-$root = "C:\Turtle-Hybrid\Hybrid-Trurtle-Max"
+# Resolve repo root from this script's location (this file lives in <root>\scripts\).
+# Previously hardcoded to "C:\Turtle-Hybrid\Hybrid-Trurtle-Max" (note the typo) which
+# meant schtasks /Create /TR "<missing>\weekly-digest-task.bat" failed with
+# "The system cannot find the file specified." on every machine.
+$root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 
 function Set-TaskResilient($name) {
   $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
