@@ -85,6 +85,13 @@ async function main() {
 
   // Probe in batches of 30 (Yahoo supports up to 50, but smaller batches are more reliable)
   const BATCH_SIZE = 30;
+  // Confirmation pass: Yahoo intermittently returns null `regularMarketPrice` for fully-listed
+  // tickers (the same ChartResultObject schema noise seen in nightly logs). One failed quote()
+  // is NOT enough to deactivate — blue-chips like SHEL/RIO/K/HOLX have hit this false-positive
+  // path. Each batch candidate must fail CONFIRM_RETRIES individual probes (with delay) before
+  // being deactivated.
+  const CONFIRM_RETRIES = 3;
+  const CONFIRM_DELAY_MS = 1500;
   const allFailed: { ticker: string; name: string; sleeve: string }[] = [];
   const tickers = activeStocks.map((s) => s.ticker);
 
@@ -111,6 +118,56 @@ async function main() {
     if (i + BATCH_SIZE < tickers.length) {
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
+  }
+
+  // ── Confirmation pass ──
+  // Re-probe each candidate individually CONFIRM_RETRIES times. Yahoo's `quote()` can transiently
+  // return missing `regularMarketPrice` for active tickers; a single failure in the batch pass is
+  // not evidence of delisting. Only tickers that fail all retries are kept on the deactivation list.
+  if (allFailed.length > 0) {
+    console.log(
+      `\n  Confirming ${allFailed.length} candidate(s) with up to ${CONFIRM_RETRIES} individual retries each...`,
+    );
+    const confirmedFailed: typeof allFailed = [];
+    const recovered: string[] = [];
+    for (const stock of allFailed) {
+      const yt = toYahooTicker(stock.ticker);
+      let stillFailing = true;
+      for (let attempt = 1; attempt <= CONFIRM_RETRIES; attempt++) {
+        try {
+          const r = (await yf.quote(yt)) as {
+            symbol?: string;
+            regularMarketPrice?: number;
+          } | null;
+          if (r && r.regularMarketPrice && r.regularMarketPrice > 0) {
+            stillFailing = false;
+            break;
+          }
+        } catch {
+          // count as a failure; continue retrying
+        }
+        if (attempt < CONFIRM_RETRIES) {
+          await new Promise((resolve) => setTimeout(resolve, CONFIRM_DELAY_MS));
+        }
+      }
+      if (stillFailing) {
+        confirmedFailed.push(stock);
+        process.stdout.write('x');
+      } else {
+        recovered.push(stock.ticker);
+        process.stdout.write('.');
+      }
+    }
+    console.log(
+      `\n  Confirmed delisted: ${confirmedFailed.length} | Recovered (kept active): ${recovered.length}`,
+    );
+    if (recovered.length > 0 && recovered.length <= 50) {
+      console.log(`  Recovered tickers: ${recovered.join(', ')}`);
+    } else if (recovered.length > 50) {
+      console.log(`  Recovered tickers (first 50): ${recovered.slice(0, 50).join(', ')}...`);
+    }
+    allFailed.length = 0;
+    allFailed.push(...confirmedFailed);
   }
 
   console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
