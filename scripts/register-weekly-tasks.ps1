@@ -1,6 +1,14 @@
 # Register HybridTurtle weekly digest + Monday briefing in Windows Task Scheduler
 # Run as Administrator
 
+# When invoked from register-all-tasks.ps1 (which sets $ErrorActionPreference = 'Stop'),
+# inherited preferences make schtasks.exe's expected first-run /Delete (exit code 1 —
+# "task not found") get promoted to a terminating exception caught by the orchestrator's
+# try/catch as "ERROR: The system cannot find the file specified." Force local
+# preferences so this script behaves identically standalone vs. orchestrated.
+$ErrorActionPreference = 'Continue'
+$PSNativeCommandUseErrorActionPreference = $false
+
 # Resolve repo root from this script's location (this file lives in <root>\scripts\).
 # Previously hardcoded to "C:\Turtle-Hybrid\Hybrid-Trurtle-Max" (note the typo) which
 # meant schtasks /Create /TR "<missing>\weekly-digest-task.bat" failed with
