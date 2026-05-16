@@ -61,7 +61,7 @@ set "NODE_VER_NO_V=%NODE_VER:v=%"
 for /f "tokens=1 delims=." %%i in ("%NODE_VER_NO_V%") do set NODE_MAJOR=%%i
 if %NODE_MAJOR% LSS 20 (
     echo.
-    echo  !! This installer requires Node.js 20 LTS or higher (20 or 22 recommended).
+    echo  !! This installer requires Node.js 20 LTS or higher ^(20 or 22 recommended^).
     echo  !! You have Node.js %NODE_VER% installed.
     echo  !! Please install a current Node.js LTS version, then run install.bat again.
     echo  !! On the Node.js website, choose the LTS tab and pick version 20 or 22.
