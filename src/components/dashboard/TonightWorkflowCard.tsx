@@ -68,7 +68,10 @@ export default function TonightWorkflowCard() {
   const handleRunAll = useCallback(async () => {
     setRunning(true);
     try {
-      await apiRequest('/api/workflow/tonight', { method: 'POST' });
+      // UI-only sibling of POST /api/workflow/tonight. The parent route is
+      // cron-only (CRON_SECRET enforced); this one is session-gated and
+      // calls the same runTonightWorkflow() server-side.
+      await apiRequest('/api/workflow/tonight/run-from-ui', { method: 'POST' });
       await load();
     } catch (runError) {
       setError(runError instanceof Error ? runError.message : 'Workflow run failed.');

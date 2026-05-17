@@ -357,7 +357,10 @@ export default function DashboardPage() {
                   setNightlyRunning(true);
                   setNightlyResult(null);
                   try {
-                    const res = await fetch('/api/nightly', {
+                    // UI-only sibling of /api/nightly. The parent route is
+                    // cron-only (CRON_SECRET); this one is session-gated and
+                    // forwards to the same handler server-side.
+                    const res = await fetch('/api/nightly/run-from-ui', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ userId: 'default-user' }),
