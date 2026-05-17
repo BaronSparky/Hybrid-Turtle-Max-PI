@@ -3,7 +3,6 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { ensureDefaultUser } from '@/lib/default-user';
-import { recordEquitySnapshot } from '@/lib/equity-snapshot';
 import { apiError } from '@/lib/api-response';
 import { z } from 'zod';
 import { isT212FromEnv, isTelegramFromEnv } from '@/lib/secrets';
@@ -205,7 +204,11 @@ export async function PUT(request: NextRequest) {
       },
     });
 
-    await recordEquitySnapshot(id, user.equity);
+    // Intentionally NO equity-snapshot write here. Settings PUT may be
+    // called for any field (risk profile, telegram creds, etc.), so
+    // writing User.equity into the snapshot timeline contaminates the
+    // equity curve with stale or seed-default values. The broker sync
+    // is the only authoritative writer; see lib/equity-snapshot.ts.
 
     return NextResponse.json(user);
   } catch (error) {

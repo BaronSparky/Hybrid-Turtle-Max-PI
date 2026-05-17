@@ -1,18 +1,33 @@
 /**
  * DEPENDENCIES
- * Consumed by: nightly.ts, /api/nightly/route.ts
+ * Consumed by: nightly.ts, /api/nightly/route.ts, /api/trading212/sync/route.ts
  * Consumes: prisma.ts, utils.ts
  * Risk-sensitive: NO
- * Last modified: 2026-02-22
+ * Last modified: 2026-05-17
  * Notes: Rate-limited to once per 6 hours — do not remove the 360-minute guard.
+ *        Every snapshot is tagged with a `source` so the user-facing equity
+ *        curve can filter out derived/stale rows. See migration
+ *        20260517120000_add_equity_snapshot_source for the rationale.
  */
 import prisma from './prisma';
 import { getWeekStart } from './utils';
 
+/**
+ * Provenance of an equity snapshot. Readers that need authoritative
+ * equity (e.g. the user-facing curve) should filter to 'BROKER' only.
+ *
+ *   BROKER  - fetched from the broker (Trading 212 sync). Authoritative.
+ *   NIGHTLY - derived from User.equity at nightly run. May be stale; kept
+ *             because openRiskPercent is recorded on these rows for the
+ *             weekly risk-efficiency calc in /api/risk.
+ */
+export type EquitySnapshotSource = 'BROKER' | 'NIGHTLY';
+
 export async function recordEquitySnapshot(
   userId: string,
   equity: number,
-  openRiskPercent?: number
+  openRiskPercent?: number,
+  source: EquitySnapshotSource = 'NIGHTLY'
 ): Promise<void> {
   const latest = await prisma.equitySnapshot.findFirst({
     where: { userId },
@@ -31,6 +46,7 @@ export async function recordEquitySnapshot(
       userId,
       equity,
       openRiskPercent: openRiskPercent ?? null,
+      source,
     },
   });
 }

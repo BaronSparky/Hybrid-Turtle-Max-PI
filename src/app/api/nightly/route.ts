@@ -505,10 +505,11 @@ export async function POST(request: NextRequest) {
         }, 0);
 
       openRiskPercent = equity > 0 ? (openRisk / equity) * 100 : 0;
-      await recordEquitySnapshot(userId, equity, openRiskPercent);
+      // NIGHTLY-sourced (see lib/equity-snapshot.ts EquitySnapshotSource).
+      await recordEquitySnapshot(userId, equity, openRiskPercent, 'NIGHTLY');
     } catch {
       hadFailure = true;
-      await recordEquitySnapshot(userId, equity);
+      await recordEquitySnapshot(userId, equity, undefined, 'NIGHTLY');
     }
 
     // Step 5b: Check pyramid add opportunities for open positions

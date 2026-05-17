@@ -451,7 +451,9 @@ export async function POST(request: NextRequest) {
     }
 
     if (combinedTotalValue > 0) {
-      await recordEquitySnapshot(userId, combinedTotalValue);
+      // BROKER-sourced: this is the authoritative writer of equity. Tagged
+      // so the user-facing curve can filter to broker-only rows.
+      await recordEquitySnapshot(userId, combinedTotalValue, undefined, 'BROKER');
     }
 
     // Build combined position list for response

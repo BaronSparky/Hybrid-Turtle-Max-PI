@@ -1146,7 +1146,10 @@ async function runNightlyProcess() {
           return sum + risk;
         }, 0);
       openRiskPercent = equity > 0 ? (openRisk / equity) * 100 : 0;
-      await recordEquitySnapshot(userId, equity, openRiskPercent);
+      // NIGHTLY-sourced: derived from User.equity. Recorded so the weekly
+      // risk-efficiency calc has an openRiskPercent series. Equity here
+      // may be stale; user-facing chart filters this source out.
+      await recordEquitySnapshot(userId, equity, openRiskPercent, 'NIGHTLY');
 
       // Equity drawdown alert: warn if equity drops >5% from all-time peak
       try {
@@ -1168,7 +1171,7 @@ async function runNightlyProcess() {
       }
     } catch {
       hadFailure = true;
-      await recordEquitySnapshot(userId, equity);
+      await recordEquitySnapshot(userId, equity, undefined, 'NIGHTLY');
     }
 
     let pyramidAlerts: NightlyPyramidAlert[] = [];
