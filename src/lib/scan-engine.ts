@@ -211,7 +211,11 @@ export async function runFullScan(
       sleeve: (p.stock.sleeve || 'CORE') as Sleeve,
       sector: p.stock.sector || 'Unknown',
       cluster: p.stock.cluster || 'General',
-      value: entryPriceGbp * p.shares,
+      // H-4 fix (2026-05-17): concentration must reflect MARKET value, not
+      // deployed capital at entry. Using entryPrice systematically under-states
+      // sleeve/cluster/sector % for profitable positions, leaving phantom
+      // headroom that doesn't exist at market value.
+      value: currentPriceGbp * p.shares,
       riskDollars: Math.max(0, (currentPriceGbp - currentStopGbp) * p.shares),
       shares: p.shares,
       entryPrice: entryPriceGbp,

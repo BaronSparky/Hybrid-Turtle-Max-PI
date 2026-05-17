@@ -28,6 +28,40 @@ Each entry uses this shape (newest at top of the History section):
 ```
 
 ## History
+### 2026-05-17 — pending — ORACLE SYSTEM AUDIT remediation: all 8 findings (H-1..4, M-1..4)
+
+- File(s):
+  - `src/cron/auto-trade.ts` — H-3 `effectiveStopForFill()` helper + Phase C stop-tightening; H-4 `positionsForGates` uses `gbpPrice * shares` not `entryPrice * fxRatio * shares`; M-3 `realisedGateFootprint()` helper + post-fill push uses realised fill state; M-4 extended retry tier (15s/45s/90s at widest factor) after immediate widen loop, skipped on terminal 401/403.
+  - `src/cron/nightly.ts` — H-1 pyramid auto-exec calls `validateRiskGates` with GBP-normalised snapshot (fail-closed, 7-day PYRAMID_ADD alert throttle); H-2 pyramid polls `getOrder` 12×5s (404 fallback to `getPositions`) before DB write, cancel-on-timeout; H-4 pyramid snapshot uses `gbpPrice * shares`; M-1 drift auto-correct gated behind `ENABLE_DRIFT_AUTOCORRECT` env (default OFF), `DB > T212` emits CRITICAL `STOP_MISMATCH` alert with dashboard guidance (12h throttle).
+  - `src/lib/scan-engine.ts` — H-4 concentration `value` = `currentPriceGbp * shares` (was `entryPriceGbp * shares`).
+  - `src/lib/stop-manager.ts` — M-2 trailing-ATR price-divergence band 20%–500% fires throttled `STALE_MARKET_DATA` alert per ticker (24h dedupe); calc continues so monotonic stop still computed; >500% hard skip unchanged.
+  - Tests: `src/lib/risk-gates.test.ts` (+3 H-1 tests), `src/cron/auto-trade-stop-retry.test.ts` (+6 H-3 tests, +7 M-3 tests).
+- Why (ORACLE SYSTEM AUDIT 2026-05-17): system-level audit identified 4 HIGH findings (all on the theme of concentration safety eroding over time) and 4 MEDIUM findings (instrumentation + correctness at edges). Detail:
+  - **H-1**: pyramid auto-exec in Step 6-auto of nightly bypassed `validateRiskGates`, allowing the size add to breach sleeve/cluster/sector caps if the position had grown materially since the original entry.
+  - **H-2**: pyramid wrote DB on order submit, not on fill — broker rejection or partial fill produced phantom DB shares that the position-sizer + risk-gates used as "real" for subsequent calls.
+  - **H-3**: gap-up fills inflated realised stop risk to `(filledPrice - plannedStop)`, which could be 2-3× the planned per-share risk the position-sizer was designed against. Worst-case after 3 widen retries ~2.6× planned.
+  - **H-4**: concentration value used entry price × shares, so profitable positions silently freed sleeve/cluster headroom that didn't exist at market value.
+  - **M-1**: drift detector auto-corrected `DB_HIGHER` by lowering DB stop to broker stop — silently rewriting the DB to the looser of two values, bypassing operator review.
+  - **M-3**: after first trade fills, the next candidate's gate snapshot used planned `entryTrigger * planned shares` not realised fill — second trade through gates that the realised footprint would breach.
+  - **M-4**: Phase C declared `UNPROTECTED_POSITION` after 3 widen attempts (~2 s total), missing transient T212 hiccups on the 30-90 s scale.
+  - **M-2**: trailing-ATR only flagged >500% divergence as data corruption; smaller-scale (20–500%) divergence silently produced bad stops.
+- Behaviour preserved:
+  - Monotonic stop invariant (stops NEVER decrease) unchanged across all files.
+  - Phase A/B/D structure unchanged. Existing buy-failure / fill-timeout / DB-failure / terminal-error / kill-switch / regime-gate / ISA-routing paths byte-identical.
+  - Position-sizer, dual-score, regime-detector, risk-gates math unchanged. (`risk-gates.ts` not modified.)
+  - First widen attempt (factor 1.0) still uses the original stop exactly for well-formed requests.
+  - Pyramid first-time-gate: when `validateRiskGates` returns 0 violations and the existing fill/cancel paths are clean, the new code path is byte-identical to the previous one apart from the (correctly) raised stop on gap-up fills.
+  - Drift-detector behaviour byte-identical when operator sets `ENABLE_DRIFT_AUTOCORRECT=true`.
+  - Trailing-ATR >500% skip behaviour byte-identical; new alert is fire-and-forget so calc never blocks on alert delivery.
+- Tests:
+  - +3 new tests for H-1 in `risk-gates.test.ts` (sleeve breach, position-size breach, allow-when-within-caps).
+  - +6 new tests for H-3 in `auto-trade-stop-retry.test.ts` (`effectiveStopForFill()` contract + worst-case widen).
+  - +7 new tests for M-3 in `auto-trade-stop-retry.test.ts` (`realisedGateFootprint()` contract: filledPrice/shares/stopPrice usage, FX conversion, fallback, risk-floor, gap-up regression).
+  - Full vitest suite: **118 files / 1697 tests all pass** (was 1690 + 7 new).
+  - `npx tsc --noEmit` clean.
+- Operator-visible behaviour change: `ENABLE_DRIFT_AUTOCORRECT=true` env var is now required to keep the old M-1 auto-correct behaviour. Default is OFF — first nightly will surface any pre-existing `DB > T212` drift as a CRITICAL `STOP_MISMATCH` alert instead of silently rewriting the DB.
+- Author: ORACLE SYSTEM AUDIT remediation agent (2026-05-17)
+
 ### 2026-05-16 — pending — auto-trade.ts: H4 stop-retry-widen + M1 heartbeat.kind stamping
 
 - File(s): `src/cron/auto-trade.ts` (Phase C of `executeTrade`, Phase D `actualStopPrice` propagation, 8 heartbeat sites, top-of-file helpers); supporting test `src/cron/auto-trade-stop-retry.test.ts` (new).

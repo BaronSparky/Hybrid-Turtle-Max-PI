@@ -289,4 +289,64 @@ describe('risk-gates formulas', () => {
     expect(result.allowed).toBe(false);
     expect(result.riskScalar).toBe(0);
   });
+
+  // ── H-1 regression ──────────────────────────────────────────
+  // Pyramid auto-execute (nightly Step 6-auto) must call validateRiskGates with
+  // the existing position FILTERED OUT and the candidate represented as the
+  // POST-ADD total. This test asserts that under that call shape, a sleeve cap
+  // breach is detected. Prior to the H-1 fix, pyramid adds bypassed all 6 gates.
+  it('flags sleeve cap breach when pyramid post-add state is evaluated (H-1)', () => {
+    // HIGH_RISK sleeve cap = 40%. Position-size cap = 12% (default).
+    // 3 other HIGH_RISK positions each at 11% = 33% of equity. Within all caps.
+    // Pyramid candidate post-add total = 11% (within position-size). Sleeve sum
+    // becomes 44% → must fail Sleeve Limit while passing Position Size.
+    const equity = 100_000;
+    const mk = (id: string, val: number) => ({
+      id, ticker: id, sleeve: 'HIGH_RISK' as const, sector: `S-${id}`, cluster: `C-${id}`,
+      value: val, riskDollars: val * 0.01, shares: val / 100, entryPrice: 100, currentStop: 99, currentPrice: 100,
+    });
+    const otherPositions = [mk('A', 11_000), mk('B', 11_000), mk('C', 11_000)];
+    const postAddValue = 11_000; // candidate post-add total
+    const postAddRisk = 110;
+
+    const results = validateRiskGates(
+      { sleeve: 'HIGH_RISK', sector: 'S-D', cluster: 'C-D', value: postAddValue, riskDollars: postAddRisk },
+      otherPositions,
+      equity,
+      'BALANCED',
+    );
+    const sleeveGate = results.find(r => r.gate === 'Sleeve Limit');
+    const sizeGate = results.find(r => r.gate === 'Position Size');
+    expect(sleeveGate).toBeDefined();
+    expect(sleeveGate!.passed).toBe(false);
+    expect(sleeveGate!.current).toBeGreaterThan(40);
+    // Position-size gate should still pass (proves sleeve, not size, caught this)
+    expect(sizeGate!.passed).toBe(true);
+  });
+
+  it('flags position-size cap breach when pyramid post-add state is evaluated (H-1)', () => {
+    // BALANCED CORE position-size cap = 18%. Post-add total at 25% must fail.
+    const equity = 100_000;
+    const results = validateRiskGates(
+      { sleeve: 'CORE', sector: 'TECH', cluster: 'SEMI', value: 25_000, riskDollars: 250 },
+      [],
+      equity,
+      'BALANCED',
+    );
+    const sizeGate = results.find(r => r.gate === 'Position Size');
+    expect(sizeGate).toBeDefined();
+    expect(sizeGate!.passed).toBe(false);
+  });
+
+  it('allows pyramid when post-add state is within all caps (H-1)', () => {
+    const equity = 100_000;
+    // Post-add value 12% of equity, no other positions → all caps pass
+    const results = validateRiskGates(
+      { sleeve: 'CORE', sector: 'TECH', cluster: 'SEMI', value: 12_000, riskDollars: 120 },
+      [],
+      equity,
+      'BALANCED',
+    );
+    expect(results.every(r => r.passed)).toBe(true);
+  });
 });

@@ -52,7 +52,7 @@ import { calculateBreadth, checkBreadthSafety } from '@/lib/modules/breadth-safe
 import { computeCorrelationMatrix } from '@/lib/correlation-matrix';
 import { refreshSectorMomentumCache } from '@/lib/sector-etf-cache';
 import { preCacheEarningsBatch } from '@/lib/earnings-calendar';
-import { getRiskBudget, canPyramid, calculatePyramidAddSize } from '@/lib/risk-gates';
+import { getRiskBudget, canPyramid, calculatePyramidAddSize, validateRiskGates } from '@/lib/risk-gates';
 import { calculateRMultiple } from '@/lib/position-sizer';
 import { sendAlert } from '@/lib/alert-service';
 import { backupDatabase } from '@/lib/db-backup';
@@ -812,7 +812,15 @@ async function runNightlyProcess() {
           if (c) t212Clients.push({ type: acctType, client: c });
         }
         if (t212Clients.length > 0) {
-          const driftReport = await checkStopBrokerSync(t212Clients, true); // autoCorrect DB_HIGHER
+          // M-1 fix (2026-05-17): drift auto-correct is OFF by default. The
+          // previous behaviour silently re-wrote DB stops down to match the
+          // broker, bypassing the monotonic-stop invariant. Operators must
+          // explicitly opt in via ENABLE_DRIFT_AUTOCORRECT=true. When OFF,
+          // drift mismatches are reported and alerted but the DB is not
+          // mutated — operator decides whether to push DB→T212 or accept
+          // the broker's value via dashboard action.
+          const autoCorrectEnabled = process.env.ENABLE_DRIFT_AUTOCORRECT === 'true';
+          const driftReport = await checkStopBrokerSync(t212Clients, autoCorrectEnabled);
           if (driftReport.mismatches.length > 0) {
             for (const m of driftReport.mismatches) {
               const dir = m.driftDirection === 'NO_BROKER_STOP'
@@ -821,11 +829,32 @@ async function runNightlyProcess() {
               console.warn(`        ⚠ Stop drift: ${m.ticker} — ${dir}`);
             }
             const uncorrected = driftReport.mismatches.filter(m => !m.corrected);
-            if (uncorrected.length > 0) {
-              alerts.push(`⚠ ${uncorrected.length} stop(s) drifted from T212 — check manually`);
+            // M-1: DB_HIGHER without auto-correct is a real risk — DB believes
+            // the stop is tighter than broker, which means: (a) stop-hit alerts
+            // may fire when no broker stop was hit, AND (b) the real per-trade
+            // risk is wider than the DB reports. Escalate these explicitly.
+            const dbHigherUncorrected = uncorrected.filter(m => m.driftDirection === 'DB_HIGHER');
+            if (dbHigherUncorrected.length > 0) {
+              const detail = dbHigherUncorrected
+                .map(m => `${m.ticker} (DB:$${m.dbStop.toFixed(2)} > T212:$${m.brokerStop?.toFixed(2)}, ${m.driftPct.toFixed(1)}%)`)
+                .join('; ');
+              alerts.push(`🚨 ${dbHigherUncorrected.length} stop(s) DB > T212 — broker is LOOSER than DB. Push DB→T212 via dashboard, or set ENABLE_DRIFT_AUTOCORRECT=true. [${detail}]`);
+              await sendAlert({
+                type: 'STOP_MISMATCH',
+                title: `🚨 Stop drift: DB tighter than T212 (${dbHigherUncorrected.length})`,
+                message: `These positions show DB stop ABOVE T212 stop. Realised risk is wider than DB reports. Push DB→T212 from dashboard, OR set ENABLE_DRIFT_AUTOCORRECT=true to accept the broker value. Affected: ${detail}`,
+                data: { mismatches: dbHigherUncorrected },
+                priority: 'CRITICAL',
+                telegramDedupeKey: `nightly:stop-drift-db-higher`,
+                telegramThrottleMs: 12 * 60 * 60 * 1000,
+              });
+            }
+            const otherUncorrected = uncorrected.filter(m => m.driftDirection !== 'DB_HIGHER');
+            if (otherUncorrected.length > 0) {
+              alerts.push(`⚠ ${otherUncorrected.length} stop(s) drifted from T212 — check manually`);
             }
             if (driftReport.corrected > 0) {
-              alerts.push(`✅ ${driftReport.corrected} stop(s) auto-corrected to match T212`);
+              alerts.push(`✅ ${driftReport.corrected} stop(s) auto-corrected to match T212 (ENABLE_DRIFT_AUTOCORRECT=true)`);
             }
           } else {
             console.log(`        Stop-broker sync: ${driftReport.checked} checked, all matched`);
@@ -1256,6 +1285,37 @@ async function runNightlyProcess() {
       // Only pyramid on Fridays in BULLISH regime (end-of-week confirmation)
       if (regime === 'BULLISH' && dayOfWeek === 5) {
         console.log('  [6-auto] Auto-executing pyramid adds...');
+
+        // ── H-1 fix ──────────────────────────────────────────────
+        // Build a GBP-normalised snapshot of open positions once, so the per-candidate
+        // risk-gate check sees the same denominators that scan-engine / auto-trade use.
+        // Treat each pyramid candidate as a NEW position equal to the POST-ADD total
+        // (existing shares + new shares) at current price, with the existing position
+        // filtered out of the comparison set — this lets sleeve / cluster / sector /
+        // position-size gates evaluate the realised post-add state, not the increment.
+        // Risk is recomputed from (currentPrice - currentStop) × postAddShares in GBP.
+        const pyramidGatePositions = positions.map((p) => {
+          const rawPrice = livePrices[p.stock.ticker] || p.entryPrice;
+          const gbpPrice = gbpPrices[p.stock.ticker] ?? rawPrice;
+          const fxRatio = rawPrice > 0 ? gbpPrice / rawPrice : 1;
+          const currentStopGbp = p.currentStop * fxRatio;
+          const entryPriceGbp = p.entryPrice * fxRatio;
+          return {
+            id: p.id,
+            ticker: p.stock.ticker,
+            sleeve: (p.stock.sleeve || 'CORE') as Sleeve,
+            sector: p.stock.sector || 'Unknown',
+            cluster: p.stock.cluster || 'General',
+            // H-4: market value, not entry value
+            value: gbpPrice * p.shares,
+            riskDollars: Math.max(0, (gbpPrice - currentStopGbp) * p.shares),
+            shares: p.shares,
+            entryPrice: entryPriceGbp,
+            currentStop: currentStopGbp,
+            currentPrice: gbpPrice,
+          };
+        });
+
         try {
           for (const pa of pyramidAlerts) {
             if (pa.addShares <= 0) continue;
@@ -1267,6 +1327,63 @@ async function runNightlyProcess() {
             const t212Ticker = pos.t212Ticker || pos.stock.t212Ticker;
             if (!t212Ticker) {
               console.warn(`  [6-auto] ${pa.ticker}: no T212 ticker — skipping`);
+              pyramidsFailed++;
+              continue;
+            }
+
+            // ── H-1 fix ──────────────────────────────────────────
+            // Concentration / size caps MUST hold for the post-add state.
+            // `canPyramid` only enforces the open-risk budget (≤70%) and the
+            // R/ATR triggers — it does not check sleeve / cluster / sector /
+            // position-size. Re-run the 6 gates here with the existing position
+            // removed and the candidate treated as the post-add total.
+            try {
+              const rawPrice = livePrices[pa.ticker] || pos.entryPrice;
+              const gbpPrice = gbpPrices[pa.ticker] ?? rawPrice;
+              const fxRatio = rawPrice > 0 ? gbpPrice / rawPrice : 1;
+              const currentStopGbp = pos.currentStop * fxRatio;
+              const postAddShares = pos.shares + pa.addShares;
+              const postAddValueGbp = gbpPrice * postAddShares;
+              const postAddRiskGbp = Math.max(0, (gbpPrice - currentStopGbp) * postAddShares);
+
+              const otherPositions = pyramidGatePositions.filter(gp => gp.id !== pos.id);
+              const gateResults = validateRiskGates(
+                {
+                  sleeve: (pos.stock.sleeve || 'CORE') as Sleeve,
+                  sector: pos.stock.sector || 'Unknown',
+                  cluster: pos.stock.cluster || 'General',
+                  value: postAddValueGbp,
+                  riskDollars: postAddRiskGbp,
+                },
+                otherPositions,
+                equity,
+                riskProfile,
+              );
+              const failed = gateResults.filter(g => !g.passed);
+              if (failed.length > 0) {
+                const reasons = failed.map(g => g.gate).join(', ');
+                console.warn(`  [6-auto] ${pa.ticker}: pyramid blocked by risk gates: ${reasons}`);
+                alerts.push(`⚠ Pyramid ${pa.ticker} blocked: ${reasons}`);
+                await sendAlert({
+                  type: 'PYRAMID_ADD',
+                  title: `🚫 Pyramid ${pa.ticker} blocked by risk gates`,
+                  message: `Add #${pa.addNumber} would breach: ${reasons}. Existing position retained; no add placed.`,
+                  data: {
+                    ticker: pa.ticker,
+                    addNumber: pa.addNumber,
+                    failedGates: failed.map(g => ({ gate: g.gate, current: g.current, limit: g.limit })),
+                  },
+                  priority: 'WARNING',
+                  telegramDedupeKey: `nightly:pyramid-gate-block:${pa.ticker}:${pa.addNumber}`,
+                  telegramThrottleMs: 7 * 24 * 60 * 60 * 1000,
+                });
+                pyramidsFailed++;
+                continue;
+              }
+            } catch (gateErr) {
+              // Fail closed: if the gate check itself errored, do NOT execute the add.
+              console.warn(`  [6-auto] ${pa.ticker}: pyramid gate check errored — ${(gateErr as Error).message}`);
+              alerts.push(`⚠ Pyramid ${pa.ticker} skipped: gate check failed`);
               pyramidsFailed++;
               continue;
             }
@@ -1302,13 +1419,90 @@ async function runNightlyProcess() {
               const buyOrder = await client.placeMarketOrder({ quantity: pa.addShares, ticker: t212Ticker });
               console.log(`  [6-auto] ${pa.ticker}: pyramid add placed (order ${buyOrder.id}, ${pa.addShares} shares)`);
 
-              // Note: entryPrice uses pa.currentPrice (last close from scan), not the actual fill.
-              // The actual fill may differ due to slippage. The next T212 position sync (midday/nightly)
-              // will reconcile the real fill price. This is acceptable for the pyramid use case
-              // because the position already has a stop, and slippage on an add is small relative to R.
+              // ── H-2 fix (2026-05-17) ─────────────────────────────
+              // Poll for fill before mutating DB / placing oversized stop.
+              // Nightly runs at 22:00 UK, AFTER both UK and US market close,
+              // so on a Friday the market buy will NOT fill until Monday open.
+              // Previously this code updated DB.shares + setStopLoss IMMEDIATELY
+              // after placing the order, leaving a 48-64h window where DB shares
+              // > broker shares and the stop covered an unfilled quantity.
+              // We now poll for fill; if not filled within the window, cancel
+              // the order (best-effort) and skip the DB update. The pyramid
+              // will be re-evaluated on the next nightly during market hours.
+              const PYRAMID_POLL_MAX = 12;       // 12 × 5s = 60s — bounded
+              const PYRAMID_POLL_INTERVAL = 5000;
+              let pyramidFilledQty = 0;
+              let pyramidFilledPrice = 0;
+              let pyramidFilled = false;
+              for (let attempt = 1; attempt <= PYRAMID_POLL_MAX; attempt++) {
+                await new Promise(r => setTimeout(r, PYRAMID_POLL_INTERVAL));
+                try {
+                  const order = await client.getOrder(buyOrder.id);
+                  if (order.filledQuantity > 0 && order.filledQuantity >= pa.addShares * 0.99) {
+                    pyramidFilledQty = order.filledQuantity;
+                    pyramidFilledPrice = order.filledValue > 0 ? order.filledValue / order.filledQuantity : pa.currentPrice;
+                    pyramidFilled = true;
+                    break;
+                  }
+                } catch (pollErr) {
+                  // 404 → order completed and removed from pending; check positions
+                  const isNotFound = pollErr instanceof Error && /404/.test(pollErr.message);
+                  if (isNotFound) {
+                    try {
+                      const t212Positions = await client.getPositions();
+                      const matchedPos = t212Positions.find(p => p.instrument?.ticker === t212Ticker);
+                      if (matchedPos && matchedPos.quantity >= pos.shares + pa.addShares * 0.99) {
+                        pyramidFilledQty = matchedPos.quantity - pos.shares;
+                        pyramidFilledPrice = matchedPos.averagePricePaid;
+                        pyramidFilled = true;
+                        break;
+                      }
+                    } catch { /* fall through */ }
+                  }
+                }
+              }
+
+              if (!pyramidFilled) {
+                // Buy is queued (market closed) — cancel to avoid unattended Monday-open fill,
+                // and DO NOT mutate DB. Re-evaluate on next nightly.
+                let cancelMsg = 'cancelled';
+                try {
+                  await client.cancelOrder(buyOrder.id);
+                } catch (cancelErr) {
+                  cancelMsg = `cancel failed: ${(cancelErr as Error).message}`;
+                }
+                console.warn(`  [6-auto] ${pa.ticker}: pyramid buy not filled within ${(PYRAMID_POLL_MAX * PYRAMID_POLL_INTERVAL / 1000).toFixed(0)}s — order ${cancelMsg}; DB not updated`);
+                alerts.push(`⚠ Pyramid ${pa.ticker} queued — ${cancelMsg}. Will re-evaluate next nightly.`);
+                await prisma.executionLog.create({
+                  data: {
+                    ticker: pa.ticker,
+                    phase: 'PYRAMID_BUY_QUEUED',
+                    orderId: String(buyOrder.id),
+                    requestBody: JSON.stringify({ shares: pa.addShares, t212Ticker, addNumber: pa.addNumber, polled: PYRAMID_POLL_MAX, cancelResult: cancelMsg }),
+                    responseStatus: null,
+                    quantity: pa.addShares,
+                    accountType: acctType,
+                    error: 'Pyramid buy did not fill within poll window — market likely closed; order cancelled to avoid unattended weekend fill',
+                  },
+                });
+                await sendAlert({
+                  type: 'PYRAMID_ADD',
+                  title: `⚠ Pyramid ${pa.ticker} did not fill — cancelled`,
+                  message: `Buy order ${buyOrder.id} did not confirm within ${(PYRAMID_POLL_MAX * PYRAMID_POLL_INTERVAL / 1000).toFixed(0)}s. Order ${cancelMsg}. No DB change. Will re-evaluate next nightly when market is open.`,
+                  data: { ticker: pa.ticker, addNumber: pa.addNumber, orderId: String(buyOrder.id), cancel: cancelMsg },
+                  priority: 'WARNING',
+                  telegramDedupeKey: `nightly:pyramid-queued:${pa.ticker}:${pa.addNumber}`,
+                  telegramThrottleMs: 24 * 60 * 60 * 1000,
+                });
+                pyramidsFailed++;
+                continue;
+              }
+
+              // Note: entryPrice now uses actual filledPrice (post H-2). Slippage on
+              // the add is small relative to R and the position already has a stop.
 
               // Fix 4: Update position shares in DB so next nightly uses correct count
-              const newTotalShares = pos.shares + pa.addShares;
+              const newTotalShares = pos.shares + pyramidFilledQty;
               await prisma.position.update({
                 where: { id: pos.id },
                 data: { shares: newTotalShares },
@@ -1330,14 +1524,14 @@ async function runNightlyProcess() {
                   ticker: pa.ticker,
                   phase: 'PYRAMID_ADD',
                   orderId: String(buyOrder.id),
-                  requestBody: JSON.stringify({ shares: pa.addShares, t212Ticker, addNumber: pa.addNumber, newTotalShares }),
+                  requestBody: JSON.stringify({ shares: pyramidFilledQty, requested: pa.addShares, t212Ticker, addNumber: pa.addNumber, newTotalShares, filledPrice: pyramidFilledPrice }),
                   responseStatus: 200,
-                  quantity: pa.addShares,
+                  quantity: pyramidFilledQty,
                   accountType: acctType,
                 },
               });
 
-              // Log to TradeLog as ADD type
+              // Log to TradeLog as ADD type — uses ACTUAL filled price/qty (post H-2)
               await prisma.tradeLog.create({
                 data: {
                   userId,
@@ -1345,8 +1539,8 @@ async function runNightlyProcess() {
                   ticker: pa.ticker,
                   tradeDate: new Date(),
                   tradeType: 'ADD',
-                  entryPrice: pa.currentPrice, // Approximate — actual fill reconciled by T212 sync
-                  shares: pa.addShares,
+                  entryPrice: pyramidFilledPrice,
+                  shares: pyramidFilledQty,
                   decision: 'AUTO_PYRAMID',
                   decisionReason: `Auto pyramid add #${pa.addNumber} at ${pa.rMultiple.toFixed(1)}R`,
                 },
@@ -1356,12 +1550,12 @@ async function runNightlyProcess() {
               await sendAlert({
                 type: 'PYRAMID_ADD',
                 title: `✅ Auto pyramid: ${pa.ticker} add #${pa.addNumber}`,
-                message: `Bought ${pa.addShares.toFixed(2)} shares at ~${pa.currentPrice.toFixed(2)} (${pa.rMultiple.toFixed(1)}R). Total: ${newTotalShares.toFixed(2)} shares. Stop covers full position.`,
+                message: `Bought ${pyramidFilledQty.toFixed(2)} shares @ ${pyramidFilledPrice.toFixed(2)} (${pa.rMultiple.toFixed(1)}R). Total: ${newTotalShares.toFixed(2)} shares. Stop covers full position.`,
                 priority: 'INFO',
               });
 
               pyramidsExecuted++;
-              alerts.push(`✅ Pyramid ${pa.ticker}: ${pa.addShares.toFixed(2)} shares added at ${pa.rMultiple.toFixed(1)}R`);
+              alerts.push(`✅ Pyramid ${pa.ticker}: ${pyramidFilledQty.toFixed(2)} shares @ ${pyramidFilledPrice.toFixed(2)} (${pa.rMultiple.toFixed(1)}R)`);
             } catch (err) {
               console.error(`  [6-auto] ${pa.ticker}: pyramid buy failed — ${(err as Error).message}`);
               alerts.push(`⚠ Pyramid ${pa.ticker} FAILED: ${(err as Error).message}`);

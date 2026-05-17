@@ -17,6 +17,17 @@ import { ATR_TRAILING_MULTIPLIER } from '@/types';
 import { PROTECTION_LEVELS } from '@/types';
 import prisma from './prisma';
 import { getDailyPrices, calculateATR } from './market-data';
+import { sendAlert } from './alert-service';
+
+// M-2 fix (2026-05-17): Per-ticker DATA_QUALITY alert threshold for trailing
+// ATR. The 500% (5×) skip catches catastrophic data corruption (GBp/GBP
+// mismatch on import) but is silent on smaller-scale divergence that still
+// indicates a stale or wrong price source. Emit a throttled alert when the
+// entry/recent-close gap is suspicious but below the hard-skip ceiling, so
+// operators can investigate before the trailing stop produces a bad value.
+const TRAILING_ATR_DIVERGENCE_ALERT_THRESHOLD = 0.20; // 20% relative gap
+const TRAILING_ATR_DIVERGENCE_SKIP_THRESHOLD = 5;     // 500% — unchanged
+const TRAILING_ATR_ALERT_THROTTLE_MS = 24 * 60 * 60 * 1000; // one per ticker/day
 
 export class StopLossError extends Error {
   constructor(message: string) {
@@ -310,7 +321,25 @@ export async function calculateTrailingATRStop(
     const recentClose = bars[0]?.close;
     if (recentClose && recentClose > 0) {
       const priceDivergence = Math.abs(entryPrice - recentClose) / recentClose;
-      if (priceDivergence > 5) {
+      // M-2: emit data-quality alert for suspicious-but-not-catastrophic
+      // divergence (20% – 500%). Trailing stop continues, but operator gets
+      // visibility on a stale/wrong price source before it produces bad stops.
+      if (priceDivergence >= TRAILING_ATR_DIVERGENCE_ALERT_THRESHOLD && priceDivergence <= TRAILING_ATR_DIVERGENCE_SKIP_THRESHOLD) {
+        console.warn(`[TrailingATR] ${ticker}: entry ${entryPrice.toFixed(4)} vs Yahoo close ${recentClose.toFixed(4)} — divergence ${(priceDivergence * 100).toFixed(1)}% (above ${(TRAILING_ATR_DIVERGENCE_ALERT_THRESHOLD * 100).toFixed(0)}% alert threshold)`);
+        // Fire-and-forget — never block the stop calculation on alert delivery
+        sendAlert({
+          type: 'STALE_MARKET_DATA',
+          title: `📉 Trailing-ATR price divergence: ${ticker} ${(priceDivergence * 100).toFixed(1)}%`,
+          message: `${ticker}: DB entry price ${entryPrice.toFixed(4)} differs ${(priceDivergence * 100).toFixed(1)}% from recent Yahoo close ${recentClose.toFixed(4)}. Trailing stop calc continues but the price source may be stale or wrong (split? currency mismatch?). Investigate before the stop ratchets to a bad value.`,
+          data: { ticker, entryPrice, recentClose, divergencePct: priceDivergence * 100 },
+          priority: 'WARNING',
+          telegramDedupeKey: `trailing-atr-divergence:${ticker}`,
+          telegramThrottleMs: TRAILING_ATR_ALERT_THROTTLE_MS,
+        }).catch((err) => {
+          console.warn(`[TrailingATR] alert delivery failed for ${ticker}: ${(err as Error).message}`);
+        });
+      }
+      if (priceDivergence > TRAILING_ATR_DIVERGENCE_SKIP_THRESHOLD) {
         // Entry price is >500% different from current market — data integrity issue
         console.warn(`[TrailingATR] ${ticker}: entry price ${entryPrice.toFixed(2)} diverges ${(priceDivergence * 100).toFixed(0)}% from Yahoo close ${recentClose.toFixed(2)} — skipping (likely data corruption)`);
         return null;

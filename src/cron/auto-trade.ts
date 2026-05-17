@@ -76,6 +76,15 @@ export const STOP_RETRY_DELAY_MS = 500;
 // 401/403 won't be fixed by widening — abort retries on these.
 export const STOP_TERMINAL_STATUS_CODES = [401, 403] as const;
 
+// M-4 fix (2026-05-17): extended retry tier after the immediate widen loop.
+// Many T212 stop-rejection failures are transient (price-too-close after
+// momentum bar, brief 5xx surge, ticker-not-tradeable for ~30s after IPO/halt
+// resume). Before declaring UNPROTECTED_POSITION, retry at the widest factor
+// with progressively longer back-off. Skip this tier for terminal (401/403)
+// errors and DB-side failures.
+export const STOP_EXTENDED_RETRY_DELAYS_MS = [15_000, 45_000, 90_000] as const;
+export const STOP_EXTENDED_RETRY_FACTOR = 1.67;
+
 /** Compute a widened stop price by a given gap multiplier.
  *  widenStop(100, 95, 1.0)  -> 95   (original)
  *  widenStop(100, 95, 1.33) -> 93.35
@@ -84,6 +93,52 @@ export const STOP_TERMINAL_STATUS_CODES = [401, 403] as const;
 export function widenStop(filledPrice: number, originalStop: number, factor: number): number {
   const gap = filledPrice - originalStop;
   return Math.max(0.01, filledPrice - gap * factor);
+}
+
+/** H-3: preserve PLANNED per-share risk on gap-up fills.
+ *  When the buy fills above planned entry, raising the stop by the gap amount
+ *  keeps realised risk per share equal to planned risk per share. When the
+ *  fill is at or below planned entry, the planned stop is returned unchanged.
+ *  Returns 0-or-negative inputs unchanged (degenerate cases handled by caller).
+ *  Examples:
+ *    effectiveStopForFill(100, 100, 95) -> 95     (no gap)
+ *    effectiveStopForFill(100, 108, 95) -> 103    (gap-up: stop raised by $8)
+ *    effectiveStopForFill(100,  98, 95) -> 95     (gap-down: stop unchanged)
+ */
+export function effectiveStopForFill(entryPrice: number, filledPrice: number, plannedStop: number): number {
+  const plannedRiskPerShare = entryPrice - plannedStop;
+  const fillGapUp = Math.max(0, filledPrice - entryPrice);
+  if (plannedRiskPerShare <= 0 || fillGapUp <= 0) return plannedStop;
+  return plannedStop + fillGapUp;
+}
+
+/** M-3 (2026-05-17): realised gate footprint for a just-filled trade.
+ *  After Phase D succeeds, the second candidate in the session must be gated
+ *  against the position's REALISED footprint (filled price × filled shares),
+ *  not the planned (entryTrigger × planned shares). Otherwise a gap-up fill
+ *  silently leaves headroom under sleeve/cluster caps that doesn't exist.
+ *
+ *  All output values are GBP-normalised (caller passes fxToGbp).
+ *  Falls back to planned values when the result is missing fields (e.g. when
+ *  the DB write succeeded but order-poll returned no filledPrice).
+ */
+export function realisedGateFootprint(
+  result: { filledPrice?: number; shares?: number; stopPrice?: number },
+  planned: { entryTrigger: number; stopPrice: number; shares: number },
+  fxToGbp: number,
+): { valueGbp: number; riskGbp: number; entryGbp: number; stopGbp: number; shares: number } {
+  const filledPrice = result.filledPrice ?? planned.entryTrigger;
+  const shares = result.shares ?? planned.shares;
+  const stop = result.stopPrice ?? planned.stopPrice;
+  const entryGbp = filledPrice * fxToGbp;
+  const stopGbp = stop * fxToGbp;
+  return {
+    valueGbp: entryGbp * shares,
+    riskGbp: Math.max(0, (entryGbp - stopGbp) * shares),
+    entryGbp,
+    stopGbp,
+    shares,
+  };
 }
 
 type Session = 'uk' | 'us' | 'us-close' | 'scan';
@@ -337,15 +392,34 @@ async function executeTrade(
   // New behaviour: up to 3 attempts with progressively wider stops. Skip retry
   // on terminal auth errors (401/403). Track the actual stop placed so the
   // DB row matches what's live at T212.
+  //
+  // ── H-3 fix (2026-05-17): preserve planned per-share risk on gap-up fills ──
+  // When the buy fills materially above planned entry (gap-up / momentum chase),
+  // using the planned stop unchanged inflates realised risk per share to
+  // (filledPrice - plannedStop), which can be 2-3× the size the position-sizer
+  // was designed against. We raise the stop by the gap amount so realised
+  // per-share risk equals planned risk per share. Widen-retry then operates
+  // FROM this tightened base, so worst-case (all 3 retries) realised risk is
+  // ~1.67× planned, not ~2.6× planned.
   let stopPlaced = false;
-  let actualStopPrice = stopPrice;
+  let stopFailureWasTerminal = false;
+  const plannedRiskPerShare = entryPrice - stopPrice; // positive for long
+  const fillGapUp = Math.max(0, filledPrice - entryPrice);
+  const effectiveStopPrice = effectiveStopForFill(entryPrice, filledPrice, stopPrice);
+  if (effectiveStopPrice !== stopPrice) {
+    console.log(`    ℹ Gap-up fill (+${fillGapUp.toFixed(4)}): tightening stop ${stopPrice.toFixed(4)} → ${effectiveStopPrice.toFixed(4)} to preserve planned risk/share (${plannedRiskPerShare.toFixed(4)})`);
+    tradeLog?.info('Gap-up fill: stop tightened to preserve planned risk', {
+      ticker, entryPrice, filledPrice, plannedStop: stopPrice,
+      effectiveStop: effectiveStopPrice, plannedRiskPerShare, fillGapUp,
+    });
+  }
+  let actualStopPrice = effectiveStopPrice;
   const stopQuantity = -Math.abs(filledQuantity);
-  const originalGap = filledPrice - stopPrice; // positive for long
   const stopAttempts: Array<{ attempt: number; stopPrice: number; orderId?: string; error?: string; statusCode?: number | null }> = [];
 
   for (let i = 0; i < STOP_RETRY_WIDEN_FACTORS.length; i++) {
     const factor = STOP_RETRY_WIDEN_FACTORS[i];
-    const widenedStop = widenStop(filledPrice, stopPrice, factor);
+    const widenedStop = widenStop(filledPrice, effectiveStopPrice, factor);
     const stopRequest = { quantity: stopQuantity, stopPrice: widenedStop, ticker: t212Ticker, timeValidity: 'GOOD_TILL_CANCEL' as const };
 
     try {
@@ -365,7 +439,7 @@ async function executeTrade(
       } else {
         tradeLog?.warn('Stop-loss placed on retry with wider stop', {
           ticker, attempt: i + 1, widenFactor: factor,
-          originalStop: stopPrice, finalStop: widenedStop,
+          plannedStop: stopPrice, effectiveStop: effectiveStopPrice, finalStop: widenedStop,
           previousErrors: stopAttempts.slice(0, -1).map(a => a.error),
         });
         console.log(`    ✓ Stop-loss placed on attempt ${i + 1} (widened ${((factor - 1) * 100).toFixed(0)}%) @ ${widenedStop.toFixed(4)} (ID: ${stopOrder.id})`);
@@ -387,6 +461,7 @@ async function executeTrade(
       if (isTerminal) {
         console.error(`    ✗ Stop-loss FAILED — terminal error ${statusCode}: ${msg}. No retry.`);
         tradeLog?.error('Stop-loss FAILED — terminal error, no retry', { ticker, statusCode, error: msg });
+        stopFailureWasTerminal = true;
         break;
       }
 
@@ -398,6 +473,64 @@ async function executeTrade(
         console.error(`    ✗ CRITICAL: Stop-loss FAILED after ${STOP_RETRY_WIDEN_FACTORS.length} attempts. Final error: ${msg}`);
         tradeLog?.error('CRITICAL: Stop-loss FAILED after all retries', { ticker, attempts: stopAttempts, finalError: msg });
       }
+    }
+  }
+
+  // ── M-4 fix (2026-05-17): Extended retry tier ──
+  // The immediate widen loop above completes in ~2s and catches sub-second
+  // T212 hiccups. Many real-world rejections are transient on a 30-90s scale
+  // (price-too-close right after a momentum bar, brief 5xx surge, ticker
+  // tradability flicker). Before declaring UNPROTECTED_POSITION, try up to
+  // 3 more times at the widest factor with longer back-off. Skip for terminal
+  // errors — widening + waiting does not fix 401/403.
+  if (!stopPlaced && !stopFailureWasTerminal) {
+    const widestStop = widenStop(filledPrice, effectiveStopPrice, STOP_EXTENDED_RETRY_FACTOR);
+    for (let j = 0; j < STOP_EXTENDED_RETRY_DELAYS_MS.length; j++) {
+      const delayMs = STOP_EXTENDED_RETRY_DELAYS_MS[j];
+      const attemptNo = STOP_RETRY_WIDEN_FACTORS.length + j + 1;
+      console.warn(`    ⏳ Extended retry ${j + 1}/${STOP_EXTENDED_RETRY_DELAYS_MS.length}: waiting ${(delayMs / 1000).toFixed(0)}s before re-attempting stop @ ${widestStop.toFixed(4)}`);
+      await new Promise(r => setTimeout(r, delayMs));
+      const stopRequest = { quantity: stopQuantity, stopPrice: widestStop, ticker: t212Ticker, timeValidity: 'GOOD_TILL_CANCEL' as const };
+      try {
+        const stopOrder = await client.placeStopOrder(stopRequest);
+        await logExecution({
+          ticker, phase: 'STOP_PLACED', orderId: String(stopOrder.id),
+          requestBody: JSON.stringify({ ...stopRequest, attempt: attemptNo, extendedRetry: j + 1, delayMs }),
+          responseStatus: 200,
+          responseBody: JSON.stringify(stopOrder), stopPrice: widestStop, quantity: stopQuantity, accountType,
+        });
+        stopPlaced = true;
+        actualStopPrice = widestStop;
+        stopAttempts.push({ attempt: attemptNo, stopPrice: widestStop, orderId: String(stopOrder.id) });
+        tradeLog?.warn('Stop-loss placed on extended retry', {
+          ticker, extendedAttempt: j + 1, delayMs, finalStop: widestStop,
+          previousErrors: stopAttempts.slice(0, -1).map(a => a.error),
+        });
+        console.log(`    ✓ Stop-loss placed on extended retry ${j + 1} after ${(delayMs / 1000).toFixed(0)}s wait @ ${widestStop.toFixed(4)} (ID: ${stopOrder.id})`);
+        break;
+      } catch (err) {
+        const statusCode: number | null = err instanceof Trading212Error ? err.statusCode : null;
+        const msg = err instanceof Trading212Error ? `T212 ${err.statusCode}: ${err.message}` : (err as Error).message;
+        stopAttempts.push({ attempt: attemptNo, stopPrice: widestStop, error: msg, statusCode });
+        await logExecution({
+          ticker, phase: 'STOP_FAILED',
+          requestBody: JSON.stringify({ ...stopRequest, attempt: attemptNo, extendedRetry: j + 1, delayMs }),
+          responseStatus: statusCode,
+          accountType, error: msg, stopPrice: widestStop, quantity: stopQuantity,
+        });
+        // Terminal error during extended retry — abort the tier (waiting won't help auth)
+        const isTerminal = statusCode !== null && (STOP_TERMINAL_STATUS_CODES as readonly number[]).includes(statusCode);
+        if (isTerminal) {
+          console.error(`    ✗ Extended retry hit terminal error ${statusCode}: ${msg}. Abandoning extended tier.`);
+          stopFailureWasTerminal = true;
+          break;
+        }
+        console.warn(`    ⚠ Extended retry ${j + 1} failed: ${msg}`);
+      }
+    }
+    if (!stopPlaced) {
+      console.error(`    ✗ CRITICAL: Stop-loss STILL FAILED after extended retry tier. Position will be UNPROTECTED.`);
+      tradeLog?.error('CRITICAL: Stop-loss FAILED after extended retry tier', { ticker, totalAttempts: stopAttempts.length });
     }
   }
 
@@ -989,7 +1122,10 @@ async function runAutoTrade(session: Session) {
       sleeve: (p.stock.sleeve || 'CORE') as Sleeve,
       sector: p.stock.sector || 'Unknown',
       cluster: p.stock.cluster || 'General',
-      value: p.entryPrice * fxRatio * p.shares,
+      // H-4 fix (2026-05-17): concentration uses current MARKET value, not
+      // deployed capital at entry. Prevents profitable positions from leaving
+      // phantom sleeve/cluster headroom that doesn't exist at market value.
+      value: gbpPrice * p.shares,
       riskDollars: Math.max(0, (gbpPrice - p.currentStop * fxRatio) * p.shares),
       shares: p.shares,
       entryPrice: p.entryPrice * fxRatio,
@@ -1116,19 +1252,31 @@ async function runAutoTrade(session: Session) {
     if (result.success) {
       tradesExecuted++;
 
-      // Update positions for risk gates (so next candidate is gated against updated state)
+      // M-3 fix (2026-05-17): Update positions for risk gates using REALISED
+      // fill state, not planned values. The previous code pushed `newValue`
+      // (planned entryTrigger × planned shares) and `newRiskDollars` (planned
+      // risk). If the fill came in materially above plan (gap-up), the next
+      // candidate's gate would see a SMALLER footprint than the position
+      // actually consumes, allowing the second trade through caps it would
+      // otherwise breach. realisedGateFootprint() is the locked contract.
+      const realised = realisedGateFootprint(
+        result,
+        { entryTrigger: candidate.entryTrigger, stopPrice: candidate.stopPrice, shares: sizing.shares },
+        fxToGbp,
+      );
+
       positionsForGates.push({
         id: result.positionId || 'pending',
         ticker: candidate.ticker,
         sleeve: (stock.sleeve || 'CORE') as Sleeve,
         sector: stock.sector || 'Unknown',
         cluster: stock.cluster || 'General',
-        value: newValue,
-        riskDollars: newRiskDollars,
-        shares: sizing.shares,
-        entryPrice: newEntryGbp,
-        currentStop: newStopGbp,
-        currentPrice: newEntryGbp,
+        value: realised.valueGbp,
+        riskDollars: realised.riskGbp,
+        shares: realised.shares,
+        entryPrice: realised.entryGbp,
+        currentStop: realised.stopGbp,
+        currentPrice: realised.entryGbp,
       });
     } else if (result.error) {
       // Detect terminal errors that mean "abort the rest of this session".
