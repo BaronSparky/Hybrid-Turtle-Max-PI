@@ -1,5 +1,5 @@
 # ============================================================
-# HybridTurtle — Post-Install Cleanup
+# HybridTurtle - Post-Install Cleanup
 # ============================================================
 # Fixes the three benign warnings that surface on a fresh install
 # after register-all-tasks.bat has run:
@@ -12,7 +12,7 @@
 #   3. Missing prisma\backups directory used by the nightly db backup
 #      step.
 #
-# Self-elevates via UAC. Safe to re-run — each step is idempotent.
+# Self-elevates via UAC. Safe to re-run - each step is idempotent.
 # ============================================================
 
 [CmdletBinding()]
@@ -52,7 +52,7 @@ if ($stale) {
     Write-Host "   FAILED: $_" -ForegroundColor Red
   }
 } else {
-  Write-Host "   Not present — nothing to remove." -ForegroundColor Gray
+  Write-Host "   Not present - nothing to remove." -ForegroundColor Gray
 }
 Write-Host ""
 
@@ -65,7 +65,7 @@ if (Test-Path $applyScript) {
   & $applyScript
   Write-Host "   Done (exit $LASTEXITCODE)." -ForegroundColor Green
 } else {
-  Write-Host "   SKIPPED — $applyScript not found." -ForegroundColor Yellow
+  Write-Host "   SKIPPED - $applyScript not found." -ForegroundColor Yellow
 }
 Write-Host ""
 
@@ -96,7 +96,7 @@ $auditScript = Join-Path $repoRoot 'scripts\audit-scheduled-tasks.mjs'
 if (Test-Path $auditScript) {
   node $auditScript
 } else {
-  Write-Host "audit-scheduled-tasks.mjs not found — skipping audit." -ForegroundColor Yellow
+  Write-Host "audit-scheduled-tasks.mjs not found - skipping audit." -ForegroundColor Yellow
 }
 
 Write-Host ""
