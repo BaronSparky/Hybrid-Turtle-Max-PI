@@ -28,6 +28,22 @@ Each entry uses this shape (newest at top of the History section):
 ```
 
 ## History
+### 2026-05-18 — pending — ORACLE AUDIT remediation: F-3 trailing-stop level preservation
+
+- File(s):
+  - `src/lib/stop-manager.ts` — `generateTrailingStopRecommendations` return type adds `recommendedLevel: ProtectionLevel`. New `levelOrder` array + `TRAILING_ATR_IDX` constant; `recommendedLevel = currentIdx >= TRAILING_ATR_IDX ? currentLevel : 'TRAILING_ATR'`. Reads `position.protectionLevel as ProtectionLevel`.
+  - `src/cron/nightly.ts` — Step 3b consumer: passes `rec.recommendedLevel` to `updateStopLoss` and `trailingStopChanges.push({ ...level: rec.recommendedLevel })`.
+  - (Non-sacred) `src/lib/candidate-grade.ts` + tests, `src/lib/position-sync.ts`, `DASHBOARD-GUIDE.md` — F-1, F-2, F-4 from same audit; logged here for cross-reference only.
+- Why (ORACLE AUDIT 2026-05-18, finding F-3, severity LOW): nightly trailing-step routinely downgraded the displayed protection-level label from `LOCK_08R` / `LOCK_1R_TRAIL` back to `TRAILING_ATR` because `updateStopLoss` was called with a hard-coded `'TRAILING_ATR'` arg. The stop *value* was correct (monotonic invariant held), but the displayed level mis-represented the position's protection state on dashboards and in alerts. Operator-facing only; no risk to capital.
+- Behaviour preserved:
+  - Monotonic stop invariant unchanged. Stop value still computed by existing `calculateTrailingATRStop`.
+  - All decision branches in `generateTrailingStopRecommendations` produce the same `recommendedStop`, `currentStop`, `change`, `changePct` as before.
+  - Positions at `INITIAL` or `BREAKEVEN` still upgrade to `TRAILING_ATR` on trailing-step (`currentIdx < TRAILING_ATR_IDX`).
+  - Positions already at `LOCK_08R` / `LOCK_1R_TRAIL` keep that label (was: silently downgraded).
+  - No call-site outside `nightly.ts` Step 3b is affected.
+- Tests: `src/lib/stop-manager.test.ts` and `src/lib/candidate-grade.test.ts` full suites pass (83 tests). Targeted vitest run on position-sync + auto-trade + auto-trade-stop-retry (55 tests) also clean. `npx tsc --noEmit` clean.
+- Author: ORACLE AUDIT remediation agent (2026-05-18)
+
 ### 2026-05-17 — pending — ORACLE SYSTEM AUDIT remediation: all 8 findings (H-1..4, M-1..4)
 
 - File(s):

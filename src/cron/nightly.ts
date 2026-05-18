@@ -448,12 +448,14 @@ async function runNightlyProcess() {
       const trailingRecs = await generateTrailingStopRecommendations(userId);
       for (const rec of trailingRecs) {
         try {
-          await updateStopLoss(rec.positionId, rec.trailingStop, rec.reason, 'TRAILING_ATR');
+          // F-3: use rec.recommendedLevel so trailing updates do not silently
+          // downgrade higher-tier labels (LOCK_08R / LOCK_1R_TRAIL) to TRAILING_ATR.
+          await updateStopLoss(rec.positionId, rec.trailingStop, rec.reason, rec.recommendedLevel);
           trailingStopChanges.push({
             ticker: rec.ticker,
             oldStop: rec.currentStop,
             newStop: rec.trailingStop,
-            level: 'TRAILING_ATR',
+            level: rec.recommendedLevel,
             reason: rec.reason,
             currency: rec.priceCurrency,
           });

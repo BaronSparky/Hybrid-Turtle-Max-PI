@@ -215,13 +215,21 @@ export function classifyCandidate(
     detail: passesAllFilters ? 'All 7-stage filters pass' : 'One or more technical filters failed',
   });
 
-  // 9. Status (READY or trigger-met)
+  // 9. Status — A-grade requires the breakout actually triggered (price >= entryTrigger).
+  // READY (within 2% below trigger) is watchlist-only; it demotes to B-grade.
+  // This aligns code with documented intent in DASHBOARD-GUIDE.md and 10-10-PLAN.md
+  // ("By definition, buying after the breakout…") and keeps R-multiple analytics honest
+  // since entry_type is recorded as 'BREAKOUT'.
   const isReady = candidate.status === 'READY';
   const isTriggerMet = candidate.price >= candidate.entryTrigger;
   checks.push({
     name: 'status',
-    passed: isReady || isTriggerMet,
-    detail: isTriggerMet ? 'TRIGGERED — price ≥ entry trigger' : isReady ? 'READY — within 2% of trigger' : `${candidate.status} — not yet ready`,
+    passed: isTriggerMet,
+    detail: isTriggerMet
+      ? 'TRIGGERED — price ≥ entry trigger'
+      : isReady
+        ? 'READY — within 2% of trigger but breakout not yet confirmed'
+        : `${candidate.status} — not yet ready`,
   });
 
   // 10. Scoring quality
@@ -275,14 +283,13 @@ export function classifyCandidate(
 
   // ── Grade decision ──
 
-  const aGradeChecks = passesAllFilters && (isReady || isTriggerMet) &&
+  const aGradeChecks = passesAllFilters && isTriggerMet &&
     ncsOk && fwsOk && bqsOk && volOk && rsOk && !atrSpiking;
 
   if (aGradeChecks) {
-    const triggerText = isTriggerMet ? 'Trigger met — price at or above entry.' : 'READY — within striking distance.';
     return {
       grade: 'A_GRADE_BUY',
-      reason: `${triggerText} All filters pass, scores strong (NCS ${ncs.toFixed(0)}, BQS ${bqs.toFixed(0)}, FWS ${fws.toFixed(0)}), volume confirmed.`,
+      reason: `Trigger met — price at or above entry. All filters pass, scores strong (NCS ${ncs.toFixed(0)}, BQS ${bqs.toFixed(0)}, FWS ${fws.toFixed(0)}), volume confirmed.`,
       checks,
     };
   }

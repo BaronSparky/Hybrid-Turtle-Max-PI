@@ -49,10 +49,10 @@ export function getProtectionLevel(rMultiple: number): ProtectionLevel {
 /**
  * Infer protection level from where the stop IS positioned relative to entry.
  * Used when a caller doesn't supply an explicit level (e.g. trailing ATR updates).
- * Thresholds are midpoints between the actual stop formulas:
- *   INITIAL  → stop < entry + 0.25 × initialRisk  (below entry or at original stop)
- *   BREAKEVEN→ stop in [0.25R, 0.75R) above entry
- *   LOCK_08R → stop in [0.25R, 0.75R) above entry  — note: LOCK_08R actual stop = entry + 0.5R
+ * Thresholds match the actual stop formulas in calculateProtectionStop:
+ *   INITIAL       → stop < entry - 0.1 × initialRisk  (clearly below entry)
+ *   BREAKEVEN     → stop in [-0.1R, 0.25R)             (at or just above entry)
+ *   LOCK_08R      → stop in [0.25R, 0.75R)             (LOCK_08R actual stop = entry + 0.5R)
  *   LOCK_1R_TRAIL → stop ≥ entry + 0.75 × initialRisk
  */
 export function inferLevelFromStop(newStop: number, entryPrice: number, initialRisk: number): ProtectionLevel {
@@ -82,7 +82,8 @@ export function shouldSyncBrokerStop(
 
 /**
  * Calculate the recommended stop price for a given protection level
- * For LOCK_1R_TRAIL: max(Entry + 1R, Close − 2×ATR)
+ * For LOCK_1R_TRAIL: max(Entry + 1R, Close − ATR_TRAILING_MULTIPLIER × ATR)
+ * (ATR_TRAILING_MULTIPLIER is defined in @/types; currently 1.5×)
  */
 export function calculateProtectionStop(
   entryPrice: number,
@@ -282,9 +283,9 @@ export async function generateStopRecommendations(
 // ============================================================
 // Trailing ATR Stop — Dynamic stop that ratchets up with price
 // ============================================================
-// Uses 2× ATR(14) below the highest close since entry.
-// The stop only ever moves UP (monotonic enforcement).
-// This matches the external Python system's trailing stop logic.
+// Uses ATR_TRAILING_MULTIPLIER × ATR(14) below the highest close since entry
+// (currently 1.5×; defined in @/types). The stop only ever moves UP (monotonic
+// enforcement). This matches the external Python system's trailing stop logic.
 // ============================================================
 
 /**
@@ -422,7 +423,27 @@ export async function calculateTrailingATRStop(
       shouldUpdate,
     };
   } catch (error) {
-    console.error(`[TrailingATR] Failed for ${ticker}:`, (error as Error).message);
+    const errMsg = (error as Error).message;
+    console.error(`[TrailingATR] Failed for ${ticker}:`, errMsg);
+    // R-2 audit fix: previously this catch returned null silently. Repeated
+    // trailing-stop calc failures meant a position's stop never ratcheted up,
+    // but the operator had no visibility — no alert, just lines in a log
+    // file that nobody reads. Emit a throttled DATA_QUALITY alert so the
+    // operator can investigate (typically: missing Yahoo bars, network
+    // outage, ATR div-by-zero on a thinly-traded ticker). Per-ticker daily
+    // throttle prevents spam when a bad ticker fails every nightly run.
+    // Fire-and-forget — never block the return on alert delivery.
+    sendAlert({
+      type: 'STALE_MARKET_DATA',
+      title: `Trailing-ATR calc failed: ${ticker}`,
+      message: `${ticker}: trailing ATR calculation threw an exception (${errMsg}). The position's stop will NOT ratchet up this run — the existing DB stop is preserved. Investigate: usually missing/stale Yahoo bars or a corrupt ticker mapping. If repeated, the stop is effectively frozen at its current level.`,
+      data: { ticker, error: errMsg },
+      priority: 'WARNING',
+      telegramDedupeKey: `trailing-atr-calc-fail:${ticker}`,
+      telegramThrottleMs: TRAILING_ATR_ALERT_THROTTLE_MS,
+    }).catch((alertErr) => {
+      console.warn(`[TrailingATR] alert delivery failed for ${ticker}: ${(alertErr as Error).message}`);
+    });
     return null;
   }
 }
@@ -431,6 +452,13 @@ export async function calculateTrailingATRStop(
  * Generate trailing ATR stop recommendations for all open positions.
  * Compares the dynamically calculated trailing stop with the current DB stop.
  * Returns recommendations where the trailing stop is higher (tighter).
+ *
+ * Each recommendation includes `recommendedLevel`, which preserves the
+ * position's existing protection tier when that tier is already at or above
+ * TRAILING_ATR in the hierarchy. Without this, a position at LOCK_08R would
+ * have its label rewritten to TRAILING_ATR on every nightly trailing update,
+ * then bounced back to LOCK_08R by the next R-based step — the F-3 oscillation.
+ * The stop value itself is unaffected; only the displayed level is preserved.
  */
 export async function generateTrailingStopRecommendations(
   userId: string
@@ -443,6 +471,7 @@ export async function generateTrailingStopRecommendations(
   currentATR: number;
   reason: string;
   priceCurrency: string;
+  recommendedLevel: ProtectionLevel;
 }[]> {
   const positions = await prisma.position.findMany({
     where: { userId, status: 'OPEN' },
@@ -458,7 +487,14 @@ export async function generateTrailingStopRecommendations(
     currentATR: number;
     reason: string;
     priceCurrency: string;
+    recommendedLevel: ProtectionLevel;
   }[] = [];
+
+  // Same hierarchy used by calculateStopRecommendation. TRAILING_ATR sits
+  // between BREAKEVEN and LOCK_08R, so only INITIAL/BREAKEVEN positions get
+  // their label rewritten to TRAILING_ATR; LOCK_08R/LOCK_1R_TRAIL preserve.
+  const TRAILING_ATR_IDX = 2;
+  const levelOrder: ProtectionLevel[] = ['INITIAL', 'BREAKEVEN', 'TRAILING_ATR', 'LOCK_08R', 'LOCK_1R_TRAIL'];
 
   for (const position of positions) {
     const result = await calculateTrailingATRStop(
@@ -472,6 +508,14 @@ export async function generateTrailingStopRecommendations(
     const priceCurrency = isUK ? 'GBX' : (position.stock.currency || 'USD').toUpperCase();
 
     if (result && result.shouldUpdate) {
+      const currentLevel = position.protectionLevel as ProtectionLevel;
+      const currentIdx = levelOrder.indexOf(currentLevel);
+      // If unknown level (shouldn't happen) or below TRAILING_ATR, stamp TRAILING_ATR.
+      // If at or above TRAILING_ATR (LOCK_08R, LOCK_1R_TRAIL, or TRAILING_ATR itself), preserve.
+      const recommendedLevel: ProtectionLevel = currentIdx >= TRAILING_ATR_IDX
+        ? currentLevel
+        : 'TRAILING_ATR';
+
       recommendations.push({
         positionId: position.id,
         ticker: position.stock.ticker,
@@ -481,6 +525,7 @@ export async function generateTrailingStopRecommendations(
         currentATR: result.currentATR,
         reason: `Trailing ATR stop: High ${result.highestClose.toFixed(2)} − ${ATR_TRAILING_MULTIPLIER}×ATR(${result.currentATR.toFixed(2)}) = ${result.trailingStop.toFixed(2)}`,
         priceCurrency,
+        recommendedLevel,
       });
     }
   }

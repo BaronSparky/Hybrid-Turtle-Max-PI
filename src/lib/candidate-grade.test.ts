@@ -21,9 +21,9 @@ function makeCandidate(overrides: Partial<ScanCandidate> = {}): ScanCandidate {
     sleeve: 'CORE',
     sector: 'Technology',
     cluster: 'Big Tech',
-    price: 180,
+    price: 183,
     technicals: {
-      currentPrice: 180,
+      currentPrice: 183,
       ma200: 160,
       adx: 30,
       plusDI: 25,
@@ -41,7 +41,7 @@ function makeCandidate(overrides: Partial<ScanCandidate> = {}): ScanCandidate {
     },
     entryTrigger: 182,
     stopPrice: 175,
-    distancePercent: 1.1,
+    distancePercent: -0.55,
     status: 'READY',
     rankScore: 75,
     passesAllFilters: true,
@@ -91,6 +91,19 @@ describe('candidate-grade: A_GRADE_BUY', () => {
     expect(result.reason).toContain('Trigger met');
   });
 
+  it('READY but price below entryTrigger → B_GRADE_WATCH (breakout not confirmed)', () => {
+    // Regression guard for F-1: anticipatory READY entries must not auto-trade.
+    // Documented spec is breakout-confirmed; un-triggered READY is watchlist-only.
+    const result = classifyCandidate(
+      makeCandidate({ price: 180, entryTrigger: 182, status: 'READY' }),
+      BULLISH_GREEN,
+    );
+    expect(result.grade).toBe('B_GRADE_WATCH');
+    const statusCheck = result.checks.find(c => c.name === 'status');
+    expect(statusCheck?.passed).toBe(false);
+    expect(statusCheck?.detail).toContain('breakout not yet confirmed');
+  });
+
   it('checks include all required fields', () => {
     const result = classifyCandidate(makeCandidate(), BULLISH_GREEN);
     const checkNames = result.checks.map(c => c.name);
@@ -137,8 +150,9 @@ describe('candidate-grade: B_GRADE_WATCH', () => {
   });
 
   it('WATCH status → B_GRADE_WATCH', () => {
+    // WATCH = >2% but ≤3% from trigger — by construction price < entryTrigger.
     const result = classifyCandidate(
-      makeCandidate({ status: 'WATCH' }),
+      makeCandidate({ status: 'WATCH', price: 180, entryTrigger: 184 }),
       BULLISH_GREEN,
     );
     expect(result.grade).toBe('B_GRADE_WATCH');
@@ -296,7 +310,7 @@ describe('candidate-grade: batch', () => {
   it('classifyCandidates returns grade for each candidate', () => {
     const candidates = [
       makeCandidate({ ticker: 'AAPL' }),
-      makeCandidate({ ticker: 'GOOG', status: 'WATCH' }),
+      makeCandidate({ ticker: 'GOOG', status: 'WATCH', price: 180, entryTrigger: 184 }),
       makeCandidate({ ticker: 'TSLA', status: 'EARNINGS_BLOCK' }),
     ];
     const results = classifyCandidates(candidates, BULLISH_GREEN);

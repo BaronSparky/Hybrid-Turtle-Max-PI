@@ -695,7 +695,7 @@ async function closePosition(
   const { exitPrice, confidence, matchedOrder } = determineExitPrice(candidate, orderHistory);
 
   // 2. Determine exit reason
-  const exitReason = determineExitReason(exitPrice, candidate.currentStop);
+  const exitReason = determineExitReason(exitPrice, candidate.currentStop, matchedOrder);
 
   // 3. Calculate P&L — prefer T212's own walletImpact if available
   let realisedPnlGbp: number;
@@ -728,12 +728,12 @@ async function closePosition(
       netValueGbp = totalNetValue > 0 ? totalNetValue : null;
     } else {
       // Fills present but no walletImpact — fallback to manual calc
-      const fxRate = await getCloseFxRate(candidate.ticker, candidate.stockCurrency);
+      const fxRate = await getCloseFxRateSafe(candidate);
       realisedPnlGbp = (exitPrice - candidate.entryPrice) * candidate.shares * fxRate;
     }
   } else {
     // No fills data — use manual calculation
-    const fxRate = await getCloseFxRate(candidate.ticker, candidate.stockCurrency);
+    const fxRate = await getCloseFxRateSafe(candidate);
     realisedPnlGbp = (exitPrice - candidate.entryPrice) * candidate.shares * fxRate;
   }
 
@@ -885,7 +885,31 @@ function determineExitPrice(
 
 // ── Exit Reason Determination ────────────────────────────────────────
 
-function determineExitReason(exitPrice: number, currentStop: number): string {
+/**
+ * Classify how a position closed.
+ *
+ * Preference order:
+ *   1. If we matched a T212 historical order, use broker metadata. A stop
+ *      order always has `stopPrice` set; a market order does not. This is
+ *      authoritative regardless of any drift between DB.currentStop and the
+ *      broker stop (the F-2 audit finding — DB_LOWER drift could otherwise
+ *      misclassify a real STOP_HIT as MANUAL_SALE).
+ *   2. If we have no matched order (defensive fallback only), use the legacy
+ *      price-vs-DB-stop heuristic. This path is intentionally narrow because
+ *      it is the one that drifts when DB and broker stops disagree.
+ */
+function determineExitReason(
+  exitPrice: number,
+  currentStop: number,
+  matchedOrder?: T212HistoricalOrder | null,
+): string {
+  if (matchedOrder) {
+    // Broker metadata is authoritative. T212 sets `stopPrice` on stop orders
+    // (including stop-loss) and leaves it undefined for market/limit orders.
+    return matchedOrder.stopPrice != null ? 'STOP_HIT' : 'MANUAL_SALE';
+  }
+  // Fallback: price-vs-stop heuristic. Only reachable when we cannot match
+  // the closing order to a T212 history record (rare).
   if (exitPrice <= currentStop) {
     return 'STOP_HIT';
   }
@@ -909,7 +933,65 @@ async function getCloseFxRate(ticker: string, stockCurrency: string | null): Pro
   }
   return getFXRate(currency, 'GBP');
 }
+/**
+ * F-4: Closure-safe FX lookup. Never throws — guarantees the closure transaction
+ * can complete so the DB stays in sync with T212 even when Yahoo FX is down.
+ *
+ * Fallback chain on getFXRate failure:
+ *   1. Read the entry TradeLog's `fxRateAtFill` for this position. Slightly
+ *      stale (weeks/months old) but reflects a real rate this position used.
+ *   2. Hardcoded recent-baseline rate for the currency. Last-resort so the
+ *      closure doesn't fail; P&L will be approximate. Alerts CRITICAL so the
+ *      operator reviews realisedPnlGbp before relying on it.
+ */
+async function getCloseFxRateSafe(candidate: ClosureCandidate): Promise<number> {
+  try {
+    return await getCloseFxRate(candidate.ticker, candidate.stockCurrency);
+  } catch (err) {
+    const liveErrMsg = err instanceof Error ? err.message : String(err);
+    const currency = (candidate.stockCurrency || 'USD').toUpperCase();
 
+    // Tier 1: reuse the entry-side FX rate from this position's ENTRY tradelog.
+    const entryLog = await prisma.tradeLog.findFirst({
+      where: { positionId: candidate.positionId, tradeType: 'ENTRY' },
+      select: { fxRateAtFill: true },
+      orderBy: { createdAt: 'asc' },
+    }).catch(() => null);
+
+    if (entryLog?.fxRateAtFill != null && entryLog.fxRateAtFill > 0) {
+      await sendAlert({
+        type: 'BROKER_SYNC_FAILURE',
+        title: `FX fallback (entry rate) used closing ${candidate.ticker}`,
+        message: `Live FX (${currency}→GBP) failed: ${liveErrMsg}. Reused entry-time rate ${entryLog.fxRateAtFill.toFixed(4)} for ${candidate.ticker}. realisedPnlGbp may be off by intervening FX drift.`,
+        priority: 'WARNING',
+        data: { ticker: candidate.ticker, positionId: candidate.positionId, currency, fxRate: entryLog.fxRateAtFill, source: 'entryTradeLog' },
+        notificationDedupeKey: `fx-fallback:${candidate.positionId}`,
+      }).catch(() => {});
+      return entryLog.fxRateAtFill;
+    }
+
+    // Tier 2: hardcoded baseline. Last resort — alert CRITICAL.
+    // Rates as of 2026 calibration; intentionally approximate.
+    const BASELINE: Record<string, number> = {
+      USD: 0.79,
+      EUR: 0.85,
+      CAD: 0.58,
+      AUD: 0.52,
+      CHF: 0.89,
+      JPY: 0.0053,
+    };
+    const fallback = BASELINE[currency] ?? 1;
+    await sendAlert({
+      type: 'BROKER_SYNC_FAILURE',
+      title: `⚠️ FX BASELINE FALLBACK used closing ${candidate.ticker}`,
+      message: `Live FX (${currency}→GBP) failed: ${liveErrMsg}. No entry-tradelog rate available. Used hardcoded baseline ${fallback} for ${candidate.ticker}. **Verify realisedPnlGbp manually — closure proceeded so DB stays in sync with T212.**`,
+      priority: 'CRITICAL',
+      data: { ticker: candidate.ticker, positionId: candidate.positionId, currency, fxRate: fallback, source: 'baseline' },
+      notificationDedupeKey: `fx-baseline:${candidate.positionId}`,
+    }).catch(() => {});
+    return fallback;
+  }
+}
 // ── Notifications ────────────────────────────────────────────────────
 
 async function sendClosureNotifications(
