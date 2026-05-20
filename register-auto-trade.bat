@@ -73,12 +73,12 @@ if %errorlevel% equ 0 (
     echo         FAILED — could not create scan task
 )
 
-:: ── UK Entries (08:15) ──
-echo  [2/4] Registering UK entries (08:15)...
+:: ── UK Entries (08:20 — 5 min after open to avoid Yahoo rate limits at 08:15) ──
+echo  [2/4] Registering UK entries (08:20)...
 schtasks /Delete /TN "HybridTurtle-Trade-UK" /F >nul 2>&1
-schtasks /Create /TN "HybridTurtle-Trade-UK" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 08:15 /TR "\"%BAT%\" uk --scheduled" /RL HIGHEST /F >nul 2>&1
+schtasks /Create /TN "HybridTurtle-Trade-UK" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 08:20 /TR "\"%BAT%\" uk --scheduled" /RL HIGHEST /F >nul 2>&1
 if %errorlevel% equ 0 (
-    echo         OK — HybridTurtle-Trade-UK at 08:15
+    echo         OK — HybridTurtle-Trade-UK at 08:20
 ) else (
     echo         FAILED — could not create UK trade task
 )

@@ -12,10 +12,13 @@
 export const YAHOO_RETRY_ENABLED = true;
 
 /** Max retry attempts (total calls = MAX_RETRIES + 1) */
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 5;
 
-/** Base delay in ms — doubles each attempt: 1s → 2s → 4s */
+/** Base delay in ms — doubles each attempt: 1s → 2s → 4s → 8s → 16s */
 const BASE_DELAY_MS = 1000;
+
+/** Max delay cap in ms — prevents runaway waits on later attempts */
+const MAX_DELAY_MS = 15_000;
 
 /**
  * Check if an error is transient and worth retrying.
@@ -69,7 +72,9 @@ export async function withRetry<T>(
         throw error;
       }
 
-      const delay = BASE_DELAY_MS * Math.pow(2, attempt); // 1s, 2s, 4s
+      const exponential = BASE_DELAY_MS * Math.pow(2, attempt);
+      const jitter = Math.floor(Math.random() * BASE_DELAY_MS);
+      const delay = Math.min(exponential + jitter, MAX_DELAY_MS); // 1-2s, 2-3s, 4-5s, 8-9s, 15s
       console.warn(
         `[Retry] ${label} — attempt ${attempt + 1}/${MAX_RETRIES} failed: ${(error as Error).message}. Retrying in ${delay}ms...`
       );
