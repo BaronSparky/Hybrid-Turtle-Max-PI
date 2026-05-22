@@ -174,17 +174,18 @@ function tickerToName(ticker: string): string {
 
 /**
  * Derive T212 ticker from the Yahoo/internal ticker when ticker_map.csv
- * has no explicit mapping. Covers ~99% of the universe:
- *   US tickers   → same symbol (AAPL → AAPL)
- *   .L / .AS / .ST → strip suffix (VUAG.L → VUAG)
- *   Other exchanges (.SW, .PA, .CO, .DE, .HE, .AX) → null (needs manual mapping)
+ * has no explicit mapping. Uses the T212 instrument format:
+ *   US tickers   → AAPL_US_EQ
+ *   .L (LSE)     → AZN_UK_EQ (strip .L, add _UK_EQ)
+ *   .AS (Amsterdam) → BESI_NL_EQ
+ *   .ST (Stockholm) → null (needs manual mapping via repair script)
+ *   Other exchanges → null
  */
 function deriveT212Ticker(ticker: string): string | null {
-  if (ticker.endsWith('.L')) return ticker.replace('.L', '');
-  if (ticker.endsWith('.AS')) return ticker.replace('.AS', '');
-  if (ticker.endsWith('.ST')) return ticker.replace('.ST', '');
-  if (/\.[A-Z]{1,2}$/.test(ticker)) return null; // other exchanges — skip
-  return ticker; // US ticker
+  if (ticker.endsWith('.L')) return ticker.replace('.L', '') + '_UK_EQ';
+  if (ticker.endsWith('.AS')) return ticker.replace('.AS', '') + '_NL_EQ';
+  if (/\.[A-Z]{1,2}$/.test(ticker)) return null; // other exchanges — needs repair script
+  return ticker + '_US_EQ'; // US ticker
 }
 
 async function main() {
