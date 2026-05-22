@@ -172,6 +172,21 @@ function tickerToName(ticker: string): string {
     .toUpperCase();
 }
 
+/**
+ * Derive T212 ticker from the Yahoo/internal ticker when ticker_map.csv
+ * has no explicit mapping. Covers ~99% of the universe:
+ *   US tickers   → same symbol (AAPL → AAPL)
+ *   .L / .AS / .ST → strip suffix (VUAG.L → VUAG)
+ *   Other exchanges (.SW, .PA, .CO, .DE, .HE, .AX) → null (needs manual mapping)
+ */
+function deriveT212Ticker(ticker: string): string | null {
+  if (ticker.endsWith('.L')) return ticker.replace('.L', '');
+  if (ticker.endsWith('.AS')) return ticker.replace('.AS', '');
+  if (ticker.endsWith('.ST')) return ticker.replace('.ST', '');
+  if (/\.[A-Z]{1,2}$/.test(ticker)) return null; // other exchanges — skip
+  return ticker; // US ticker
+}
+
 async function main() {
   console.log('🐢 HybridTurtle Stock Universe Seed');
   console.log('───────────────────────────────────');
@@ -264,7 +279,7 @@ async function main() {
       superCluster: findInMap(superClusterMap, ticker),
       region: region?.region || null,
       currency: region?.currency || null,
-      t212Ticker: assertValidT212TickerOrNull(findInMap(tickerMap, ticker), `seed:CORE:${ticker}`),
+      t212Ticker: assertValidT212TickerOrNull(findInMap(tickerMap, ticker) ?? deriveT212Ticker(ticker), `seed:CORE:${ticker}`),
     });
   }
 
@@ -281,7 +296,7 @@ async function main() {
       superCluster: findInMap(superClusterMap, ticker),
       region: region?.region || 'ETF',
       currency: region?.currency || null,
-      t212Ticker: assertValidT212TickerOrNull(findInMap(tickerMap, ticker), `seed:ETF:${ticker}`),
+      t212Ticker: assertValidT212TickerOrNull(findInMap(tickerMap, ticker) ?? deriveT212Ticker(ticker), `seed:ETF:${ticker}`),
     });
   }
 
@@ -298,7 +313,7 @@ async function main() {
       superCluster: findInMap(superClusterMap, ticker),
       region: region?.region || null,
       currency: region?.currency || null,
-      t212Ticker: assertValidT212TickerOrNull(findInMap(tickerMap, ticker), `seed:HIGH_RISK:${ticker}`),
+      t212Ticker: assertValidT212TickerOrNull(findInMap(tickerMap, ticker) ?? deriveT212Ticker(ticker), `seed:HIGH_RISK:${ticker}`),
     });
   }
 
@@ -315,7 +330,7 @@ async function main() {
       superCluster: findInMap(superClusterMap, ticker),
       region: region?.region || null,
       currency: region?.currency || null,
-      t212Ticker: assertValidT212TickerOrNull(findInMap(tickerMap, ticker), `seed:HEDGE:${ticker}`),
+      t212Ticker: assertValidT212TickerOrNull(findInMap(tickerMap, ticker) ?? deriveT212Ticker(ticker), `seed:HEDGE:${ticker}`),
     });
   }
 
