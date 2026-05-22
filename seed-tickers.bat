@@ -60,7 +60,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo  [2/2] Seeding database with ticker data...
+echo  [2/3] Seeding database with ticker data...
 echo.
 call npx prisma db seed
 if errorlevel 1 (
@@ -68,6 +68,24 @@ if errorlevel 1 (
     echo  [ERROR] Seed failed. Check the error above.
     pause
     exit /b 1
+)
+
+echo.
+echo  [3/3] Repairing T212 ticker mappings from live API...
+echo.
+echo  This queries Trading 212's instruments API to map exact
+echo  instrument IDs (e.g. AAPL_US_EQ). Requires a T212 account
+echo  to be connected in Settings. Skipping is OK — the seed
+echo  provides best-guess mappings that cover most stocks.
+echo.
+call npx tsx scripts/repair-t212-tickers-from-instruments.ts --refresh-cache --apply 2>&1
+if errorlevel 1 (
+    echo.
+    echo  [NOTE] T212 repair skipped or failed. This is OK if you
+    echo  haven't connected a Trading 212 account yet. You can run
+    echo  this step later with:
+    echo    npx tsx scripts/repair-t212-tickers-from-instruments.ts --refresh-cache --apply
+    echo.
 )
 
 echo.
