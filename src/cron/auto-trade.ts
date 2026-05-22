@@ -51,7 +51,7 @@ import { sendAlert } from '@/lib/alert-service';
 import { assertSubmissionAllowed, SafetyControlError, isAutoTradingEnabled } from '../../packages/workflow/src';
 import { getBatchPrices, normalizeBatchPricesToGBP, getFXRate, getMarketRegime } from '@/lib/market-data';
 import { fetchT212LivePrices } from '@/lib/position-sync';
-import { classifyCandidate, type GradingContext, type CandidateGrade } from '@/lib/candidate-grade';
+import { classifyCandidate, DEFAULT_GRADE_THRESHOLDS, type GradingContext, type CandidateGrade, type GradeThresholds } from '@/lib/candidate-grade';
 import { getLatestScoresByTicker } from '@/lib/score-lookup';
 import { RISK_PROFILES, type RiskProfileType, type Sleeve, type MarketRegime, OPERATING_MODES, type OperatingMode } from '@/types';
 import { decryptField } from '@/lib/crypto';
@@ -974,6 +974,13 @@ async function runAutoTrade(session: Session) {
     return new Map<string, ReturnType<typeof Map.prototype.get>>() as Map<string, never>;
   });
 
+  // Session-specific volume threshold: us-close runs at 15:30 ET when ~80% of
+  // daily volume has traded — a 0.6 ratio at that point represents strong
+  // participation. Earlier sessions keep the stricter 0.8 default.
+  const sessionThresholds: GradeThresholds = session === 'us-close'
+    ? { ...DEFAULT_GRADE_THRESHOLDS, minVolumeRatio: 0.6 }
+    : DEFAULT_GRADE_THRESHOLDS;
+
   // Classify each candidate with its own NCS/FWS/BQS
   const gradedCandidates = sessionCandidates.map(c => {
     const scores = scoresByTicker.get(c.ticker);
@@ -982,7 +989,7 @@ async function runAutoTrade(session: Session) {
       : gradingCtx;
     return {
       ...c,
-      classification: classifyCandidate(c, candidateCtx),
+      classification: classifyCandidate(c, candidateCtx, sessionThresholds),
     };
   });
 

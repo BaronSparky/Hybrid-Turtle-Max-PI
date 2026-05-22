@@ -52,6 +52,15 @@ export interface GradeThresholds {
   minVolumeRatio: number;
   /** Minimum relative strength for A-grade (default 0) */
   minRelativeStrength: number;
+  /**
+   * Near-trigger allowance: max % gap below entry trigger that still qualifies
+   * for A-grade when scores are exceptionally strong. Compensates for discrete
+   * scan windows missing intraday breakouts. Default 1.0%.
+   */
+  nearTriggerMaxGap: number;
+  /** Elevated NCS bar for near-trigger A-grade (default 80). Higher than the
+   *  standard minNCS to offset the risk of entering before confirmed breakout. */
+  nearTriggerMinNCS: number;
 }
 
 export const DEFAULT_GRADE_THRESHOLDS: GradeThresholds = {
@@ -60,6 +69,8 @@ export const DEFAULT_GRADE_THRESHOLDS: GradeThresholds = {
   minBQS: 55,
   minVolumeRatio: 0.8,
   minRelativeStrength: 0,
+  nearTriggerMaxGap: 1.0,
+  nearTriggerMinNCS: 80,
 };
 
 // ── Context required for grading ────────────────────────────
@@ -283,13 +294,28 @@ export function classifyCandidate(
 
   // ── Grade decision ──
 
-  const aGradeChecks = passesAllFilters && isTriggerMet &&
+  // Near-trigger allowance: if price is within nearTriggerMaxGap% of the entry
+  // trigger AND scores are exceptionally strong (NCS >= nearTriggerMinNCS), treat
+  // as triggered. This compensates for discrete scan windows (3-4× daily) missing
+  // intraday breakouts by a fraction of a percent.
+  const triggerGapPct = candidate.entryTrigger > 0
+    ? ((candidate.entryTrigger - candidate.price) / candidate.price) * 100
+    : 100;
+  const isNearTrigger = !isTriggerMet && isReady
+    && triggerGapPct <= thresholds.nearTriggerMaxGap
+    && ncs >= thresholds.nearTriggerMinNCS;
+  const effectiveTriggerMet = isTriggerMet || isNearTrigger;
+
+  const aGradeChecks = passesAllFilters && effectiveTriggerMet &&
     ncsOk && fwsOk && bqsOk && volOk && rsOk && !atrSpiking;
 
   if (aGradeChecks) {
+    const triggerNote = isNearTrigger
+      ? `Near-trigger entry — ${triggerGapPct.toFixed(2)}% below trigger, scores exceptional (NCS ${ncs.toFixed(0)}).`
+      : `Trigger met — price at or above entry.`;
     return {
       grade: 'A_GRADE_BUY',
-      reason: `Trigger met — price at or above entry. All filters pass, scores strong (NCS ${ncs.toFixed(0)}, BQS ${bqs.toFixed(0)}, FWS ${fws.toFixed(0)}), volume confirmed.`,
+      reason: `${triggerNote} All filters pass, scores strong (NCS ${ncs.toFixed(0)}, BQS ${bqs.toFixed(0)}, FWS ${fws.toFixed(0)}), volume confirmed.`,
       checks,
     };
   }

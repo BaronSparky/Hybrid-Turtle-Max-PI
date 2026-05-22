@@ -170,4 +170,14 @@ Each entry uses this shape (newest at top of the History section):
 - Tests: `execution-mode.test.ts` weekday matrix expanded; auto-trade integration tests still pass.
 - Author: RPI agent (cycle 1)
 
+### 2026-05-22 — auto-trade.ts + candidate-grade.ts: near-trigger A-grade + session volume thresholds
+- File(s): `src/cron/auto-trade.ts`, `src/lib/candidate-grade.ts`
+- Why: System had **never** auto-traded — 0 execution logs, 0 A-grades ever recorded. Root cause: A-grade required `price >= entryTrigger` (20-day high + ATR buffer) but scans run only 3-4× daily, consistently missing intraday breakouts by <1%. Additionally, volume ratio threshold of 0.8 was unreachable at the 14:45 scan (09:45 ET, ~10% of daily volume).
+- Changes:
+  - **Near-trigger allowance** (candidate-grade.ts): READY candidates within 1% of trigger (`nearTriggerMaxGap: 1.0`) with NCS ≥ 80 (`nearTriggerMinNCS: 80`, elevated from standard 70) now qualify for A_GRADE_BUY. All other checks (filters, FWS ≤ 30, BQS ≥ 55, volume, RS, ATR) still required. Standard trigger-met path unchanged.
+  - **Session volume threshold** (auto-trade.ts): `us-close` session uses `minVolumeRatio: 0.6` (vs default 0.8). By 15:30 ET ~80% of daily volume has traded; 0.6 ratio at that point represents strong participation. Earlier sessions keep 0.8.
+- Behaviour preserved: All hard blocks (regime, health, earnings, risk gates, anti-chase, cooldown) unchanged. Stop management, position sizing, execution flow untouched. The near-trigger path raises the NCS bar from 70→80 to offset pre-breakout entry risk.
+- Tests: 37/37 candidate-grade tests pass (3 new: near-trigger A-grade, near-trigger NCS<80 → B, gap>1% → B). No auto-trade test changes needed — call signature preserved.
+- Author: Copilot CLI agent
+
 <!-- Append new entries above this line. Never edit historical entries; supersede with a new entry that explains the change in understanding. -->
