@@ -414,12 +414,20 @@ schtasks /Create /TN "HybridTurtle-Scan" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 2
 echo         Evening scan: 20:00 Mon-Fri
 
 schtasks /Delete /TN "HybridTurtle-Trade-UK" /F >> "%LOG%" 2>&1
-schtasks /Create /TN "HybridTurtle-Trade-UK" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 08:15 /TR "\"%AT_BAT%\" uk --scheduled" /RL HIGHEST /F >> "%LOG%" 2>&1
-echo         UK entries: 08:15 Mon-Fri
+schtasks /Create /TN "HybridTurtle-Trade-UK" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 08:20 /TR "\"%AT_BAT%\" uk --scheduled" /RL HIGHEST /F >> "%LOG%" 2>&1
+echo         UK open: 08:20 Mon-Fri
+
+schtasks /Delete /TN "HybridTurtle-Trade-UKM" /F >> "%LOG%" 2>&1
+schtasks /Create /TN "HybridTurtle-Trade-UKM" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 10:30 /TR "\"%AT_BAT%\" uk-mid --scheduled" /RL HIGHEST /F >> "%LOG%" 2>&1
+echo         UK mid-morning: 10:30 Mon-Fri
 
 schtasks /Delete /TN "HybridTurtle-Trade-US" /F >> "%LOG%" 2>&1
 schtasks /Create /TN "HybridTurtle-Trade-US" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 14:45 /TR "\"%AT_BAT%\" us --scheduled" /RL HIGHEST /F >> "%LOG%" 2>&1
-echo         US entries: 14:45 Mon-Fri
+echo         US open: 14:45 Mon-Fri
+
+schtasks /Delete /TN "HybridTurtle-Trade-USM" /F >> "%LOG%" 2>&1
+schtasks /Create /TN "HybridTurtle-Trade-USM" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 17:00 /TR "\"%AT_BAT%\" us-mid --scheduled" /RL HIGHEST /F >> "%LOG%" 2>&1
+echo         US midday: 17:00 Mon-Fri
 
 schtasks /Delete /TN "HybridTurtle-Trade-USC" /F >> "%LOG%" 2>&1
 schtasks /Create /TN "HybridTurtle-Trade-USC" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 20:30 /TR "\"%AT_BAT%\" us-close --scheduled" /RL HIGHEST /F >> "%LOG%" 2>&1
@@ -467,6 +475,11 @@ set "TA_BAT=%~dp0ticker-audit-task.bat"
 schtasks /Delete /TN "HybridTurtle-TickerAudit" /F >> "%LOG%" 2>&1
 schtasks /Create /TN "HybridTurtle-TickerAudit" /SC MONTHLY /D 1 /ST 06:00 /TR "\"%TA_BAT%\" --scheduled" /RL HIGHEST /F >> "%LOG%" 2>&1
 echo         Ticker audit: 06:00 1st+15th monthly
+
+set "RR_BAT=%~dp0research-refresh-task.bat"
+schtasks /Delete /TN "HybridTurtle-ResearchRefresh" /F >> "%LOG%" 2>&1
+schtasks /Create /TN "HybridTurtle-ResearchRefresh" /SC DAILY /ST 23:00 /TR "\"%RR_BAT%\" --scheduled" /RL HIGHEST /F >> "%LOG%" 2>&1
+echo         Research refresh: 23:00 daily
 
 >> "%LOG%" echo [%date% %time%] Auto-trade + briefing scheduled tasks created
 
