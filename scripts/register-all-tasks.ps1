@@ -38,7 +38,9 @@ Set-Location $repoRoot
 $script:TaskTimeLimits = @{
   'HybridTurtle-Scan'        = 'PT20M'
   'HybridTurtle-Trade-UK'    = 'PT20M'
+  'HybridTurtle-Trade-UKM'   = 'PT20M'
   'HybridTurtle-Trade-US'    = 'PT20M'
+  'HybridTurtle-Trade-USM'   = 'PT20M'
   'HybridTurtle-Trade-USC'   = 'PT20M'
   'HybridTurtle Nightly'     = 'PT45M'
   'HybridTurtle Midday Sync' = 'PT15M'
@@ -123,7 +125,9 @@ $taskNames = @(
   'HybridTurtle Midday Sync',
   'HybridTurtle-Scan',
   'HybridTurtle-Trade-UK',
+  'HybridTurtle-Trade-UKM',
   'HybridTurtle-Trade-US',
+  'HybridTurtle-Trade-USM',
   'HybridTurtle-Trade-USC',
   'HybridTurtle-HourlyStatus',
   'HybridTurtle-MondayBriefing',

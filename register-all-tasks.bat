@@ -7,7 +7,7 @@
 ::   1. HybridTurtle Nightly        (21:10)
 ::   2. HybridTurtle Watchdog       (every 15 min)
 ::   3. HybridTurtle Midday Sync    (13:30)
-::   4. Auto-Trade family           (Scan / UK / US / USC / HourlyStatus)
+::   4. Auto-Trade family           (Scan / UK / UKM / US / USM / USC / HourlyStatus)
 ::   5. Weekly + Daily extras       (Monday/UK/US Briefings, WeeklyDigest,
 ::                                   TickerAudit, ResearchRefresh)
 ::
