@@ -31,7 +31,7 @@ export const EXPECTED_TASKS = [
   { name: 'HybridTurtle-USBriefing', requiredPath: 'us-briefing-task.bat', registerScript: 'scripts/register-weekly-tasks.ps1', expectedTimeLimit: 'PT10M' },
   { name: 'HybridTurtle-WeeklyDigest', requiredPath: 'weekly-digest-task.bat', registerScript: 'scripts/register-weekly-tasks.ps1', expectedTimeLimit: 'PT10M' },
   { name: 'HybridTurtle-TickerAudit', requiredPath: 'ticker-audit-task.bat', registerScript: 'scripts/register-weekly-tasks.ps1', expectedTimeLimit: 'PT10M' },
-  { name: 'HybridTurtle-ResearchRefresh', requiredPath: 'research-refresh-task.bat', requiredArgument: '--scheduled', registerScript: 'scripts/register-weekly-tasks.ps1', expectedTimeLimit: 'PT10M' },
+  { name: 'HybridTurtle-ResearchRefresh', requiredPath: 'research-refresh-task.bat', requiredArgument: '--scheduled', registerScript: 'scripts/register-weekly-tasks.ps1', expectedTimeLimit: 'PT20M' },
 ];
 
 export const RETIRED_TASKS = [
