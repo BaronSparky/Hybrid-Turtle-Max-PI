@@ -28,6 +28,20 @@ Each entry uses this shape (newest at top of the History section):
 ```
 
 ## History
+
+### 2026-05-26 — complete — Add uk-mid + us-mid sessions, per-session volume thresholds
+
+- File(s):
+  - `src/cron/auto-trade.ts` — Added `uk-mid` and `us-mid` to `Session` type and `SESSION_CONFIGS`. Added `minVolumeRatio` to `SessionConfig` interface. Volume thresholds: uk=0.15, uk-mid=0.5, us=0.15, us-mid=0.6, us-close=0.4, scan=0.8. Updated `isStockForSession` to handle `uk-mid` (same as `uk` — `.L` stocks only). Updated early-close gate to also skip `us-mid`. Updated header docs and error messages.
+- Why: Volume ratio at session times was physically unreachable — uk at 08:20 saw 0.03–0.21 (threshold 0.8), us at 14:45 saw 0.03–0.17 (threshold 0.8), us-close at 20:30 saw 0.30–0.60 (threshold 0.6). System had never executed a trade because of this. Mid-day sessions give a second chance with higher volume. Early sessions use low thresholds to catch open breakouts.
+- Behaviour preserved:
+  - All safety gates unchanged (kill switch, regime, health, risk gates, earnings deferral, max trades per session)
+  - Position sizing, stop placement, execution logic untouched
+  - Existing sessions (uk, us, us-close, scan) retain same sleeves and market filtering
+  - Scan session still never trades
+- Tests: auto-trade.test.ts updated with uk-mid and us-mid session filtering tests
+- Author: Copilot (2026-05-26)
+
 ### 2026-05-18 — pending — ORACLE AUDIT remediation: F-3 trailing-stop level preservation
 
 - File(s):

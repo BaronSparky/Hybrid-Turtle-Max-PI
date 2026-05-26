@@ -7,9 +7,11 @@
 ::
 :: Sessions:
 ::   scan     — Evening scan only (no trades)
-::   uk       — UK/EU entries (08:15)
+::   uk       — UK/EU entries (08:20)
+::   uk-mid   — UK/EU entries (10:30)
 ::   us       — US entries (14:45)
-::   us-close — US near-close entries (20:00–20:45)
+::   us-mid   — US entries (17:00)
+::   us-close — US near-close entries (20:30)
 ::
 :: Usage:
 ::   auto-trade-task.bat scan

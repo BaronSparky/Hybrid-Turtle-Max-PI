@@ -34,13 +34,15 @@ echo  ==========================================================
 echo   HybridTurtle — Register Auto-Trade Tasks
 echo  ==========================================================
 echo.
-echo   This will create 5 Windows Scheduled Tasks:
+echo   This will create 7 Windows Scheduled Tasks:
 echo.
 echo     1. HybridTurtle-Scan         20:00 Mon-Fri  (evening scan)
-echo     2. HybridTurtle-Trade-UK     08:15 Mon-Fri  (UK/EU entries)
-echo     3. HybridTurtle-Trade-US     14:45 Mon-Fri  (US entries)
-echo     4. HybridTurtle-Trade-USC    20:30 Mon-Fri  (US near-close)
-echo     5. HybridTurtle-HourlyStatus hourly Mon-Fri (Telegram updates)
+echo     2. HybridTurtle-Trade-UK     08:20 Mon-Fri  (UK/EU open)
+echo     3. HybridTurtle-Trade-UKM    10:30 Mon-Fri  (UK/EU mid-morning)
+echo     4. HybridTurtle-Trade-US     14:45 Mon-Fri  (US open)
+echo     5. HybridTurtle-Trade-USM    17:00 Mon-Fri  (US midday)
+echo     6. HybridTurtle-Trade-USC    20:30 Mon-Fri  (US near-close)
+echo     7. HybridTurtle-HourlyStatus hourly Mon-Fri (Telegram updates)
 echo.
 echo   Requirements:
 echo     - ENABLE_AUTO_TRADING=true in .env
@@ -74,7 +76,7 @@ if %errorlevel% equ 0 (
 )
 
 :: ── UK Entries (08:20 — 5 min after open to avoid Yahoo rate limits at 08:15) ──
-echo  [2/4] Registering UK entries (08:20)...
+echo  [2/7] Registering UK entries (08:20)...
 schtasks /Delete /TN "HybridTurtle-Trade-UK" /F >nul 2>&1
 schtasks /Create /TN "HybridTurtle-Trade-UK" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 08:20 /TR "\"%BAT%\" uk --scheduled" /RL HIGHEST /F >nul 2>&1
 if %errorlevel% equ 0 (
@@ -83,8 +85,18 @@ if %errorlevel% equ 0 (
     echo         FAILED — could not create UK trade task
 )
 
+:: ── UK Mid-Morning (10:30) ──
+echo  [3/7] Registering UK mid-morning (10:30)...
+schtasks /Delete /TN "HybridTurtle-Trade-UKM" /F >nul 2>&1
+schtasks /Create /TN "HybridTurtle-Trade-UKM" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 10:30 /TR "\"%BAT%\" uk-mid --scheduled" /RL HIGHEST /F >nul 2>&1
+if %errorlevel% equ 0 (
+    echo         OK — HybridTurtle-Trade-UKM at 10:30
+) else (
+    echo         FAILED — could not create UK mid-morning task
+)
+
 :: ── US Entries (14:45) ──
-echo  [3/4] Registering US entries (14:45)...
+echo  [4/7] Registering US entries (14:45)...
 schtasks /Delete /TN "HybridTurtle-Trade-US" /F >nul 2>&1
 schtasks /Create /TN "HybridTurtle-Trade-US" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 14:45 /TR "\"%BAT%\" us --scheduled" /RL HIGHEST /F >nul 2>&1
 if %errorlevel% equ 0 (
@@ -93,8 +105,18 @@ if %errorlevel% equ 0 (
     echo         FAILED — could not create US trade task
 )
 
+:: ── US Midday (17:00) ──
+echo  [5/7] Registering US midday (17:00)...
+schtasks /Delete /TN "HybridTurtle-Trade-USM" /F >nul 2>&1
+schtasks /Create /TN "HybridTurtle-Trade-USM" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 17:00 /TR "\"%BAT%\" us-mid --scheduled" /RL HIGHEST /F >nul 2>&1
+if %errorlevel% equ 0 (
+    echo         OK — HybridTurtle-Trade-USM at 17:00
+) else (
+    echo         FAILED — could not create US midday task
+)
+
 :: ── US Near-Close (20:30) ──
-echo  [4/5] Registering US near-close (20:30)...
+echo  [6/7] Registering US near-close (20:30)...
 schtasks /Delete /TN "HybridTurtle-Trade-USC" /F >nul 2>&1
 schtasks /Create /TN "HybridTurtle-Trade-USC" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 20:30 /TR "\"%BAT%\" us-close --scheduled" /RL HIGHEST /F >nul 2>&1
 if %errorlevel% equ 0 (
@@ -104,7 +126,7 @@ if %errorlevel% equ 0 (
 )
 
 :: ── Hourly Status (every hour during market hours) ──
-echo  [5/5] Registering hourly Telegram status...
+echo  [7/7] Registering hourly Telegram status...
 set "HS_BAT=%SCRIPT_DIR%hourly-status-task.bat"
 schtasks /Delete /TN "HybridTurtle-HourlyStatus" /F >nul 2>&1
 schtasks /Create /TN "HybridTurtle-HourlyStatus" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 08:00 /RI 60 /DU 13:00 /TR "\"%HS_BAT%\" --scheduled" /RL HIGHEST /F >nul 2>&1

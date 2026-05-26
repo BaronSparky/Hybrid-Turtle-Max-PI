@@ -14,12 +14,14 @@ function isStockForSession(ticker: string, sleeve: string, session: string): boo
   if (session === 'scan') return false;
   const sessionSleeves: Record<string, string[]> = {
     uk: ['CORE', 'ETF'],
+    'uk-mid': ['CORE', 'ETF'],
     us: ['CORE', 'HIGH_RISK', 'ETF'],
+    'us-mid': ['CORE', 'HIGH_RISK', 'ETF'],
     'us-close': ['CORE', 'HIGH_RISK', 'ETF'],
   };
   const sleeves = sessionSleeves[session];
   if (!sleeves || !sleeves.includes(sleeve)) return false;
-  if (session === 'uk') return ticker.endsWith('.L');
+  if (session === 'uk' || session === 'uk-mid') return ticker.endsWith('.L');
   return !ticker.endsWith('.L');
 }
 
@@ -39,6 +41,20 @@ describe('auto-trade: session filtering', () => {
   it('US close session matches same as US session', () => {
     expect(isStockForSession('AAPL', 'CORE', 'us-close')).toBe(true);
     expect(isStockForSession('GSK.L', 'CORE', 'us-close')).toBe(false);
+  });
+
+  it('UK-mid session matches same as UK session', () => {
+    expect(isStockForSession('GSK.L', 'CORE', 'uk-mid')).toBe(true);
+    expect(isStockForSession('AAPL', 'CORE', 'uk-mid')).toBe(false);
+    expect(isStockForSession('VWRL.L', 'ETF', 'uk-mid')).toBe(true);
+    expect(isStockForSession('MSFT', 'HIGH_RISK', 'uk-mid')).toBe(false);
+  });
+
+  it('US-mid session matches same as US session', () => {
+    expect(isStockForSession('AAPL', 'CORE', 'us-mid')).toBe(true);
+    expect(isStockForSession('MSFT', 'HIGH_RISK', 'us-mid')).toBe(true);
+    expect(isStockForSession('SPY', 'ETF', 'us-mid')).toBe(true);
+    expect(isStockForSession('GSK.L', 'CORE', 'us-mid')).toBe(false);
   });
 
   it('scan session never returns true (no trades)', () => {
@@ -98,9 +114,11 @@ describe('auto-trade: safety configuration', () => {
   });
 
   it('session names are validated', () => {
-    const validSessions = ['uk', 'us', 'us-close', 'scan'];
+    const validSessions = ['uk', 'uk-mid', 'us', 'us-mid', 'us-close', 'scan'];
     expect(validSessions).toContain('uk');
+    expect(validSessions).toContain('uk-mid');
     expect(validSessions).toContain('us');
+    expect(validSessions).toContain('us-mid');
     expect(validSessions).toContain('us-close');
     expect(validSessions).toContain('scan');
     expect(validSessions).not.toContain('invalid');

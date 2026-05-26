@@ -17,9 +17,11 @@
  * Next.js dashboard running.
  *
  * Sessions (UK timezone):
- *   --session=uk       08:15 — UK/EU market entries
- *   --session=us       14:45 — US market entries (early)
- *   --session=us-close  20:00 — US market entries (near close)
+ *   --session=uk       08:20 — UK/EU market entries (open)
+ *   --session=uk-mid   10:30 — UK/EU market entries (mid-morning)
+ *   --session=us       14:45 — US market entries (open)
+ *   --session=us-mid   17:00 — US market entries (midday)
+ *   --session=us-close  20:30 — US market entries (near close)
  *   --session=scan     20:00 — Evening scan only (no trades)
  *
  * Safety:
@@ -34,7 +36,9 @@
  *
  * Usage:
  *   npx tsx src/cron/auto-trade.ts --session=uk
+ *   npx tsx src/cron/auto-trade.ts --session=uk-mid
  *   npx tsx src/cron/auto-trade.ts --session=us
+ *   npx tsx src/cron/auto-trade.ts --session=us-mid
  *   npx tsx src/cron/auto-trade.ts --session=us-close
  *   npx tsx src/cron/auto-trade.ts --session=scan
  */
@@ -141,19 +145,23 @@ export function realisedGateFootprint(
   };
 }
 
-type Session = 'uk' | 'us' | 'us-close' | 'scan';
+type Session = 'uk' | 'uk-mid' | 'us' | 'us-mid' | 'us-close' | 'scan';
 
 interface SessionConfig {
   name: string;
   sleeves: Sleeve[];
   description: string;
+  /** Volume ratio threshold for this session (overrides DEFAULT_GRADE_THRESHOLDS.minVolumeRatio) */
+  minVolumeRatio: number;
 }
 
 const SESSION_CONFIGS: Record<Session, SessionConfig> = {
-  uk: { name: 'UK/EU Morning', sleeves: ['CORE', 'ETF'], description: 'UK/EU entries (08:15)' },
-  us: { name: 'US Afternoon', sleeves: ['CORE', 'HIGH_RISK', 'ETF'], description: 'US entries (14:45)' },
-  'us-close': { name: 'US Near-Close', sleeves: ['CORE', 'HIGH_RISK', 'ETF'], description: 'US near-close entries (20:00)' },
-  scan: { name: 'Evening Scan', sleeves: [], description: 'Scan only — no trades' },
+  uk:        { name: 'UK/EU Morning',    sleeves: ['CORE', 'ETF'],                    description: 'UK/EU entries (08:20)',        minVolumeRatio: 0.15 },
+  'uk-mid':  { name: 'UK/EU Mid-Morning',sleeves: ['CORE', 'ETF'],                    description: 'UK/EU entries (10:30)',        minVolumeRatio: 0.5  },
+  us:        { name: 'US Afternoon',      sleeves: ['CORE', 'HIGH_RISK', 'ETF'],       description: 'US entries (14:45)',           minVolumeRatio: 0.15 },
+  'us-mid':  { name: 'US Midday',         sleeves: ['CORE', 'HIGH_RISK', 'ETF'],       description: 'US entries (17:00)',           minVolumeRatio: 0.6  },
+  'us-close':{ name: 'US Near-Close',     sleeves: ['CORE', 'HIGH_RISK', 'ETF'],       description: 'US near-close entries (20:30)',minVolumeRatio: 0.4  },
+  scan:      { name: 'Evening Scan',      sleeves: [],                                 description: 'Scan only — no trades',       minVolumeRatio: 0.8  },
 };
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -163,8 +171,8 @@ function isStockForSession(ticker: string, sleeve: string, session: Session): bo
   const config = SESSION_CONFIGS[session];
   if (!config.sleeves.includes(sleeve as Sleeve)) return false;
 
-  // UK session: only .L suffix stocks (LSE)
-  if (session === 'uk') return ticker.endsWith('.L');
+  // UK sessions: only .L suffix stocks (LSE)
+  if (session === 'uk' || session === 'uk-mid') return ticker.endsWith('.L');
   // US sessions: non-.L stocks
   return !ticker.endsWith('.L');
 }
@@ -819,12 +827,12 @@ async function runAutoTrade(session: Session) {
 
   // ── Gate 1b: Early-close half-day check (US sessions only) ──
   // On early-close days (Black Friday, Christmas Eve) the US market closes at 1pm ET (~6pm UK).
-  // The us-close session at 20:00 UK would trade after market close — skip it.
+  // The us-close and us-mid sessions would trade after market close on early-close days — skip them.
   const earlyClose = isEarlyCloseDay();
-  if (earlyClose && session === 'us-close') {
-    log.info('Early-close day — us-close session skipped', { closeTime: earlyClose });
-    console.log(`  Early-close day (${earlyClose} ET) — us-close session skipped.`);
-    await sendTelegramMessage({ text: `📅 Early-close day today (market closes ${earlyClose} ET). The us-close session is skipped — only UK and early US sessions will trade.` });
+  if (earlyClose && (session === 'us-close' || session === 'us-mid')) {
+    log.info('Early-close day — session skipped', { session, closeTime: earlyClose });
+    console.log(`  Early-close day (${earlyClose} ET) — ${session} session skipped.`);
+    await sendTelegramMessage({ text: `📅 Early-close day today (market closes ${earlyClose} ET). The ${session} session is skipped.` });
     await prisma.heartbeat.create({
       data: { kind: 'AUTO_TRADE', status: 'SKIPPED', details: JSON.stringify({ type: 'auto-trade', session, reason: 'early-close', closeTime: earlyClose }) },
     });
@@ -974,12 +982,12 @@ async function runAutoTrade(session: Session) {
     return new Map<string, ReturnType<typeof Map.prototype.get>>() as Map<string, never>;
   });
 
-  // Session-specific volume threshold: us-close runs at 15:30 ET when ~80% of
-  // daily volume has traded — a 0.6 ratio at that point represents strong
-  // participation. Earlier sessions keep the stricter 0.8 default.
-  const sessionThresholds: GradeThresholds = session === 'us-close'
-    ? { ...DEFAULT_GRADE_THRESHOLDS, minVolumeRatio: 0.6 }
-    : DEFAULT_GRADE_THRESHOLDS;
+  // Session-specific volume threshold: each session has a minVolumeRatio tuned
+  // for how much daily volume has typically traded by that time of day.
+  // Early sessions (uk 08:20, us 14:45) use low thresholds (0.15) since markets
+  // just opened. Mid-day sessions use moderate thresholds. Near-close uses 0.4.
+  const sessionConfig = SESSION_CONFIGS[session];
+  const sessionThresholds: GradeThresholds = { ...DEFAULT_GRADE_THRESHOLDS, minVolumeRatio: sessionConfig.minVolumeRatio };
 
   // Classify each candidate with its own NCS/FWS/BQS
   const gradedCandidates = sessionCandidates.map(c => {
@@ -1358,7 +1366,7 @@ const sessionArg = args.find(a => a.startsWith('--session='));
 const session = (sessionArg?.split('=')[1] || 'scan') as Session;
 
 if (!SESSION_CONFIGS[session]) {
-  console.error(`Unknown session: ${session}. Use: uk, us, us-close, scan`);
+  console.error(`Unknown session: ${session}. Use: uk, uk-mid, us, us-mid, us-close, scan`);
   process.exit(1);
 }
 
