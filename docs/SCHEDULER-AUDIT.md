@@ -120,7 +120,9 @@ session argument:
 
 * `HybridTurtle-Scan`: `scan --scheduled`
 * `HybridTurtle-Trade-UK`: `uk --scheduled`
+* `HybridTurtle-Trade-UKM`: `uk-mid --scheduled`
 * `HybridTurtle-Trade-US`: `us --scheduled`
+* `HybridTurtle-Trade-USM`: `us-mid --scheduled`
 * `HybridTurtle-Trade-USC`: `us-close --scheduled`
 
 Repair them from an elevated shell with:
