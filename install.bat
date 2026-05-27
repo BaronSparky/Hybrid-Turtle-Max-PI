@@ -354,7 +354,7 @@ echo   Automated Trading (optional)
 echo  ───────────────────────────────────────────────────────────
 echo.
 echo   This sets up scheduled tasks that automatically scan for
-echo   breakout candidates, buy stocks that meet all criteria,
+echo   confirmed breakout candidates, buy stocks that meet all criteria,
 echo   and place protective stops — all without the dashboard.
 echo.
 echo   IMPORTANT: Auto-trading is OFF by default. To enable:
@@ -364,8 +364,10 @@ echo     3. Toggle the kill switch ON in Settings ^> Safety Controls
 echo.
 echo   Schedule:
 echo     20:00  Evening scan (candidates for tomorrow)
-echo     08:15  UK/EU entries
+echo     08:20  UK/EU entries
+echo     10:30  UK/EU mid-morning entries
 echo     14:45  US entries (early session)
+echo     17:00  US midday entries
 echo     20:30  US near-close entries
 echo     08:00  UK pre-session Telegram briefing
 echo     14:30  US pre-session Telegram briefing
@@ -406,7 +408,7 @@ if !errorlevel! neq 0 (
     echo         ENABLE_AUTO_TRADING already in .env
 )
 
-:: Create all 4 scheduled tasks
+:: Create auto-trade scheduled tasks
 set "AT_BAT=%SCRIPT_DIR%auto-trade-task.bat"
 
 schtasks /Delete /TN "HybridTurtle-Scan" /F >> "%LOG%" 2>&1

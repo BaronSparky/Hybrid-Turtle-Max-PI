@@ -43,6 +43,8 @@ const executeSchema = z.object({
   quantity: z.coerce.number().positive(),      // Shares to buy (positive)
   stopPrice: z.coerce.number().positive(),     // Pre-computed stop-loss price
   entryPrice: z.coerce.number().positive(),    // Expected entry price (for logging)
+  currentPrice: z.coerce.number().positive().optional(),  // Current price for trigger confirmation
+  entryTrigger: z.coerce.number().positive().optional(),  // Breakout trigger for trigger confirmation
   accountType: z.enum(['invest', 'isa']),
   // Additional metadata for DB position creation
   atrAtEntry: z.coerce.number().positive().optional(),
@@ -218,7 +220,7 @@ export async function POST(request: NextRequest) {
 
   const {
     userId, stockId, ticker, t212Ticker, quantity, stopPrice,
-    entryPrice, accountType, atrAtEntry, adxAtEntry, scanStatus,
+    entryPrice, currentPrice, entryTrigger, accountType, atrAtEntry, adxAtEntry, scanStatus,
     bqsScore, fwsScore, ncsScore, dualScoreAction, rankScore,
     entryType, notes,
   } = body;
@@ -290,6 +292,8 @@ export async function POST(request: NextRequest) {
           userId: resolvedUserId,
           ticker,
           entryPrice,
+          currentPrice,
+          entryTrigger,
           stopPrice,
           quantity,
           accountType,

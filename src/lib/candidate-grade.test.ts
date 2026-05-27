@@ -104,32 +104,15 @@ describe('candidate-grade: A_GRADE_BUY', () => {
     expect(statusCheck?.detail).toContain('breakout not yet confirmed');
   });
 
-  it('near-trigger: READY within 1% gap + NCS≥80 → A_GRADE_BUY', () => {
-    // Price is 0.55% below trigger with exceptional scores → near-trigger A-grade
+  it('READY below entryTrigger stays B_GRADE_WATCH even with exceptional scores', () => {
+    // Auto-buy requires confirmed breakout. Strong scores must not promote
+    // a below-trigger READY candidate into A-grade.
     const result = classifyCandidate(
       makeCandidate({ price: 181, entryTrigger: 182, status: 'READY' }),
       { ...BULLISH_GREEN, ncs: 85, fws: 15, bqs: 80 },
     );
-    expect(result.grade).toBe('A_GRADE_BUY');
-    expect(result.reason).toContain('Near-trigger');
-  });
-
-  it('near-trigger: READY within 1% gap but NCS<80 → B_GRADE_WATCH', () => {
-    // Close to trigger but scores not exceptional enough for near-trigger
-    const result = classifyCandidate(
-      makeCandidate({ price: 181, entryTrigger: 182, status: 'READY' }),
-      { ...BULLISH_GREEN, ncs: 72, fws: 25, bqs: 60 },
-    );
     expect(result.grade).toBe('B_GRADE_WATCH');
-  });
-
-  it('near-trigger: READY but gap > 1% → B_GRADE_WATCH even with high NCS', () => {
-    // Too far from trigger — near-trigger doesn't apply
-    const result = classifyCandidate(
-      makeCandidate({ price: 178, entryTrigger: 182, status: 'READY' }),
-      { ...BULLISH_GREEN, ncs: 90, fws: 10, bqs: 90 },
-    );
-    expect(result.grade).toBe('B_GRADE_WATCH');
+    expect(result.reason).toContain('breakout not yet confirmed');
   });
 
   it('checks include all required fields', () => {

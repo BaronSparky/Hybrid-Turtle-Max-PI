@@ -29,6 +29,35 @@ Each entry uses this shape (newest at top of the History section):
 
 ## History
 
+### 2026-05-27 - pending - Dashboard manual buy breakout confirmation
+
+- File(s):
+  - `src/lib/pre-execution-dry-run.ts` - Added a `BREAKOUT_TRIGGER` dry-run check. When an entry trigger is supplied, execution now fails if the current price is below `entryTrigger`.
+  - `src/app/api/positions/execute/route.ts` - Accepts optional `currentPrice` and `entryTrigger` fields and passes them into the server-side pre-execution dry run before any live Trading212 order is placed.
+  - `src/components/portfolio/BuyConfirmationModal.tsx` - Sends the dashboard candidate's scan price and scan entry trigger with the manual execution request.
+  - `src/lib/pre-execution-dry-run.test.ts` - Added trigger-failed and trigger-confirmed regressions, and updated the dry-run check count.
+- Why: Dashboard display paths already filtered for trigger-met candidates, but the live manual execution endpoint also needed a server-side confirmation gate so a stale or crafted request cannot buy below the breakout trigger when trigger context is available.
+- Behaviour preserved:
+  - Existing dry-run checks for stop validity, position sizing, risk gates, anti-chase, spread, cooldown, freshness, and duplicate positions are unchanged.
+  - Manual execution still supports callers that do not provide trigger context, but dashboard buys now provide it.
+  - Visible dashboard ready-to-buy filtering remains `price >= entryTrigger`.
+- Tests: `npm run test:unit -- src/lib/candidate-grade.test.ts src/cron/auto-trade.test.ts src/cron/auto-trade-stop-retry.test.ts src/lib/pre-execution-dry-run.test.ts src/app/api/positions/execute/route.test.ts` passes, 5 files / 129 tests. `npm run typecheck` passes.
+- Author: GitHub Copilot (2026-05-27)
+
+### 2026-05-27 - pending - Strict breakout-only auto-buy execution
+
+- File(s):
+  - `src/lib/candidate-grade.ts` - Removed the near-trigger A-grade allowance. `A_GRADE_BUY` now requires `price >= entryTrigger`; below-trigger `READY` candidates remain `B_GRADE_WATCH` even with exceptional scores.
+  - `src/cron/auto-trade.ts` - Added a defense-in-depth `price >= entryTrigger` filter before execution so future grading changes cannot re-enable anticipatory auto-buys. Updated the no-trade skip reason to say no triggered A-grade candidates were found. Auto-trade heartbeat now reports `PARTIAL` when a buy succeeds but its protective stop is missing.
+  - `src/lib/candidate-grade.test.ts` - Replaced the near-trigger promotion regression with a strict breakout regression.
+- Why: The near-trigger rule made auto-buy behave like a moving pre-breakout target. The documented system intent is confirmation-based: READY candidates are watchlist-only, and automated buys require the breakout trigger to be met.
+- Behaviour preserved:
+  - Regime, health, earnings, data-quality, anti-chase, cooldown, risk-gate, session, routing, sizing, broker-order, fill-polling, stop-placement, and max-attempt gates are unchanged.
+  - Trigger-met A-grade candidates still execute through the existing auto-trade path.
+  - Existing CRITICAL alert behavior for unprotected positions is preserved; heartbeat now also reflects the degraded session state.
+- Tests: `npm run test:unit -- src/lib/candidate-grade.test.ts src/cron/auto-trade.test.ts src/cron/auto-trade-stop-retry.test.ts` passes, 3 files / 84 tests.
+- Author: GitHub Copilot (2026-05-27)
+
 ### 2026-05-26 — complete — Add uk-mid + us-mid sessions, per-session volume thresholds
 
 - File(s):

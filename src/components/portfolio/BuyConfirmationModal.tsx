@@ -334,6 +334,8 @@ export default function BuyConfirmationModal({
           quantity: adjustedShares, // correlation-adjusted (scalar applied to position-sizer output)
           stopPrice: candidate.scanStopPrice,
           entryPrice: candidate.scanPrice,
+          currentPrice: candidate.scanPrice,
+          entryTrigger: candidate.scanEntryTrigger,
           accountType,
           bqsScore: candidate.dualBQS,
           fwsScore: candidate.dualFWS,

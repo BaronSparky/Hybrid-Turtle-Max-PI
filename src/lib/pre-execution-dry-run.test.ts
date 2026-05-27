@@ -165,6 +165,31 @@ describe('pre-execution-dry-run', () => {
     expect(stopCheck?.message).toContain('below entry');
   });
 
+  it('fails when current price is below breakout trigger', async () => {
+    const result = await runPreExecutionDryRun({
+      ...baseInput,
+      currentPrice: 149,
+      entryTrigger: 150,
+    });
+
+    expect(result.passed).toBe(false);
+    const triggerCheck = result.hardFailures.find(c => c.id === 'BREAKOUT_TRIGGER');
+    expect(triggerCheck).toBeDefined();
+    expect(triggerCheck?.message).toContain('below entry trigger');
+  });
+
+  it('passes breakout trigger check when current price reaches trigger', async () => {
+    const result = await runPreExecutionDryRun({
+      ...baseInput,
+      currentPrice: 150,
+      entryTrigger: 150,
+    });
+
+    expect(result.passed).toBe(true);
+    const triggerCheck = result.checks.find(c => c.id === 'BREAKOUT_TRIGGER');
+    expect(triggerCheck?.passed).toBe(true);
+  });
+
   it('fails when quantity is zero', async () => {
     const result = await runPreExecutionDryRun({ ...baseInput, quantity: 0 });
 
@@ -228,9 +253,9 @@ describe('pre-execution-dry-run', () => {
     }
   });
 
-  it('returns 13 checks total', async () => {
+  it('returns 14 checks total', async () => {
     const result = await runPreExecutionDryRun(baseInput);
-    expect(result.checks).toHaveLength(13);
+    expect(result.checks).toHaveLength(14);
   });
 
   it('soft warnings do not cause failure', async () => {

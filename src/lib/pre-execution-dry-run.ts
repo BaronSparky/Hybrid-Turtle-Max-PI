@@ -40,6 +40,10 @@ export interface DryRunInput {
   stopPrice: number;
   quantity: number;
   accountType: 'invest' | 'isa';
+  /** Current market/scan price used to confirm breakout trigger. */
+  currentPrice?: number;
+  /** Breakout entry trigger. When supplied, currentPrice must be >= this value. */
+  entryTrigger?: number;
   /** Current market regime (BULLISH/SIDEWAYS/BEARISH) */
   regime?: string;
   /** Current NCS score */
@@ -97,22 +101,25 @@ export async function runPreExecutionDryRun(input: DryRunInput): Promise<DryRunR
   // 7. Stop validity
   checks.push(checkStopValidity(input.entryPrice, input.stopPrice));
 
-  // 8. T212 connectivity
+  // 8. Breakout trigger confirmation
+  checks.push(checkBreakoutTrigger(input.currentPrice ?? input.entryPrice, input.entryTrigger));
+
+  // 9. T212 connectivity
   checks.push(checkBrokerConnectivity(userData, input.accountType));
 
-  // 9. Heartbeat freshness
+  // 10. Heartbeat freshness
   checks.push(checkHeartbeatFreshness(heartbeatData));
 
-  // 10. Data freshness (last nightly run)
+  // 11. Data freshness (last nightly run)
   checks.push(checkDataFreshness(heartbeatData));
 
-  // 11. Backup status
+  // 12. Backup status
   checks.push(checkBackupStatus(heartbeatData));
 
-  // 12. FWS Auto-No check
+  // 13. FWS Auto-No check
   checks.push(checkFWSAutoNo(input.fwsScore, input.dualScoreAction));
 
-  // 13. Operating mode check
+  // 14. Operating mode check
   checks.push(checkOperatingMode(userData, input.operatingMode));
 
   const hardFailures = checks.filter(c => !c.passed && c.severity === 'HARD_BLOCK');
@@ -370,6 +377,37 @@ function checkStopValidity(entryPrice: number, stopPrice: number): DryRunCheck {
     passed: true,
     severity: 'HARD_BLOCK',
     message: `Stop: ${stopPrice.toFixed(4)} (below entry ${entryPrice.toFixed(4)}).`,
+  };
+}
+
+function checkBreakoutTrigger(currentPrice: number, entryTrigger?: number): DryRunCheck {
+  if (entryTrigger == null) {
+    return {
+      id: 'BREAKOUT_TRIGGER',
+      label: 'Breakout Trigger',
+      passed: true,
+      severity: 'HARD_BLOCK',
+      message: 'No breakout trigger supplied. Skipping trigger confirmation.',
+    };
+  }
+
+  if (!Number.isFinite(currentPrice) || currentPrice < entryTrigger) {
+    return {
+      id: 'BREAKOUT_TRIGGER',
+      label: 'Breakout Trigger',
+      passed: false,
+      severity: 'HARD_BLOCK',
+      message: `Current price (${currentPrice.toFixed(4)}) is below entry trigger (${entryTrigger.toFixed(4)}).`,
+      recovery: 'Wait until price reaches or exceeds the breakout trigger.',
+    };
+  }
+
+  return {
+    id: 'BREAKOUT_TRIGGER',
+    label: 'Breakout Trigger',
+    passed: true,
+    severity: 'HARD_BLOCK',
+    message: `Trigger confirmed: ${currentPrice.toFixed(4)} >= ${entryTrigger.toFixed(4)}.`,
   };
 }
 

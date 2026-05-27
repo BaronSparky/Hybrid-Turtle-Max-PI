@@ -967,7 +967,8 @@ async function runAutoTrade(session: Session) {
     healthOverall: latestHealth?.overall ?? 'GREEN',
   };
 
-  // Get candidates that pass filters, are READY, match session, and are A-grade (prefer) or B-grade (fallback)
+  // Get candidates that match this session. Execution is later limited to
+  // A-grade candidates whose breakout trigger is actually met.
   const sessionCandidates = scanResult.candidates.filter(c =>
     !openTickers.has(c.ticker) &&
     isStockForSession(c.ticker, c.sleeve, session)
@@ -1001,8 +1002,12 @@ async function runAutoTrade(session: Session) {
     };
   });
 
-  // Auto-trade only executes A_GRADE_BUY candidates
-  const readyCandidates = gradedCandidates.filter(c => c.classification.grade === 'A_GRADE_BUY');
+  // Auto-trade only executes A_GRADE_BUY candidates after confirmed breakout.
+  // The explicit price >= entryTrigger check is defense-in-depth so a future
+  // grading policy change cannot reintroduce anticipatory entries here.
+  const readyCandidates = gradedCandidates.filter(c =>
+    c.classification.grade === 'A_GRADE_BUY' && c.price >= c.entryTrigger
+  );
 
   // Sort by rank (highest first)
   readyCandidates.sort((a, b) => b.rankScore - a.rankScore);
@@ -1320,7 +1325,7 @@ async function runAutoTrade(session: Session) {
   }
 
   if (readyCandidates.length === 0) {
-    skipped.push({ ticker: '-', reason: 'No READY candidates for this session' });
+    skipped.push({ ticker: '-', reason: 'No triggered A-grade candidates for this session' });
   }
 
   // ── Session summary ──
@@ -1335,7 +1340,8 @@ async function runAutoTrade(session: Session) {
   // ── Heartbeat ──
   const successCount = tradeResults.filter(r => r.success).length;
   const failCount = tradeResults.filter(r => !r.success).length;
-  const heartbeatStatus = failCount > 0 ? 'PARTIAL' : 'OK';
+  const unprotectedCount = tradeResults.filter(r => r.success && !r.stopPlaced).length;
+  const heartbeatStatus = failCount > 0 || unprotectedCount > 0 ? 'PARTIAL' : 'OK';
 
   await prisma.heartbeat.create({
     data: {
@@ -1349,6 +1355,7 @@ async function runAutoTrade(session: Session) {
         eligible: readyCandidates.length,
         executed: successCount,
         failed: failCount,
+        unprotected: unprotectedCount,
         skipped: skipped.length,
         trades: tradeResults.map(r => ({ ticker: r.ticker, success: r.success, stopPlaced: r.stopPlaced })),
       }),
