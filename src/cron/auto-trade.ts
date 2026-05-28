@@ -116,6 +116,41 @@ export function effectiveStopForFill(entryPrice: number, filledPrice: number, pl
   return plannedStop + fillGapUp;
 }
 
+/** Live-price revalidation (audit 2026-05-28): the scan that graded a
+ *  candidate A_GRADE_BUY can be hours old by the time the cron actually
+ *  tries to execute. This re-checks the current live price against the
+ *  entry trigger and decides whether the candidate is still tradeable.
+ *
+ *  Defensive on missing data: a missing / NaN / non-positive live price
+ *  returns SKIP rather than KEEP, so we never trade on stale scan-price
+ *  alone when the broker fetch fails.
+ *
+ *  Pure — unit-testable without broker/network.
+ */
+export type LiveRevalidationDecision =
+  | { action: 'KEEP' }
+  | { action: 'SKIP'; reason: string };
+
+export function revalidateLivePrice(
+  scanPrice: number,
+  entryTrigger: number,
+  livePrice: number | undefined,
+): LiveRevalidationDecision {
+  if (livePrice === undefined || !Number.isFinite(livePrice) || livePrice <= 0) {
+    return {
+      action: 'SKIP',
+      reason: `Live price unavailable (scan price ${scanPrice.toFixed(2)}, trigger ${entryTrigger.toFixed(2)})`,
+    };
+  }
+  if (livePrice < entryTrigger) {
+    return {
+      action: 'SKIP',
+      reason: `Price fell back below trigger since scan (live ${livePrice.toFixed(2)} < trigger ${entryTrigger.toFixed(2)})`,
+    };
+  }
+  return { action: 'KEEP' };
+}
+
 /** M-3 (2026-05-17): realised gate footprint for a just-filled trade.
  *  After Phase D succeeds, the second candidate in the session must be gated
  *  against the position's REALISED footprint (filled price × filled shares),
@@ -1012,6 +1047,33 @@ async function runAutoTrade(session: Session) {
   // Sort by rank (highest first)
   readyCandidates.sort((a, b) => b.rankScore - a.rankScore);
 
+  // Live-price revalidation (audit 2026-05-28): scans can be hours old by
+  // execution time. Re-fetch live prices for the ready slate and drop any
+  // candidate whose price has slipped back below entryTrigger since the scan,
+  // or whose live price cannot be fetched at all (defensive — never trade on
+  // stale scan-price alone). Scan-only sessions are informational and skip
+  // this gate. Skips merge into the session `skipped` array below so they
+  // surface in both Telegram and the heartbeat skipReasons field.
+  const liveRevalidationSkipped: Array<{ ticker: string; reason: string }> = [];
+  if (session !== 'scan' && readyCandidates.length > 0) {
+    const tickers = readyCandidates.map(c => c.ticker);
+    const livePrices = await getBatchPrices(tickers).catch((err) => {
+      console.warn(`    [LIVE REVALIDATION] Batch fetch failed: ${(err as Error).message}`);
+      return {} as Record<string, number>;
+    });
+    for (let i = readyCandidates.length - 1; i >= 0; i--) {
+      const c = readyCandidates[i];
+      const decision = revalidateLivePrice(c.price, c.entryTrigger, livePrices[c.ticker]);
+      if (decision.action === 'SKIP') {
+        liveRevalidationSkipped.push({ ticker: c.ticker, reason: decision.reason });
+        readyCandidates.splice(i, 1);
+      }
+    }
+    if (liveRevalidationSkipped.length > 0) {
+      console.log(`    [LIVE REVALIDATION] ${liveRevalidationSkipped.length} dropped: ${liveRevalidationSkipped.map(s => s.ticker).join(', ')}`);
+    }
+  }
+
   // Log B-grade as skipped with reason
   const bGrades = gradedCandidates.filter(c => c.classification.grade === 'B_GRADE_WATCH');
   for (const c of bGrades) {
@@ -1098,7 +1160,7 @@ async function runAutoTrade(session: Session) {
   }
 
   const tradeResults: TradeResult[] = [];
-  const skipped: Array<{ ticker: string; reason: string }> = [];
+  const skipped: Array<{ ticker: string; reason: string }> = [...liveRevalidationSkipped];
   // Track ATTEMPTS separately from SUCCESSES. Both are capped at
   // MAX_TRADES_PER_SESSION so a string of failures (insufficient funds, T212
   // rejections, fill-timeouts) cannot let the loop drain the entire candidate
@@ -1357,6 +1419,7 @@ async function runAutoTrade(session: Session) {
         failed: failCount,
         unprotected: unprotectedCount,
         skipped: skipped.length,
+        skipReasons: skipped.map(s => ({ ticker: s.ticker, reason: s.reason })),
         trades: tradeResults.map(r => ({ ticker: r.ticker, success: r.success, stopPlaced: r.stopPlaced })),
       }),
     },

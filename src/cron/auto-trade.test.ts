@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { revalidateLivePrice } from './auto-trade';
 
 /**
  * Auto-trade safety gate tests.
@@ -253,5 +254,143 @@ describe('auto-trade: trade execution contracts', () => {
     expect(executed).toBe(2);
     expect(failed).toBe(1);
     expect(stopsPlaced).toBe(1);
+  });
+});
+
+// ── Live-price revalidation (audit 2026-05-28) ──
+
+describe('auto-trade: live-price revalidation', () => {
+  it('KEEPs when live price equals trigger (breakout still confirmed)', () => {
+    const decision = revalidateLivePrice(100.00, 100.00, 100.00);
+    expect(decision.action).toBe('KEEP');
+  });
+
+  it('KEEPs when live price is above trigger', () => {
+    const decision = revalidateLivePrice(99.50, 100.00, 101.25);
+    expect(decision.action).toBe('KEEP');
+  });
+
+  it('SKIPs when live price has fallen back below trigger since scan', () => {
+    const decision = revalidateLivePrice(100.25, 100.00, 99.80);
+    expect(decision.action).toBe('SKIP');
+    if (decision.action === 'SKIP') {
+      expect(decision.reason).toMatch(/fell back below trigger/i);
+      expect(decision.reason).toContain('99.80');
+      expect(decision.reason).toContain('100.00');
+    }
+  });
+
+  it('SKIPs when live price is undefined (fetch missed this ticker)', () => {
+    const decision = revalidateLivePrice(100.00, 100.00, undefined);
+    expect(decision.action).toBe('SKIP');
+    if (decision.action === 'SKIP') {
+      expect(decision.reason).toMatch(/unavailable/i);
+    }
+  });
+
+  it('SKIPs when live price is NaN', () => {
+    const decision = revalidateLivePrice(100.00, 100.00, NaN);
+    expect(decision.action).toBe('SKIP');
+    if (decision.action === 'SKIP') {
+      expect(decision.reason).toMatch(/unavailable/i);
+    }
+  });
+
+  it('SKIPs when live price is zero (treated as missing data)', () => {
+    const decision = revalidateLivePrice(100.00, 100.00, 0);
+    expect(decision.action).toBe('SKIP');
+    if (decision.action === 'SKIP') {
+      expect(decision.reason).toMatch(/unavailable/i);
+    }
+  });
+
+  it('SKIPs when live price is negative (treated as missing data)', () => {
+    const decision = revalidateLivePrice(100.00, 100.00, -5);
+    expect(decision.action).toBe('SKIP');
+    if (decision.action === 'SKIP') {
+      expect(decision.reason).toMatch(/unavailable/i);
+    }
+  });
+
+  it('SKIPs when live price is Infinity', () => {
+    const decision = revalidateLivePrice(100.00, 100.00, Infinity);
+    expect(decision.action).toBe('SKIP');
+    if (decision.action === 'SKIP') {
+      expect(decision.reason).toMatch(/unavailable/i);
+    }
+  });
+
+  it('below-trigger SKIP reason includes both live and trigger numbers', () => {
+    const decision = revalidateLivePrice(63.06, 63.28, 62.95);
+    expect(decision.action).toBe('SKIP');
+    if (decision.action === 'SKIP') {
+      expect(decision.reason).toContain('62.95');
+      expect(decision.reason).toContain('63.28');
+    }
+  });
+
+  it('unavailable SKIP reason includes scan price and trigger for diagnosis', () => {
+    const decision = revalidateLivePrice(120.50, 121.00, undefined);
+    expect(decision.action).toBe('SKIP');
+    if (decision.action === 'SKIP') {
+      expect(decision.reason).toContain('120.50');
+      expect(decision.reason).toContain('121.00');
+    }
+  });
+});
+
+// ── Heartbeat skip-reason logging (audit 2026-05-28) ──
+
+describe('auto-trade: heartbeat skip-reason logging', () => {
+  // Mirrors the heartbeat details shape constructed at the end of runAutoTrade.
+  // The contract under test: skipReasons is an array of {ticker, reason}
+  // matching the session's `skipped` array exactly, so post-hoc diagnostics
+  // can see WHY each candidate didn't trade — not just how many.
+  it('skipReasons array preserves per-candidate reason text', () => {
+    const skipped = [
+      { ticker: 'AAPL', reason: 'Price fell back below trigger since scan (live 99.80 < trigger 100.00)' },
+      { ticker: 'MSFT', reason: 'Risk gates: SLEEVE_CAP, CLUSTER_CAP' },
+      { ticker: 'GSK.L', reason: 'No T212 ticker mapped' },
+    ];
+    const skipReasons = skipped.map(s => ({ ticker: s.ticker, reason: s.reason }));
+    expect(skipReasons).toHaveLength(3);
+    expect(skipReasons[0]).toEqual({ ticker: 'AAPL', reason: skipped[0].reason });
+    expect(skipReasons[1].ticker).toBe('MSFT');
+    expect(skipReasons[2].reason).toBe('No T212 ticker mapped');
+  });
+
+  it('skipReasons is empty when no candidates were skipped', () => {
+    const skipped: Array<{ ticker: string; reason: string }> = [];
+    const skipReasons = skipped.map(s => ({ ticker: s.ticker, reason: s.reason }));
+    expect(skipReasons).toEqual([]);
+  });
+
+  it('skipReasons remains present even when eligible > 0 and executed = 0', () => {
+    // This is the diagnostic blind spot the change closes: previously a
+    // session that found candidates but skipped every one of them stored
+    // only `skipped: <count>` with no reasons, making post-hoc analysis blind.
+    const skipped = [
+      { ticker: 'AAPL', reason: 'Session aborted: Insufficient funds' },
+      { ticker: 'MSFT', reason: 'Session aborted: Insufficient funds' },
+    ];
+    const heartbeatDetails = {
+      type: 'auto-trade',
+      session: 'us',
+      eligible: 2,
+      executed: 0,
+      skipped: skipped.length,
+      skipReasons: skipped.map(s => ({ ticker: s.ticker, reason: s.reason })),
+    };
+    const serialized = JSON.stringify(heartbeatDetails);
+    const parsed = JSON.parse(serialized);
+    expect(parsed.skipReasons).toHaveLength(2);
+    expect(parsed.skipReasons[0].reason).toContain('Insufficient funds');
+  });
+
+  it('JSON-serialised heartbeat round-trips skipReasons', () => {
+    const skipped = [{ ticker: 'AAPL', reason: 'Live price unavailable (scan price 100.00, trigger 100.00)' }];
+    const json = JSON.stringify({ skipReasons: skipped.map(s => ({ ticker: s.ticker, reason: s.reason })) });
+    const back = JSON.parse(json) as { skipReasons: Array<{ ticker: string; reason: string }> };
+    expect(back.skipReasons[0]).toEqual(skipped[0]);
   });
 });

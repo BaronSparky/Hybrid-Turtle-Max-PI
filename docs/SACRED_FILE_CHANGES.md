@@ -29,6 +29,32 @@ Each entry uses this shape (newest at top of the History section):
 
 ## History
 
+### 2026-05-28 - pending - Auto-trade live-price revalidation + heartbeat skip-reason logging
+
+- File(s):
+  - `src/cron/auto-trade.ts`:
+    - Added pure exported `revalidateLivePrice(scanPrice, entryTrigger, livePrice)` helper returning `{ action: 'KEEP' } | { action: 'SKIP', reason }`. Skip-on-missing-price (undefined / NaN / <= 0) is the defensive default; below-trigger live price also returns SKIP with a diagnostic reason. Placed next to the other exported helpers (`widenStop`, `effectiveStopForFill`, `realisedGateFootprint`).
+    - Inserted a live-price revalidation block after `readyCandidates.sort(...)`, gated on `session !== 'scan'` and `readyCandidates.length > 0`. Performs a single batched `getBatchPrices(tickers)` (already imported), applies `revalidateLivePrice` per candidate, splices losers out of `readyCandidates` in-place (same pattern as the existing earnings-deferral splice loop), and collects the drops into a `liveRevalidationSkipped` array. Fetch failure logs a warning and falls through to an empty price map — every candidate then skips with "Live price unavailable", keeping the gate defensive.
+    - Seeded the existing `skipped` array with `liveRevalidationSkipped` so the new drops surface through the unchanged Telegram session-summary path.
+    - Added `skipReasons: skipped.map(s => ({ ticker, reason }))` to the heartbeat `details` JSON. No existing field renamed or removed.
+  - `src/cron/auto-trade.test.ts`:
+    - Imported `revalidateLivePrice` from `./auto-trade` (same pattern as `auto-trade-stop-retry.test.ts`).
+    - Added a `live-price revalidation` describe block with 10 contract tests: keep when live >= trigger, skip when below trigger, skip when undefined / NaN / 0 / negative / Infinity, and reason-text content checks for both diagnostic paths.
+    - Added a `heartbeat skip-reason logging` describe block with 4 contract tests covering empty case, populated case, JSON round-trip, and the eligible>0/executed=0 diagnostic-blind-spot case.
+- Why: Two motivations from the 2026-05-28 investigation of "markets bullish but zero autobuys":
+  1. (Skip-reason logging) Heartbeats stored `skipped: <count>` with no reasons. When `eligible > 0` and `executed = 0` (observed on 2026-05-26 us-close: `eligible:4, executed:0, skipped:4`) the system was silent about WHY. Per-candidate skip reasons were already collected for Telegram; this exposes them to the heartbeat record so post-hoc DB queries can answer the diagnostic question.
+  2. (Live revalidation) The auto-trade scan can be 2–22h old at execution time. The 2026-05-27 sacred change made the `price >= entryTrigger` gate strict at scan time, but a candidate that broke out at scan time may have fallen back before the cron fires. The new gate re-checks live price right before sizing, and skips both (a) candidates that have slipped back below trigger and (b) candidates whose live price cannot be fetched (defensive — never trade on stale scan-price alone). Skip-on-fetch-failure is the deliberate choice; the alternative (proceed on scan-price) was rejected because it re-opens the staleness hole the gate is meant to close.
+- Behaviour preserved:
+  - All existing gates (master enable, weekend, holiday, early-close, kill switch, broker config, operating mode, regime, health, session sleeve filter, A_GRADE_BUY classification, defense-in-depth `price >= entryTrigger` at scan time, earnings deferral, sizing, risk gates, account routing, max-attempt cap, terminal-error session abort, buy placement, fill polling, stop-placement retry tiers, gap-up stop tightening, realised gate footprint, DB position write, Telegram notifications, alert routing) are unchanged.
+  - Scan-only session is unchanged — the revalidation gate is explicitly skipped for `session === 'scan'`.
+  - Heartbeat `details` keeps every existing field (`type`, `session`, `scanned`, `ready`, `eligible`, `executed`, `failed`, `unprotected`, `skipped`, `trades`); `skipReasons` is purely additive.
+  - Telegram session-summary content is unchanged in shape — revalidation drops appear in the existing `Skipped (N)` block with the same `{ticker, reason}` format as every other skip.
+  - `revalidateLivePrice` is a pure function with no side effects, no DB access, no broker calls.
+- Tests:
+  - `npm run test:unit -- src/cron/auto-trade.test.ts src/cron/auto-trade-stop-retry.test.ts` — all existing tests still pass plus 14 new contract tests (10 revalidation + 4 heartbeat).
+  - `npm run typecheck` passes.
+- Author: GitHub Copilot (2026-05-28)
+
 ### 2026-05-27 - pending - Dashboard manual buy breakout confirmation
 
 - File(s):
