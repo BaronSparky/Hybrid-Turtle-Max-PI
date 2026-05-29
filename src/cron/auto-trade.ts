@@ -57,6 +57,7 @@ import { getBatchPrices, normalizeBatchPricesToGBP, getFXRate, getMarketRegime }
 import { fetchT212LivePrices } from '@/lib/position-sync';
 import { classifyCandidate, DEFAULT_GRADE_THRESHOLDS, type GradingContext, type CandidateGrade, type GradeThresholds } from '@/lib/candidate-grade';
 import { getLatestScoresByTicker } from '@/lib/score-lookup';
+import { NO_CHASE_ATR_BOUND } from '@/lib/entry-quality-engine';
 import { RISK_PROFILES, type RiskProfileType, type Sleeve, type MarketRegime, OPERATING_MODES, type OperatingMode } from '@/types';
 import { decryptField } from '@/lib/crypto';
 import { isTodayMarketHoliday, isEarlyCloseDay } from '@/lib/market-holidays';
@@ -125,6 +126,16 @@ export function effectiveStopForFill(entryPrice: number, filledPrice: number, pl
  *  returns SKIP rather than KEEP, so we never trade on stale scan-price
  *  alone when the broker fetch fails.
  *
+ *  Anti-chase ceiling (audit 2026-05-29): the scan-time anti-chase guard
+ *  (candidate-grade BLOCKED_CHASE) only sees the scan-time price. If the
+ *  live price has run above the no-chase ceiling (entryTrigger +
+ *  NO_CHASE_ATR_BOUND × ATR) since the scan, the breakout is now extended
+ *  and a market fill here would be chasing. Re-enforce the same ceiling
+ *  the entry-quality-engine defines, using live price + scan-time ATR.
+ *  ATR is optional: when missing / non-finite / non-positive the ceiling
+ *  cannot be computed, so the check is skipped (floor still applies) rather
+ *  than blocking — a broken ATR pipeline must not silently halt all trades.
+ *
  *  Pure — unit-testable without broker/network.
  */
 export type LiveRevalidationDecision =
@@ -135,6 +146,7 @@ export function revalidateLivePrice(
   scanPrice: number,
   entryTrigger: number,
   livePrice: number | undefined,
+  atr?: number,
 ): LiveRevalidationDecision {
   if (livePrice === undefined || !Number.isFinite(livePrice) || livePrice <= 0) {
     return {
@@ -147,6 +159,15 @@ export function revalidateLivePrice(
       action: 'SKIP',
       reason: `Price fell back below trigger since scan (live ${livePrice.toFixed(2)} < trigger ${entryTrigger.toFixed(2)})`,
     };
+  }
+  if (atr !== undefined && Number.isFinite(atr) && atr > 0) {
+    const noChasePrice = entryTrigger + NO_CHASE_ATR_BOUND * atr;
+    if (livePrice > noChasePrice) {
+      return {
+        action: 'SKIP',
+        reason: `Price ran above no-chase ceiling since scan (live ${livePrice.toFixed(2)} > ceiling ${noChasePrice.toFixed(2)} = trigger ${entryTrigger.toFixed(2)} + ${NO_CHASE_ATR_BOUND}×ATR ${atr.toFixed(2)})`,
+      };
+    }
   }
   return { action: 'KEEP' };
 }
@@ -1063,7 +1084,7 @@ async function runAutoTrade(session: Session) {
     });
     for (let i = readyCandidates.length - 1; i >= 0; i--) {
       const c = readyCandidates[i];
-      const decision = revalidateLivePrice(c.price, c.entryTrigger, livePrices[c.ticker]);
+      const decision = revalidateLivePrice(c.price, c.entryTrigger, livePrices[c.ticker], c.technicals?.atr);
       if (decision.action === 'SKIP') {
         liveRevalidationSkipped.push({ ticker: c.ticker, reason: decision.reason });
         readyCandidates.splice(i, 1);

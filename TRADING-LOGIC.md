@@ -667,8 +667,8 @@ adjustedEntryTrigger = triggerBaseHigh + scaledBufferPercent × ATR
 
 Feature flag for A/B comparison:
 
-- `USE_PRIOR_20D_HIGH_FOR_TRIGGER=true` → `triggerBaseHigh = prior20DayHigh` (excludes most recent bar)
-- unset/`false` (default) → `triggerBaseHigh = twentyDayHigh` (includes most recent bar)
+- unset/`true` (default) → `triggerBaseHigh = prior20DayHigh` (excludes most recent bar — correct Donchian breakout)
+- `USE_PRIOR_20D_HIGH_FOR_TRIGGER=false` → `triggerBaseHigh = twentyDayHigh` (includes most recent bar — legacy; trigger is mathematically unreachable, ~0 buys)
 
 ### Module 12: Super-Cluster
 

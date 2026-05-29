@@ -20,7 +20,7 @@ import type {
 const ANTI_CHASE_ATR_BOUND = 0.8;
 
 // Hard ceiling: never buy above this many ATRs above trigger
-const NO_CHASE_ATR_BOUND = 1.2;
+export const NO_CHASE_ATR_BOUND = 1.2;
 
 // High ATR extension: yellow warning when extension > this
 const HIGH_EXTENSION_ATR = 0.5;

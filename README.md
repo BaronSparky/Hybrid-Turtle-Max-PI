@@ -119,7 +119,7 @@ To start from the template instead, copy `.env.example` to `.env` before running
 | `T212_INVEST_ACCOUNT_ID` | | — | Trading 212 Invest account ID |
 | `T212_ISA_ACCOUNT_ID` | | — | Trading 212 ISA account ID |
 | `NIGHTLY_CRON` | | `30 21 * * *` | Cron expression for nightly run (default 9:30 PM UK) |
-| `USE_PRIOR_20D_HIGH_FOR_TRIGGER` | | — | Feature flag: use prior day's 20-day high for entry trigger instead of live day |
+| `USE_PRIOR_20D_HIGH_FOR_TRIGGER` | | `true` | Use prior day's 20-day high (excl. today) for entry trigger — default ON. Set `false` only for legacy A/B comparison (trigger becomes unreachable) |
 | `EMAIL_SMTP_HOST` | | — | SMTP host for optional email alerting (experimental) |
 | `MODEL_SERVICE_URL` | | `http://localhost:8000` | Optional external model-service base URL for deployment smoke tests |
 | `ENABLE_ML_SCORING` | | `false` | Reserved feature flag for external model-service scoring |

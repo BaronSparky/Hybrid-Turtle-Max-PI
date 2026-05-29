@@ -24,6 +24,13 @@ describe('adaptive-atr-buffer feature flag: USE_PRIOR_20D_HIGH_FOR_TRIGGER', () 
     expect(priorWindowTrigger).toBeCloseTo(101, 8);
     expect(priorWindowTrigger).toBeLessThan(currentWindowTrigger);
   });
+
+  it('defaults to the prior-window high when the flag is unset (correct Donchian breakout)', () => {
+    delete process.env.USE_PRIOR_20D_HIGH_FOR_TRIGGER;
+    const defaultTrigger = calculateAdaptiveBuffer('TEST', 110, 8, 4, 100).adjustedEntryTrigger;
+    // Must match the prior-window result (101), NOT the legacy current-window result (111).
+    expect(defaultTrigger).toBeCloseTo(101, 8);
+  });
 });
 
 describe('detectVolRegime', () => {

@@ -339,6 +339,55 @@ describe('auto-trade: live-price revalidation', () => {
   });
 });
 
+// ── Live-price anti-chase ceiling (audit 2026-05-29) ──
+// ceiling = entryTrigger + NO_CHASE_ATR_BOUND (1.2) × ATR.
+// With trigger 100 and ATR 5 the ceiling is 106.00.
+
+describe('auto-trade: live-price anti-chase ceiling', () => {
+  it('KEEPs when live price is extended but still under the no-chase ceiling', () => {
+    const decision = revalidateLivePrice(100.00, 100.00, 105.00, 5.00);
+    expect(decision.action).toBe('KEEP');
+  });
+
+  it('KEEPs at exactly the no-chase ceiling (boundary is strict >)', () => {
+    const decision = revalidateLivePrice(100.00, 100.00, 106.00, 5.00);
+    expect(decision.action).toBe('KEEP');
+  });
+
+  it('SKIPs when live price has run above the no-chase ceiling since scan', () => {
+    const decision = revalidateLivePrice(102.00, 100.00, 108.00, 5.00);
+    expect(decision.action).toBe('SKIP');
+    if (decision.action === 'SKIP') {
+      expect(decision.reason).toMatch(/no-chase ceiling/i);
+      expect(decision.reason).toContain('108.00');
+      expect(decision.reason).toContain('106.00');
+    }
+  });
+
+  it('does NOT enforce the ceiling when ATR is undefined (cannot compute)', () => {
+    const decision = revalidateLivePrice(100.00, 100.00, 130.00, undefined);
+    expect(decision.action).toBe('KEEP');
+  });
+
+  it('does NOT enforce the ceiling when ATR is zero (cannot compute)', () => {
+    const decision = revalidateLivePrice(100.00, 100.00, 130.00, 0);
+    expect(decision.action).toBe('KEEP');
+  });
+
+  it('does NOT enforce the ceiling when ATR is negative (treated as invalid)', () => {
+    const decision = revalidateLivePrice(100.00, 100.00, 130.00, -5);
+    expect(decision.action).toBe('KEEP');
+  });
+
+  it('floor check takes precedence: below-trigger SKIPs before ceiling is evaluated', () => {
+    const decision = revalidateLivePrice(100.00, 100.00, 99.00, 5.00);
+    expect(decision.action).toBe('SKIP');
+    if (decision.action === 'SKIP') {
+      expect(decision.reason).toMatch(/fell back below trigger/i);
+    }
+  });
+});
+
 // ── Heartbeat skip-reason logging (audit 2026-05-28) ──
 
 describe('auto-trade: heartbeat skip-reason logging', () => {

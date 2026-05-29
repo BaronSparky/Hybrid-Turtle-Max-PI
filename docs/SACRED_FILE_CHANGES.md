@@ -29,6 +29,29 @@ Each entry uses this shape (newest at top of the History section):
 
 ## History
 
+### 2026-05-29 - pending - Auto-trade anti-chase ceiling re-enforced at execution time
+
+- File(s):
+  - `src/lib/entry-quality-engine.ts`:
+    - Exported the existing `NO_CHASE_ATR_BOUND = 1.2` constant (was module-private) so the cron reuses the same trusted no-chase bound rather than a duplicated magic number. No value or logic change.
+  - `src/cron/auto-trade.ts`:
+    - Imported `NO_CHASE_ATR_BOUND` from `@/lib/entry-quality-engine`.
+    - Extended `revalidateLivePrice` with an optional 4th param `atr?: number` and a no-chase ceiling check: after the floor check, if `atr` is finite and > 0, SKIP when `livePrice > entryTrigger + NO_CHASE_ATR_BOUND × atr` with a diagnostic reason. Missing / non-finite / non-positive ATR skips the ceiling check (floor still applies) so a broken ATR pipeline cannot silently halt all trades.
+    - Call site now passes `c.technicals?.atr` as the 4th argument. No other execution logic changed.
+  - `src/cron/auto-trade.test.ts`:
+    - Added a `live-price anti-chase ceiling` describe block with 7 contract tests: keep when extended-but-under ceiling, keep exactly at ceiling (strict `>`), skip above ceiling (with reason-text checks), no-enforce when ATR is undefined / 0 / negative, and floor-precedence when below trigger.
+- Why: 2026-05-29 audit finding. The anti-chase guard (scan-time `BLOCKED_CHASE` in `candidate-grade.ts`, plus the engine's `noChasePrice` ceiling) only saw the scan-time price. The 2026-05-28 live-price revalidation re-checked the floor (`live >= trigger`) but had no upper bound, so a candidate whose live price ran above the no-chase ceiling between scan and execution would pass revalidation and be bought at market — a chased, extended entry that H-3 then pairs with a very tight stop, raising stop-out probability. This re-enforces the same ceiling the entry-quality-engine already defines, using the live price and scan-time ATR.
+- Behaviour preserved:
+  - All existing gates unchanged. The floor check (skip below trigger) and missing-price defensiveness (skip on undefined/NaN/<=0) are byte-for-byte unchanged and still take precedence over the new ceiling check.
+  - The 4th param is optional; the prior 3-arg call contract and all existing `revalidateLivePrice` tests remain valid.
+  - Scan-only sessions still skip the revalidation gate entirely.
+  - `revalidateLivePrice` remains pure — no DB, broker, or network access.
+  - Market-order execution path, sizing, stop tiers, and H-3 gap-up stop tightening are untouched.
+- Tests:
+  - `npx vitest run src/cron/auto-trade.test.ts` — 45/45 pass (incl. 7 new ceiling tests + the 10 prior revalidation tests).
+  - `npx tsc --noEmit` passes.
+- Author: GitHub Copilot (agent), on user instruction.
+
 ### 2026-05-28 - pending - Auto-trade live-price revalidation + heartbeat skip-reason logging
 
 - File(s):

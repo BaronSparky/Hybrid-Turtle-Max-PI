@@ -52,7 +52,13 @@ export function calculateAdaptiveBuffer(
   const volMultiplier = VOL_REGIME_MULTIPLIER[volRegime];
   const scaledBufferPercent = bufferPercent * volMultiplier;
 
-  const usePrior20DayHighForTrigger = process.env.USE_PRIOR_20D_HIGH_FOR_TRIGGER === 'true';
+  // Default ON: base the breakout trigger on the PRIOR 20-day high (excludes today's bar).
+  // Including today's bar (legacy default) made the trigger unreachable: today's high is always
+  // >= today's close, so close >= max(high_today, ...) + buffer can never be satisfied. That bug
+  // produced ~0 buys across thousands of scans. Set USE_PRIOR_20D_HIGH_FOR_TRIGGER=false to restore
+  // the legacy (broken) behaviour for A/B comparison only.
+  // When priorTwentyDayHigh is unavailable, we safely fall back to twentyDayHigh.
+  const usePrior20DayHighForTrigger = process.env.USE_PRIOR_20D_HIGH_FOR_TRIGGER !== 'false';
   const triggerBaseHigh = usePrior20DayHighForTrigger && typeof priorTwentyDayHigh === 'number'
     ? priorTwentyDayHigh
     : twentyDayHigh;
