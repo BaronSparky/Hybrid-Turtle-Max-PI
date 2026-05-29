@@ -29,6 +29,25 @@ Each entry uses this shape (newest at top of the History section):
 
 ## History
 
+### 2026-05-29 - pending - Auto-trade health gate fails closed on stale health (R2)
+
+- File(s):
+  - `src/cron/auto-trade.ts`:
+    - Added `HEALTH_STALE_HOURS = 30` constant and pure exported `evaluateHealthGate(lastHealthCheck, now)` returning `{ action: 'PROCEED' } | { action: 'BLOCK', reason }`. Missing health record or a health check older than 30h returns BLOCK (fail closed); otherwise PROCEED.
+    - Wired the helper into the trading-session gate chain as "Gate 5" (after regime, before sizing), blocking the run with a diagnostic reason when health is stale/absent. Scan-only sessions are unaffected.
+  - `src/cron/auto-trade.test.ts`:
+    - Added an `evaluateHealthGate` describe block: proceed when fresh, block when missing, block when older than 30h, boundary check exactly at 30h.
+- Why: 2026-05-29 ORACLE SYSTEM AUDIT finding R2. The auto-trade run consumed the health signal but had no fail-closed path: if the nightly health pipeline silently stopped updating, auto-trade would keep trading on stale health indefinitely. This makes a stale/absent health record halt new entries rather than trading blind.
+- Behaviour preserved:
+  - All existing gates unchanged; the health gate is additive and placed after the regime gate so regime blocking still takes precedence.
+  - The anti-chase guard (`revalidateLivePrice` no-chase ceiling, floor check, missing-price defensiveness) is byte-for-byte unchanged.
+  - `evaluateHealthGate` is pure — no DB, broker, or network access (the caller supplies `lastHealthCheck`).
+  - Scan-only sessions still skip the trading gates entirely. Sizing, stop tiers, account routing, and execution path untouched.
+- Tests:
+  - `npx vitest run src/cron/watchdog-checks.test.ts src/cron/auto-trade.test.ts` — 70/70 pass.
+  - `npm run typecheck` passes; `npx next build` passes.
+- Author: GitHub Copilot (agent), on user instruction.
+
 ### 2026-05-29 - pending - Auto-trade anti-chase ceiling re-enforced at execution time
 
 - File(s):

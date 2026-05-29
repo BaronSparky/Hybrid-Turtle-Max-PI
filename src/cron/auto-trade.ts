@@ -201,6 +201,40 @@ export function realisedGateFootprint(
   };
 }
 
+/** R2 (audit 2026-05-29): health gate must FAIL CLOSED.
+ *  The previous gate blocked new entries only when health was explicitly RED;
+ *  a missing health record (none ever written) or a stale one (nightly didn't
+ *  run) defaulted to permissive and allowed trading under unknown conditions.
+ *  This evaluates the gate so that absent OR stale OR RED all block, while a
+ *  fresh GREEN/AMBER allows. AMBER still trades (unchanged) — only RED blocks
+ *  among recorded states. Health is written by the nightly pipeline, so a
+ *  record older than HEALTH_STALE_HOURS means the latest nightly is missing.
+ *
+ *  Pure — unit-testable without prisma/network.
+ */
+export const HEALTH_STALE_HOURS = 30;
+
+export function evaluateHealthGate(
+  health: { overall: string | null; runDate: Date } | null | undefined,
+  nowMs: number,
+  staleHours: number = HEALTH_STALE_HOURS,
+): { block: boolean; reason: string } {
+  if (!health) {
+    return { block: true, reason: 'Health: no health check on record — fail-closed (no entries)' };
+  }
+  const ageHours = (nowMs - health.runDate.getTime()) / (1000 * 60 * 60);
+  if (!Number.isFinite(ageHours) || ageHours > staleHours) {
+    return {
+      block: true,
+      reason: `Health: stale (${Number.isFinite(ageHours) ? Math.round(ageHours) : '∞'}h old > ${staleHours}h) — fail-closed (no entries)`,
+    };
+  }
+  if (String(health.overall ?? '').toUpperCase() === 'RED') {
+    return { block: true, reason: 'Health: RED' };
+  }
+  return { block: false, reason: '' };
+}
+
 type Session = 'uk' | 'uk-mid' | 'us' | 'us-mid' | 'us-close' | 'scan';
 
 interface SessionConfig {
@@ -999,11 +1033,12 @@ async function runAutoTrade(session: Session) {
   const latestHealth = await prisma.healthCheck.findFirst({
     where: { userId },
     orderBy: { runDate: 'desc' },
-    select: { overall: true },
+    select: { overall: true, runDate: true },
   });
-  if (session !== 'scan' && latestHealth?.overall === 'RED') {
-    console.log('  ✗ Health status is RED — no new entries.');
-    await sendSessionSummary(session, { regime: scanResult.regime, readyCount: scanResult.readyCount, totalScanned: scanResult.totalScanned }, [], [], [{ ticker: '*', reason: 'Health: RED' }]);
+  const healthGate = evaluateHealthGate(latestHealth, Date.now());
+  if (session !== 'scan' && healthGate.block) {
+    console.log(`  ✗ ${healthGate.reason} — no new entries.`);
+    await sendSessionSummary(session, { regime: scanResult.regime, readyCount: scanResult.readyCount, totalScanned: scanResult.totalScanned }, [], [], [{ ticker: '*', reason: healthGate.reason }]);
     await prisma.$disconnect();
     return;
   }

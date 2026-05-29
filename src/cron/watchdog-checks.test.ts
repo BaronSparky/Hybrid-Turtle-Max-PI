@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkSchedulerKills, checkZeroTradesOnBullishDay, type AuditFinding } from './watchdog-checks';
+import { checkSchedulerKills, checkZeroTradesOnBullishDay, checkNightlyHeartbeatStatus, type AuditFinding } from './watchdog-checks';
 
 describe('checkSchedulerKills', () => {
   it('returns empty array when no SCHEDULER_TERMINATED findings present', () => {
@@ -83,5 +83,46 @@ describe('checkZeroTradesOnBullishDay', () => {
 
   it('handles lowercase regime strings', () => {
     expect(checkZeroTradesOnBullishDay({ ...baseInput, regime: 'bullish' })).toHaveLength(1);
+  });
+});
+
+describe('checkNightlyHeartbeatStatus', () => {
+  it('returns no alert for healthy terminal states', () => {
+    expect(checkNightlyHeartbeatStatus('SUCCESS')).toEqual([]);
+    expect(checkNightlyHeartbeatStatus('SKIPPED')).toEqual([]);
+    expect(checkNightlyHeartbeatStatus('success')).toEqual([]);
+  });
+
+  it('returns no alert for empty / missing status (liveness owns that)', () => {
+    expect(checkNightlyHeartbeatStatus('')).toEqual([]);
+    expect(checkNightlyHeartbeatStatus('   ')).toEqual([]);
+    expect(checkNightlyHeartbeatStatus(null)).toEqual([]);
+    expect(checkNightlyHeartbeatStatus(undefined)).toEqual([]);
+  });
+
+  it('alerts on a PARTIAL run', () => {
+    const alerts = checkNightlyHeartbeatStatus('PARTIAL');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatch(/PARTIAL/);
+    expect(alerts[0]).toMatch(/not SUCCESS/);
+  });
+
+  it('alerts on a FAILED run', () => {
+    const alerts = checkNightlyHeartbeatStatus('FAILED');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatch(/FAILED/);
+  });
+
+  it('alerts with a dedicated message on a stuck RUNNING run', () => {
+    const alerts = checkNightlyHeartbeatStatus('RUNNING');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatch(/RUNNING/);
+    expect(alerts[0]).toMatch(/never reported a final status/);
+  });
+
+  it('alerts on an unknown non-healthy status (fail-loud)', () => {
+    const alerts = checkNightlyHeartbeatStatus('WEIRD_STATE');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatch(/WEIRD_STATE/);
   });
 });

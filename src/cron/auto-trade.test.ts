@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { revalidateLivePrice } from './auto-trade';
+import { revalidateLivePrice, evaluateHealthGate, HEALTH_STALE_HOURS } from './auto-trade';
 
 /**
  * Auto-trade safety gate tests.
@@ -441,5 +441,56 @@ describe('auto-trade: heartbeat skip-reason logging', () => {
     const json = JSON.stringify({ skipReasons: skipped.map(s => ({ ticker: s.ticker, reason: s.reason })) });
     const back = JSON.parse(json) as { skipReasons: Array<{ ticker: string; reason: string }> };
     expect(back.skipReasons[0]).toEqual(skipped[0]);
+  });
+});
+
+// ── Health gate fail-closed (audit 2026-05-29, R2) ──
+// Contract: a missing OR stale OR RED health record blocks new entries; only a
+// fresh GREEN/AMBER allows. AMBER still trades (unchanged) — only RED blocks
+// among recorded states.
+
+describe('auto-trade: health gate fail-closed', () => {
+  const now = Date.UTC(2026, 4, 29, 16, 0, 0); // fixed "now"
+  const hoursAgo = (h: number) => new Date(now - h * 60 * 60 * 1000);
+
+  it('blocks when there is no health record at all (fail-closed)', () => {
+    expect(evaluateHealthGate(null, now).block).toBe(true);
+    expect(evaluateHealthGate(undefined, now).block).toBe(true);
+    expect(evaluateHealthGate(null, now).reason).toMatch(/no health check/i);
+  });
+
+  it('blocks when the latest health record is stale (older than threshold)', () => {
+    const gate = evaluateHealthGate({ overall: 'GREEN', runDate: hoursAgo(HEALTH_STALE_HOURS + 1) }, now);
+    expect(gate.block).toBe(true);
+    expect(gate.reason).toMatch(/stale/i);
+  });
+
+  it('blocks when fresh health is RED', () => {
+    const gate = evaluateHealthGate({ overall: 'RED', runDate: hoursAgo(2) }, now);
+    expect(gate.block).toBe(true);
+    expect(gate.reason).toBe('Health: RED');
+  });
+
+  it('allows when fresh health is GREEN', () => {
+    expect(evaluateHealthGate({ overall: 'GREEN', runDate: hoursAgo(2) }, now).block).toBe(false);
+  });
+
+  it('allows when fresh health is AMBER (unchanged — only RED blocks)', () => {
+    expect(evaluateHealthGate({ overall: 'AMBER', runDate: hoursAgo(2) }, now).block).toBe(false);
+  });
+
+  it('treats a record exactly at the staleness boundary as still fresh', () => {
+    const gate = evaluateHealthGate({ overall: 'GREEN', runDate: hoursAgo(HEALTH_STALE_HOURS) }, now);
+    expect(gate.block).toBe(false);
+  });
+
+  it('handles lowercase overall values', () => {
+    expect(evaluateHealthGate({ overall: 'red', runDate: hoursAgo(2) }, now).block).toBe(true);
+  });
+
+  it('blocks a stale RED record (staleness checked before colour)', () => {
+    const gate = evaluateHealthGate({ overall: 'RED', runDate: hoursAgo(HEALTH_STALE_HOURS + 5) }, now);
+    expect(gate.block).toBe(true);
+    expect(gate.reason).toMatch(/stale/i);
   });
 });

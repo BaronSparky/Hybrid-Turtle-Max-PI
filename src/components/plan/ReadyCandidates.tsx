@@ -3,6 +3,7 @@
 import StatusBadge from '@/components/shared/StatusBadge';
 import { cn, formatPrice, formatPercent } from '@/lib/utils';
 import { ArrowUpRight, Clock, Target, CheckCircle2, AlertTriangle, Crosshair, BarChart3, Briefcase, Zap, Info, X, Download, ChevronDown } from 'lucide-react';
+import Link from 'next/link';
 import { useState } from 'react';
 
 interface Candidate {
@@ -232,10 +233,14 @@ export default function ReadyCandidates({ candidates, heldTickers = new Set(), l
                     )}
                   </div>
                   {isBuyReady ? (
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold bg-emerald-500 text-navy-900 cursor-default select-none">
+                    <Link
+                      href="/portfolio/positions#ready-to-buy"
+                      title="Review and place this order in Ready to Buy"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold bg-emerald-500 text-navy-900 hover:bg-emerald-400 transition-colors"
+                    >
                       <Zap className="w-3.5 h-3.5" />
                       BUY
-                    </span>
+                    </Link>
                   ) : (
                     <ArrowUpRight className="w-4 h-4 text-profit" />
                   )}

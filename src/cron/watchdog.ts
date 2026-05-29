@@ -24,7 +24,7 @@ import {
   MAX_CONSECUTIVE_RESTART_FAILURES,
 } from './watchdog-restart-budget';
 import { getUKDayOfWeek, getUKHour } from '@/lib/uk-time';
-import { checkSchedulerKills, checkZeroTradesOnBullishDay, type AuditFinding } from './watchdog-checks';
+import { checkSchedulerKills, checkZeroTradesOnBullishDay, checkNightlyHeartbeatStatus, type AuditFinding } from './watchdog-checks';
 
 const log = createCronLogger('watchdog');
 const NIGHTLY_STALE_HOURS = 26;
@@ -78,6 +78,10 @@ async function runWatchdog(): Promise<void> {
         `🚨 WATCHDOG: No nightly heartbeat in ${Math.round(hoursSince)}+ hours. Last run: ${lastRun}. Check Task Scheduler.`
       );
     }
+    // Liveness (above) is not health: a recent heartbeat can still report a
+    // PARTIAL/FAILED run or a stuck RUNNING state. Surface those outcomes so a
+    // degraded nightly is not silent for up to 26h (audit 2026-05-29, R1).
+    alerts.push(...checkNightlyHeartbeatStatus(latestNightly.status));
   }
 
   // Check midday sync on weekdays (Mon-Fri = 1-5)

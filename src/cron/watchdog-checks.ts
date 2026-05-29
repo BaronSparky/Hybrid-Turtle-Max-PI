@@ -72,3 +72,33 @@ export function checkZeroTradesOnBullishDay(input: ZeroTradesInputs): string[] {
     `⚠️ WATCHDOG: Regime is BULLISH and the latest scan has ${input.aGradeWithShares} valid A-grade buy candidate(s), but auto-trade has logged 0 buy attempts today (UK). All three sessions should have run by ${minHour}:00 UK. Inspect auto-trade.log and run \`npm run sanity:scheduler\`.`,
   ];
 }
+
+/**
+ * Health (not just liveness) check for the most recent nightly heartbeat.
+ *
+ * The existence/recency check in watchdog.ts confirms the nightly RAN within
+ * NIGHTLY_STALE_HOURS, but it does not look at the run's outcome. Nightly
+ * writes a status of SUCCESS | PARTIAL | FAILED (and RUNNING at start), so a
+ * run that completed PARTIAL/FAILED — or crashed mid-run leaving RUNNING —
+ * still produces a recent heartbeat and would otherwise pass silently. This
+ * surfaces those degraded outcomes (audit 2026-05-29, R1).
+ *
+ * Conservative on unknown input: an empty / missing status returns no alert,
+ * because liveness is owned by the existence/recency check; this helper only
+ * speaks to outcome. SUCCESS and SKIPPED are the healthy terminal states.
+ *
+ * Pure — unit-testable without prisma/network.
+ */
+export function checkNightlyHeartbeatStatus(status: string | null | undefined): string[] {
+  const s = String(status ?? '').trim().toUpperCase();
+  if (s === '' || s === 'SUCCESS' || s === 'SKIPPED') return [];
+  if (s === 'RUNNING') {
+    return [
+      '🚨 WATCHDOG: Most recent nightly heartbeat is still RUNNING — the pipeline started but never reported a final status (crashed or killed mid-run). Stops/prices/signals may not have updated. Check nightly.log.',
+    ];
+  }
+  // PARTIAL, FAILED, or any unknown non-healthy status.
+  return [
+    `🚨 WATCHDOG: Most recent nightly completed with status ${s} (not SUCCESS). One or more steps failed — stops/prices/signals may be stale. Check nightly.log.`,
+  ];
+}

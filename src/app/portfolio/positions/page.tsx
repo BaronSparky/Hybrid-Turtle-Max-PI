@@ -482,11 +482,13 @@ function PositionsPageInner() {
         <BreakoutFailurePanel />
 
         {/* Ready to Buy — trigger-met candidates from latest scan */}
-        <ReadyToBuyPanel
-          currentPositionCount={openPositions.length}
-          openPositions={openPositionsForCluster}
-          onPositionCreated={handleSyncComplete}
-        />
+        <div id="ready-to-buy" className="scroll-mt-20">
+          <ReadyToBuyPanel
+            currentPositionCount={openPositions.length}
+            openPositions={openPositionsForCluster}
+            onPositionCreated={handleSyncComplete}
+          />
+        </div>
 
         {/* Loading state */}
         {loading ? (
