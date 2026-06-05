@@ -14,6 +14,7 @@ import {
   type Trading212Environment,
   type T212Position,
   type T212AccountSummary,
+  type T212PendingOrder,
   mapT212Position,
   mapT212AccountSummary,
 } from './trading212';
@@ -162,6 +163,38 @@ export class DualT212Client {
     }
 
     return result;
+  }
+
+  /**
+   * Fetch pending STOP/SELL orders from both accounts in parallel, best-effort.
+   *
+   * Never throws: a failed or rate-limited fetch yields an empty array for that
+   * account, so the caller transparently falls back to its own default stop.
+   * Used by the sync route to record a manual buy's REAL broker stop instead of
+   * the 5%-of-entry placeholder. Only STOP orders on the SELL side are returned
+   * (these are the protective stop-losses), matching the /api/stops/t212 filter.
+   *
+   * Rate limit note: getPendingOrders is 1 req / 5s per account, but Invest and
+   * ISA are independent endpoints/keys so the two calls don't contend.
+   */
+  async fetchPendingStopOrders(): Promise<{ invest: T212PendingOrder[]; isa: T212PendingOrder[] }> {
+    const fetchFor = async (client: Trading212Client | null): Promise<T212PendingOrder[]> => {
+      if (!client) return [];
+      try {
+        const orders = await client.getPendingOrders();
+        return orders.filter((o) => o.type === 'STOP' && o.side === 'SELL');
+      } catch {
+        // Best-effort — degrade to no known stops, caller uses its default.
+        return [];
+      }
+    };
+
+    const [invest, isa] = await Promise.all([
+      fetchFor(this.investClient),
+      fetchFor(this.isaClient),
+    ]);
+
+    return { invest, isa };
   }
 
   /**

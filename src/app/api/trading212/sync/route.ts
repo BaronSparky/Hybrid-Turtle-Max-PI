@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { mapT212Position, mapT212AccountSummary } from '@/lib/trading212';
+import { mapT212Position, mapT212AccountSummary, type T212PendingOrder } from '@/lib/trading212';
 import {
   DualT212Client,
   validateDualCredentials,
@@ -88,6 +88,21 @@ export async function POST(request: NextRequest) {
     // Fetch both accounts in parallel (Promise.allSettled under the hood)
     const dualResult = await dualClient.fetchBothAccounts();
 
+    // Lazily fetch this user's live T212 stop orders the first time a NEW
+    // position needs creating. This lets a synced manual buy record the user's
+    // REAL broker stop instead of the 5%-of-entry placeholder. Memoized so we
+    // pay at most one getPendingOrders call per account per sync, and only when
+    // there is actually a position to create (the common update-only sync makes
+    // zero extra API calls). Best-effort inside fetchPendingStopOrders — a
+    // failure yields empty arrays and we transparently fall back to the default.
+    let pendingStopsCache: { invest: T212PendingOrder[]; isa: T212PendingOrder[] } | null = null;
+    const getPendingStops = async () => {
+      if (!pendingStopsCache) {
+        pendingStopsCache = await dualClient.fetchPendingStopOrders();
+      }
+      return pendingStopsCache;
+    };
+
     // Per-account sync results
     const syncResults = {
       invest: { created: 0, updated: 0, closed: 0, errors: [] as string[] },
@@ -133,6 +148,24 @@ export async function POST(request: NextRequest) {
       //   - bare stock ticker (e.g. UNFI) for legacy rows where t212Ticker is null
       // Lookups below try fullTicker first, then bare ticker.
       const existingIndex = buildSyncIndex(existingPositions);
+
+      // If any incoming holding isn't tracked yet, fetch this account's live
+      // T212 stop orders so the new Position records the real broker stop
+      // instead of a 5%-of-entry placeholder. Over-triggering (fetching when it
+      // turns out to be an update via canonical reconciliation) is harmless; we
+      // never under-fetch a genuine new buy. An empty map => 5% default.
+      const hasNewPositions = mappedPositions.some(
+        (pos) => !findExistingForSync(existingIndex, pos)
+      );
+      const knownStopByFullTicker = new Map<string, number>();
+      if (hasNewPositions) {
+        const pending = await getPendingStops();
+        for (const order of pending[acctType]) {
+          if (typeof order.stopPrice === 'number' && order.stopPrice > 0) {
+            knownStopByFullTicker.set(order.ticker, order.stopPrice);
+          }
+        }
+      }
 
       // Cross-account duplicate guard: find t212Tickers already open under OTHER account types.
       // Prevents creating the same position twice when both Invest and ISA see the same holdings.
@@ -237,16 +270,20 @@ export async function POST(request: NextRequest) {
               });
               acctResults.updated++;
             } else {
-              // Create new position
-              // Behaviour-preserving: passing knownStopPrice=undefined keeps
-              // the legacy 5%-of-entry default. Future change can fetch the
-              // T212 pending stop order for this ticker and pass it here so
-              // manual buys with custom stops record the user's actual risk
-              // (e.g. RBOTl 8 May 2026 was synced with 5% default but user
-              // had set $19.81 in T212 — see scripts/backfill-rbotl-audit-fields.ts).
-              const risk = calcSyncedPositionRisk(pos.entryPrice);
+              // Create new position.
+              // Record the user's REAL T212 stop when one exists for this ticker
+              // (manual buys with a custom stop, e.g. RBOTl 8 May 2026 had
+              // $19.81 set in T212 but was synced with the 5% default before
+              // this path existed). calcSyncedPositionRisk validates the stop is
+              // 0 < stop < entry; anything else (missing, stale-above-entry)
+              // falls back to the legacy 5%-of-entry default.
+              const knownStop = knownStopByFullTicker.get(pos.fullTicker);
+              const risk = calcSyncedPositionRisk(pos.entryPrice, knownStop);
               const initialRisk = risk.initialRisk;
               const stopLoss = risk.stopLoss;
+              const stopNote = risk.source === 'KNOWN_STOP'
+                ? `stop ${stopLoss.toFixed(2)} from T212 order`
+                : 'stop defaulted to 5% (no T212 stop found)';
 
               await tx.position.create({
                 data: {
@@ -269,7 +306,7 @@ export async function POST(request: NextRequest) {
                   profile_used: user.riskProfile,
                   entry_type: 'BREAKOUT',
                   protectionLevel: 'INITIAL',
-                  notes: `Synced from Trading 212 (${acctType.toUpperCase()}). ISIN: ${pos.isin}`,
+                  notes: `Synced from Trading 212 (${acctType.toUpperCase()}). ISIN: ${pos.isin}. ${stopNote}`,
                 },
               });
               acctResults.created++;

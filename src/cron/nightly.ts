@@ -29,6 +29,7 @@
 import prisma from '@/lib/prisma';
 import { runHealthCheck } from '@/lib/health-check';
 import { generateStopRecommendations, generateTrailingStopRecommendations, updateStopLoss } from '@/lib/stop-manager';
+import { decideStopCommit } from '@/lib/nightly-stop-apply';
 import { sendNightlySummary } from '@/lib/telegram';
 import type { NightlyPositionDetail, NightlyStopChange, NightlyReadyCandidate, NightlyTriggerMetCandidate, NightlyLaggardAlert, NightlyClimaxAlert, NightlySwapAlert, NightlyWhipsawAlert, NightlyBreadthAlert, NightlyMomentumAlert, NightlyPyramidAlert, NightlyGapRiskAlert, NightlyBreakoutFailureAlert, NightlyAcceleratorAlert } from '@/lib/telegram';
 import { getBatchQuotes, normalizeBatchPricesToGBP, getDailyPrices, calculateADX, calculateATR, calculateMA, preCacheHistoricalData, getDataFreshness, getMarketRegime } from '@/lib/market-data';
@@ -417,60 +418,218 @@ async function runNightlyProcess() {
         }
       }
 
+      // Compute only — DB commit happens in Step 3-apply below, gated on broker confirmation.
       stopRecs = await generateStopRecommendations(userId, livePriceMap, atrMap);
-
-      for (const rec of stopRecs) {
-        const pos = positions.find((p) => p.id === rec.positionId);
-        const isUK = rec.ticker.endsWith('.L') || /^[A-Z]{2,5}l$/.test(rec.ticker);
-        const cur = isUK ? 'GBX' : (pos?.stock.currency || 'USD').toUpperCase();
-        try {
-          await updateStopLoss(rec.positionId, rec.newStop, rec.reason, rec.newLevel);
-          stopChanges.push({
-            ticker: rec.ticker,
-            oldStop: rec.currentStop,
-            newStop: rec.newStop,
-            level: rec.newLevel,
-            reason: rec.reason,
-            currency: cur,
-          });
-        } catch (err) {
-          console.warn(`  [nightly] Stop update skipped due to error: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      }
     } catch (error) {
       hadFailure = true;
       console.error('  [3] R-based stop recommendations failed:', (error as Error).message);
     }
 
-    // Step 3b: Trailing ATR stops
+    // Step 3b: Trailing ATR stops (compute only — committed in Step 3-apply below)
     const trailingStopChanges: NightlyStopChange[] = [];
+    let trailingRecs: Awaited<ReturnType<typeof generateTrailingStopRecommendations>> = [];
     try {
-      const trailingRecs = await generateTrailingStopRecommendations(userId);
-      for (const rec of trailingRecs) {
-        try {
-          // F-3: use rec.recommendedLevel so trailing updates do not silently
-          // downgrade higher-tier labels (LOCK_08R / LOCK_1R_TRAIL) to TRAILING_ATR.
-          await updateStopLoss(rec.positionId, rec.trailingStop, rec.reason, rec.recommendedLevel);
-          trailingStopChanges.push({
-            ticker: rec.ticker,
-            oldStop: rec.currentStop,
-            newStop: rec.trailingStop,
-            level: rec.recommendedLevel,
-            reason: rec.reason,
-            currency: rec.priceCurrency,
-          });
-        } catch (err) {
-          console.warn(`  [nightly] Trailing stop update skipped due to error: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      }
+      trailingRecs = await generateTrailingStopRecommendations(userId);
     } catch (error) {
       hadFailure = true;
       console.warn('  [3b] Trailing stop calculation failed:', (error as Error).message);
     }
-    console.log(`        ${stopRecs.length} R-based, ${trailingStopChanges.length} trailing ATR`);
 
-    // Re-fetch positions from DB so all downstream code (T212 push, stop-hit detection,
-    // near-stop alerts, position details, Telegram) uses the updated stop values.
+    // Step 3-apply: Broker-confirmation-first stop commit.
+    // ROBUSTNESS INVARIANT (real money): the DB stop record must never claim a
+    // tighter stop than the broker actually holds. So when auto-trading is on and
+    // a position has a broker ticker, we PUSH the intended stop to T212 FIRST and
+    // commit the DB raise ONLY for positions the broker confirms. Withheld raises
+    // leave the DB at its prior (lower-or-equal) stop, so the DB can only ever
+    // understate broker protection — never overstate it (the ELV-class divergence).
+    const autoTradingEnabled = await isAutoTradingEnabled();
+    let stopsPushedToT212 = 0;
+    let stopsPushFailed = 0;
+    let orphanStopsPlaced = 0;
+    const orphanTickersPlaced: string[] = [];
+    const unprotectedOrphanTickers: string[] = [];
+    const withheldRaiseTickers: string[] = [];
+    // positionId -> setStopLossBatch action for tonight's raises (absent = not confirmed).
+    const brokerActionByPositionId = new Map<string, string>();
+
+    // Highest intended stop per position (R-based vs trailing). The broker only
+    // needs the tightest of the two; the DB writes below reproduce both records
+    // for faithful Telegram reporting via the monotonic updateStopLoss guard.
+    const intendedStopByPosition = new Map<string, number>();
+    for (const rec of stopRecs) {
+      const prev = intendedStopByPosition.get(rec.positionId) ?? 0;
+      if (rec.newStop > prev) intendedStopByPosition.set(rec.positionId, rec.newStop);
+    }
+    for (const rec of trailingRecs) {
+      const prev = intendedStopByPosition.get(rec.positionId) ?? 0;
+      if (rec.trailingStop > prev) intendedStopByPosition.set(rec.positionId, rec.trailingStop);
+    }
+
+    if (autoTradingEnabled && intendedStopByPosition.size > 0) {
+      console.log('  [3-apply] Pushing intended stops to Trading 212 before DB commit...');
+      try {
+        // Group open positions by account for per-account broker calls + orphan detection.
+        const positionsByAccount = new Map<T212AccountType, typeof positions>();
+        for (const p of positions) {
+          const acctType: T212AccountType = p.accountType === 'isa' ? 'isa' : 'invest';
+          const group = positionsByAccount.get(acctType) ?? [];
+          group.push(p);
+          positionsByAccount.set(acctType, group);
+        }
+
+        for (const [acctType, acctPositions] of Array.from(positionsByAccount.entries())) {
+          const client = await getNightlyT212Client(userId, acctType);
+          if (!client) {
+            console.warn(`  [3-apply] T212 ${acctType} client unavailable — withholding DB commit for its raises`);
+            continue;
+          }
+
+          // Detect orphans: open positions whose broker ticker has no STOP/SELL order.
+          const orphanT212Tickers = new Set<string>();
+          try {
+            const pending = await client.getPendingOrders();
+            const brokerStopTickers = new Set(
+              pending.filter(o => o.type === 'STOP' && o.side === 'SELL').map(o => o.ticker)
+            );
+            for (const p of acctPositions) {
+              const t = p.t212Ticker || p.stock.t212Ticker;
+              if (t && !brokerStopTickers.has(t) && p.currentStop > 0) {
+                orphanT212Tickers.add(t);
+              }
+            }
+          } catch (err) {
+            console.warn(`  [3-apply] Orphan detection failed for ${acctType}: ${(err as Error).message}`);
+          }
+
+          // Build push batch: tonight's raises ∪ orphans. Raises push the intended
+          // (tightest) stop; orphans push their existing currentStop.
+          const t212ToPosition = new Map<string, { positionId: string; isRaise: boolean; isOrphan: boolean }>();
+          const batchInput: Array<{ t212Ticker: string; shares: number; stopPrice: number }> = [];
+          for (const p of acctPositions) {
+            const t212Ticker = p.t212Ticker || p.stock.t212Ticker;
+            if (!t212Ticker) continue;
+            const intended = intendedStopByPosition.get(p.id);
+            const isRaise = intended !== undefined && intended > 0;
+            const isOrphan = orphanT212Tickers.has(t212Ticker) && p.currentStop > 0;
+            const stopPrice = isRaise ? intended! : (isOrphan ? p.currentStop : undefined);
+            if (stopPrice === undefined || stopPrice <= 0) continue;
+            batchInput.push({ t212Ticker, shares: p.shares, stopPrice });
+            t212ToPosition.set(t212Ticker, { positionId: p.id, isRaise, isOrphan });
+          }
+
+          if (batchInput.length === 0) continue;
+
+          try {
+            const results = await client.setStopLossBatch(batchInput);
+            for (const r of results) {
+              const mapped = t212ToPosition.get(r.t212Ticker);
+              if (mapped?.isRaise) brokerActionByPositionId.set(mapped.positionId, r.action);
+              if (r.action === 'PLACED' || r.action === 'UPDATED') {
+                stopsPushedToT212++;
+                if (mapped?.isOrphan && !mapped.isRaise) {
+                  orphanStopsPlaced++;
+                  orphanTickersPlaced.push(r.t212Ticker);
+                  console.warn(`  [3-apply] Orphan stop placed for ${r.t212Ticker} @ ${r.stopPrice} — position had no broker stop`);
+                }
+              } else if (r.action === 'SKIPPED_SAME') {
+                // Broker already holds this stop — confirmed, no-op.
+              } else {
+                stopsPushFailed++;
+                if (mapped?.isOrphan && !mapped.isRaise) unprotectedOrphanTickers.push(r.t212Ticker);
+                console.warn(`  [3-apply] Stop push ${r.action} for ${r.t212Ticker}: ${r.error || ''}`);
+              }
+            }
+          } catch (err) {
+            console.warn(`  [3-apply] Batch stop push failed for ${acctType}: ${(err as Error).message}`);
+            stopsPushFailed += batchInput.length;
+            // Raises: brokerActionByPositionId stays unset → decideStopCommit WITHHOLDs.
+            // Orphans: still unprotected at the broker — surface explicitly.
+            for (const [t212, mapped] of Array.from(t212ToPosition.entries())) {
+              if (mapped.isOrphan && !mapped.isRaise) unprotectedOrphanTickers.push(t212);
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('  [3-apply] Auto-push stops failed:', (error as Error).message);
+        alerts.push('⚠ Auto stop-push to T212 failed — stop raises withheld from DB, check manually');
+      }
+    }
+
+    // Commit DB stop raises — only those the broker confirmed (or advisory / no broker ticker).
+    for (const rec of stopRecs) {
+      const pos = positions.find((p) => p.id === rec.positionId);
+      const hasBrokerTicker = !!(pos?.t212Ticker || pos?.stock.t212Ticker);
+      const decision = decideStopCommit({
+        autoTradingEnabled,
+        hasBrokerTicker,
+        brokerAction: brokerActionByPositionId.get(rec.positionId),
+      });
+      if (decision === 'WITHHOLD') {
+        if (!withheldRaiseTickers.includes(rec.ticker)) withheldRaiseTickers.push(rec.ticker);
+        continue;
+      }
+      const isUK = rec.ticker.endsWith('.L') || /^[A-Z]{2,5}l$/.test(rec.ticker);
+      const cur = isUK ? 'GBX' : (pos?.stock.currency || 'USD').toUpperCase();
+      try {
+        await updateStopLoss(rec.positionId, rec.newStop, rec.reason, rec.newLevel);
+        stopChanges.push({
+          ticker: rec.ticker,
+          oldStop: rec.currentStop,
+          newStop: rec.newStop,
+          level: rec.newLevel,
+          reason: rec.reason,
+          currency: cur,
+        });
+      } catch (err) {
+        console.warn(`  [nightly] Stop update skipped due to error: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    for (const rec of trailingRecs) {
+      const pos = positions.find((p) => p.id === rec.positionId);
+      const hasBrokerTicker = !!(pos?.t212Ticker || pos?.stock.t212Ticker);
+      const decision = decideStopCommit({
+        autoTradingEnabled,
+        hasBrokerTicker,
+        brokerAction: brokerActionByPositionId.get(rec.positionId),
+      });
+      if (decision === 'WITHHOLD') {
+        if (!withheldRaiseTickers.includes(rec.ticker)) withheldRaiseTickers.push(rec.ticker);
+        continue;
+      }
+      try {
+        // F-3: use rec.recommendedLevel so trailing updates do not silently
+        // downgrade higher-tier labels (LOCK_08R / LOCK_1R_TRAIL) to TRAILING_ATR.
+        await updateStopLoss(rec.positionId, rec.trailingStop, rec.reason, rec.recommendedLevel);
+        trailingStopChanges.push({
+          ticker: rec.ticker,
+          oldStop: rec.currentStop,
+          newStop: rec.trailingStop,
+          level: rec.recommendedLevel,
+          reason: rec.reason,
+          currency: rec.priceCurrency,
+        });
+      } catch (err) {
+        console.warn(`  [nightly] Trailing stop update skipped due to error: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    if (stopsPushedToT212 > 0) {
+      alerts.push(`✅ ${stopsPushedToT212} stop(s) auto-pushed to T212`);
+    }
+    if (orphanStopsPlaced > 0) {
+      alerts.push(`⚠ Orphan stop(s) placed for ${orphanTickersPlaced.join(', ')} — position(s) had no broker stop (initial Phase C likely skipped)`);
+    }
+    if (unprotectedOrphanTickers.length > 0) {
+      alerts.push(`🚨 ${unprotectedOrphanTickers.length} position(s) UNPROTECTED at broker (${unprotectedOrphanTickers.join(', ')}) — stop placement FAILED. Act now.`);
+    }
+    if (withheldRaiseTickers.length > 0) {
+      alerts.push(`⚠ ${withheldRaiseTickers.length} stop raise(s) NOT confirmed by T212 (${withheldRaiseTickers.join(', ')}) — DB kept at prior stop; broker still holds previous protection. Check manually.`);
+    }
+    console.log(`        ${stopRecs.length} R-based, ${trailingStopChanges.length} trailing ATR committed; T212 push: ${stopsPushedToT212} pushed (${orphanStopsPlaced} orphans), ${stopsPushFailed} failed, ${withheldRaiseTickers.length} withheld`);
+
+    // Re-fetch positions from DB so all downstream code (stop-hit detection,
+    // near-stop alerts, position details, Telegram) uses the committed stop values.
     if (stopChanges.length > 0 || trailingStopChanges.length > 0) {
       try {
         positions = await prisma.position.findMany({
@@ -693,116 +852,9 @@ async function runNightlyProcess() {
     }
     console.log(`        Near-stop alerts: ${nearStopCount} sent`);
 
-    // Step 3g: Auto-push updated stops to T212 (requires ENABLE_AUTO_TRADING)
-    // Pushes the union of {positions whose stop changed tonight} ∪ {orphans —
-    // open positions with no STOP/SELL order at the broker}. The orphan path
-    // catches the case where execute/route.ts skipped Phase C (e.g. UK fill
-    // confirmation timeout left a position at the broker with no stop attached).
-    const autoTradingEnabled = await isAutoTradingEnabled();
-    let stopsPushedToT212 = 0;
-    let stopsPushFailed = 0;
-    let orphanStopsPlaced = 0;
-    const orphanTickersPlaced: string[] = [];
-    if (autoTradingEnabled) {
-      console.log('  [3g] Auto-pushing stops to Trading 212...');
-      try {
-        const changedTickers = new Set([
-          ...stopChanges.map(s => s.ticker),
-          ...trailingStopChanges.map(s => s.ticker),
-        ]);
-
-        // Group ALL open positions by account so we can detect orphans per account
-        const positionsByAccount = new Map<T212AccountType, typeof positions>();
-        for (const p of positions) {
-          const acctType: T212AccountType = p.accountType === 'isa' ? 'isa' : 'invest';
-          const group = positionsByAccount.get(acctType) ?? [];
-          group.push(p);
-          positionsByAccount.set(acctType, group);
-        }
-
-        for (const [acctType, acctPositions] of Array.from(positionsByAccount.entries())) {
-          const client = await getNightlyT212Client(userId, acctType);
-          if (!client) {
-            console.warn(`  [3g] T212 ${acctType} client unavailable — skipping stop push`);
-            continue;
-          }
-
-          // Detect orphans: fetch pending orders once per account and find
-          // open positions whose t212Ticker has no STOP/SELL order at the broker.
-          const orphanT212Tickers = new Set<string>();
-          try {
-            const pending = await client.getPendingOrders();
-            const brokerStopTickers = new Set(
-              pending
-                .filter(o => o.type === 'STOP' && o.side === 'SELL')
-                .map(o => o.ticker)
-            );
-            for (const p of acctPositions) {
-              const t = p.t212Ticker || p.stock.t212Ticker;
-              if (t && !brokerStopTickers.has(t) && p.currentStop > 0) {
-                orphanT212Tickers.add(t);
-              }
-            }
-          } catch (err) {
-            console.warn(`  [3g] Orphan detection failed for ${acctType}: ${(err as Error).message}`);
-          }
-
-          // Build push batch: positions in {changed ∪ orphans} only.
-          // Positions whose broker stop merely differs (but exists) are left
-          // to step 3h's drift detection — avoids tripping the monotonic rule
-          // on stops the user manually moved at the broker.
-          const batchInput = acctPositions
-            .filter(p => {
-              const t212Ticker = p.t212Ticker || p.stock.t212Ticker;
-              if (!t212Ticker || p.currentStop <= 0) return false;
-              return changedTickers.has(p.stock.ticker) || orphanT212Tickers.has(t212Ticker);
-            })
-            .map(p => ({
-              t212Ticker: (p.t212Ticker || p.stock.t212Ticker)!,
-              shares: p.shares,
-              stopPrice: p.currentStop,
-            }));
-
-          if (batchInput.length === 0) continue;
-
-          try {
-            const results = await client.setStopLossBatch(batchInput);
-            for (const r of results) {
-              if (r.action === 'PLACED' || r.action === 'UPDATED') {
-                stopsPushedToT212++;
-                if (orphanT212Tickers.has(r.t212Ticker)) {
-                  orphanStopsPlaced++;
-                  orphanTickersPlaced.push(r.t212Ticker);
-                  console.warn(`  [3g] Orphan stop placed for ${r.t212Ticker} @ ${r.stopPrice} — position had no broker stop`);
-                }
-              } else if (r.action === 'SKIPPED_SAME') {
-                // Already correct at broker — no-op, no alert
-              } else {
-                stopsPushFailed++;
-                console.warn(`  [3g] Stop push ${r.action} for ${r.t212Ticker}: ${r.error || ''}`);
-              }
-            }
-          } catch (err) {
-            console.warn(`  [3g] Batch stop push failed for ${acctType}: ${(err as Error).message}`);
-            stopsPushFailed += batchInput.length;
-          }
-        }
-
-        if (stopsPushedToT212 > 0) {
-          alerts.push(`✅ ${stopsPushedToT212} stop(s) auto-pushed to T212`);
-        }
-        if (orphanStopsPlaced > 0) {
-          alerts.push(`⚠ Orphan stop(s) placed for ${orphanTickersPlaced.join(', ')} — position(s) had no broker stop (initial Phase C likely skipped)`);
-        }
-        if (stopsPushFailed > 0) {
-          alerts.push(`⚠ ${stopsPushFailed} stop(s) failed to push to T212 — check manually`);
-        }
-      } catch (error) {
-        console.warn('  [3g] Auto-push stops failed:', (error as Error).message);
-        alerts.push('⚠ Auto stop-push to T212 failed — check manually');
-      }
-    }
-    console.log(`        T212 stop push: ${stopsPushedToT212} pushed (${orphanStopsPlaced} orphans), ${stopsPushFailed} failed`);
+    // Stop pushes to T212 now happen in Step 3-apply (above), BEFORE the DB
+    // commit, so the DB never overstates broker protection. Steps 3c–3f run on
+    // the broker-confirmed committed stops.
 
     // Step 3h: Stop–Broker sync check — compare DB stops vs T212 pending orders
     if (process.env.BROKER_ADAPTER === 'trading212') {

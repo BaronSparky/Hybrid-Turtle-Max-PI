@@ -7,9 +7,11 @@ import {
   type DualAccountResult,
 } from './trading212-dual';
 import {
+  Trading212Client,
   Trading212Error,
   type T212Position,
   type T212AccountSummary,
+  type T212PendingOrder,
 } from './trading212';
 
 // ── Mock Trading212Client ────────────────────────────────────
@@ -32,6 +34,10 @@ vi.mock('./trading212', async (importOriginal) => {
     }
 
     async getPositions(): Promise<T212Position[]> {
+      return [];
+    }
+
+    async getPendingOrders(): Promise<T212PendingOrder[]> {
       return [];
     }
   }
@@ -85,6 +91,38 @@ function makePosition(ticker: string, overrides: Partial<T212Position> = {}): T2
       value: 1100,
       valueInAccountCurrency: 1100,
     },
+    ...overrides,
+  };
+}
+
+function makePendingStopOrder(
+  ticker: string,
+  stopPrice: number,
+  overrides: Partial<T212PendingOrder> = {}
+): T212PendingOrder {
+  return {
+    id: 1,
+    createdAt: '2026-01-15T10:00:00Z',
+    currency: 'USD',
+    extendedHours: false,
+    filledQuantity: 0,
+    filledValue: 0,
+    initiatedFrom: 'API',
+    instrument: {
+      currency: 'USD',
+      isin: 'US0000000001',
+      name: `${ticker} Corp`,
+      ticker: `${ticker}_US_EQ`,
+    },
+    quantity: -10,
+    side: 'SELL',
+    status: 'WORKING',
+    stopPrice,
+    strategy: 'STOP',
+    ticker: `${ticker}_US_EQ`,
+    timeInForce: 'GOOD_TILL_CANCEL',
+    type: 'STOP',
+    value: 0,
     ...overrides,
   };
 }
@@ -157,6 +195,57 @@ describe('DualT212Client', () => {
       expect(result.isa).toBeNull();
       expect(result.errors.invest).toBe('No credentials provided');
       expect(result.errors.isa).toBe('No credentials provided');
+    });
+  });
+
+  describe('fetchPendingStopOrders', () => {
+    it('returns STOP/SELL orders tagged by account', async () => {
+      vi.spyOn(Trading212Client.prototype, 'getPendingOrders').mockResolvedValue([
+        makePendingStopOrder('ELV', 391.11),
+        makePendingStopOrder('NUE', 240.0),
+      ]);
+
+      const client = new DualT212Client(INVEST_CREDS, ISA_CREDS);
+      const result = await client.fetchPendingStopOrders();
+
+      expect(result.invest.map((o) => o.ticker)).toEqual(['ELV_US_EQ', 'NUE_US_EQ']);
+      expect(result.isa.map((o) => o.ticker)).toEqual(['ELV_US_EQ', 'NUE_US_EQ']);
+      expect(result.invest.find((o) => o.ticker === 'ELV_US_EQ')?.stopPrice).toBe(391.11);
+    });
+
+    it('filters out non-STOP and non-SELL orders', async () => {
+      vi.spyOn(Trading212Client.prototype, 'getPendingOrders').mockResolvedValue([
+        makePendingStopOrder('ELV', 391.11),
+        makePendingStopOrder('BUYLIMIT', 0, { type: 'LIMIT', side: 'BUY', stopPrice: undefined, limitPrice: 10 }),
+        makePendingStopOrder('SELLLIMIT', 0, { type: 'LIMIT', stopPrice: undefined, limitPrice: 20 }),
+        makePendingStopOrder('BUYSTOP', 5, { side: 'BUY' }),
+      ]);
+
+      const client = new DualT212Client(INVEST_CREDS, null);
+      const result = await client.fetchPendingStopOrders();
+
+      expect(result.invest.map((o) => o.ticker)).toEqual(['ELV_US_EQ']);
+      expect(result.isa).toEqual([]);
+    });
+
+    it('degrades to an empty array for an account whose fetch throws', async () => {
+      vi.spyOn(Trading212Client.prototype, 'getPendingOrders').mockRejectedValue(
+        new Trading212Error('rate limited', 429)
+      );
+
+      const client = new DualT212Client(INVEST_CREDS, ISA_CREDS);
+      const result = await client.fetchPendingStopOrders();
+
+      expect(result.invest).toEqual([]);
+      expect(result.isa).toEqual([]);
+    });
+
+    it('returns empty arrays when no clients are configured', async () => {
+      const client = new DualT212Client(null, null);
+      const result = await client.fetchPendingStopOrders();
+
+      expect(result.invest).toEqual([]);
+      expect(result.isa).toEqual([]);
     });
   });
 
