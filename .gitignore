@@ -67,11 +67,13 @@ data/t212-quota-events.json
 data/sentiment-trends.json
 data/apply-task-time-limits-result.json
 data/t212-instruments-cache.json
+.watchdog-restart-state.json
 smoke.log
 auto-trade.log
 midday-sync.log
 research-refresh.log
 rescue-stops.log
+ticker-audit.log
 
 # HVE-Core AI workflow artifacts (local only)
 .copilot-tracking/
