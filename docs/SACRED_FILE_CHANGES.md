@@ -29,6 +29,21 @@ Each entry uses this shape (newest at top of the History section):
 
 ## History
 
+### 2026-06-08 - pending - Entry revalidation forces a fresh quote
+
+- File(s):
+  - `src/cron/auto-trade.ts`:
+    - Changed the execution-time live-revalidation fetch from `getBatchPrices(tickers)` to `getBatchPrices(tickers, /* forceRefresh */ true)`, with an explanatory comment. This is the only price that authorizes a real buy.
+- Why: The quote cache has a 5-minute TTL (`QUOTE_TTL`, `src/lib/market-data.ts`), so an entry could fire on a quote up to ~5 minutes stale. `forceRefresh=true` routes all tickers to the uncached path, forcing a live `yf.quote()` so entries are always judged against a guaranteed-fresh price.
+- Behaviour preserved:
+  - `revalidateLivePrice` decision logic is byte-for-byte unchanged (all four SKIP/KEEP branches, the no-chase ceiling, the floor check, and missing-price defensiveness). Only the freshness of the price input changed.
+  - The separate existing-position risk-gate fallback fetch (`getBatchPrices(priceMissing)`) is deliberately left un-forced — Yahoo is a fallback for gate denominators there, not a new-entry trigger. T212 remains primary.
+  - All other gates, sizing, stop tiers, account routing, and execution path untouched.
+- Tests:
+  - `npx vitest run src/cron/auto-trade.test.ts src/cron/auto-trade-stop-retry.test.ts` — 78/78 pass.
+  - `npm run typecheck` passes (pre-commit).
+- Author: GitHub Copilot (agent), on user instruction.
+
 ### 2026-05-29 - pending - Auto-trade health gate fails closed on stale health (R2)
 
 - File(s):

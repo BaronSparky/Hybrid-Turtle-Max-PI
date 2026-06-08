@@ -1110,10 +1110,15 @@ async function runAutoTrade(session: Session) {
   // stale scan-price alone). Scan-only sessions are informational and skip
   // this gate. Skips merge into the session `skipped` array below so they
   // surface in both Telegram and the heartbeat skipReasons field.
+  // forceRefresh=true (2026-06-08): the quote cache has a 5-min TTL, so an
+  // un-forced fetch could re-use a quote up to 5 min old at the moment we
+  // pull the trigger. This is the only price that gates a real buy, so we
+  // bypass the cache and fetch a guaranteed-fresh quote here. The extra Yahoo
+  // calls are bounded by the ready-slate size (typically a handful).
   const liveRevalidationSkipped: Array<{ ticker: string; reason: string }> = [];
   if (session !== 'scan' && readyCandidates.length > 0) {
     const tickers = readyCandidates.map(c => c.ticker);
-    const livePrices = await getBatchPrices(tickers).catch((err) => {
+    const livePrices = await getBatchPrices(tickers, /* forceRefresh */ true).catch((err) => {
       console.warn(`    [LIVE REVALIDATION] Batch fetch failed: ${(err as Error).message}`);
       return {} as Record<string, number>;
     });
