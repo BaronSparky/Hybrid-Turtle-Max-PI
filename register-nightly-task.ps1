@@ -33,9 +33,15 @@ try {
         -Argument "/c `"$PSScriptRoot\nightly-task.bat`" --scheduled" `
         -WorkingDirectory "$PSScriptRoot"
 
+    # All 7 days: the HealthCheck record (written only by nightly) gates auto-trade
+    # entries via the 30h fail-closed staleness window. A Mon-Fri-only schedule left
+    # Monday sessions blocked because Friday's health was ~60h stale by Monday open.
+    # Running nightly on Sat+Sun keeps health fresh. Weekend runs are safe: pyramid
+    # auto-buys are Friday-gated, and stop pushes are idempotent (no new daily bars
+    # over the weekend => SKIPPED_SAME at the broker).
     $Trigger = New-ScheduledTaskTrigger `
         -Weekly `
-        -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday `
+        -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday `
         -At 21:00
 
     $Settings = New-ScheduledTaskSettingsSet `
@@ -60,7 +66,7 @@ try {
     Write-Host ""
     Write-Host "  SUCCESS: Task 'HybridTurtle Nightly' registered!" -ForegroundColor Green
     Write-Host ""
-    Write-Host "  Schedule:    Mon-Fri at 21:00" -ForegroundColor White
+    Write-Host "  Schedule:    Daily (7 days) at 21:00" -ForegroundColor White
     Write-Host "  Elevated:    Yes" -ForegroundColor White
     Write-Host "  Missed runs: Will run on next login" -ForegroundColor White
     Write-Host "  Logon type:  S4U (runs whether or not logged in)" -ForegroundColor White
