@@ -1,2 +1,7 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Pi deploy artifacts must always use LF (shell scripts, cron, systemd unit)
+deploy/*.sh text eol=lf
+deploy/*.crontab text eol=lf
+deploy/*.service text eol=lf

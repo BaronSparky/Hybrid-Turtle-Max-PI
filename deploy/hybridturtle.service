@@ -1,0 +1,41 @@
+# HybridTurtle-Max trading dashboard + engine
+# Install: see deploy/README.md (copied to /etc/systemd/system/hybridturtle.service)
+#
+# Runs `next start` bound to localhost:3000. The PIroot kiosk panel reads the
+# API locally; nothing is exposed to the LAN by this unit. Tuned to stay calm
+# and cool on the Pi (Nice + CPUWeight + MemoryMax).
+
+[Unit]
+Description=HybridTurtle-Max trading dashboard and engine
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nigel
+WorkingDirectory=/home/nigel/hybrid-turtle
+
+Environment=NODE_ENV=production
+Environment=PORT=3000
+# App config (Telegram, T212, CRON_SECRET, ENABLE_AUTO_TRADING) is read from
+# /home/nigel/hybrid-turtle/.env via dotenv — no EnvironmentFile needed.
+
+# Ensure DB schema is current before the server binds the port.
+ExecStartPre=/usr/bin/node scripts/auto-migrate.mjs --quiet
+ExecStart=/usr/bin/npm run start
+
+Restart=on-failure
+RestartSec=10
+
+# Keep the Pi quiet and cool: deprioritise CPU and cap memory.
+Nice=10
+CPUWeight=50
+MemoryMax=1500M
+
+# Basic hardening
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

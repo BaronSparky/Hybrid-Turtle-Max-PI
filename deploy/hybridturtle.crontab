@@ -1,0 +1,74 @@
+# HybridTurtle-Max — lean crontab for the Raspberry Pi
+# Install:  crontab deploy/hybridturtle.crontab   (run as user 'nigel')
+# Inspect:  crontab -l
+#
+# The Pi's system timezone is Europe/London, so all times below are UK local
+# time and follow GMT/BST automatically.
+#
+# Each job runs through deploy/ht-cron.sh, which cd's into the app, applies
+# any pending DB migration, runs the tsx entry point, and logs to logs/<job>.log.
+#
+# Default PATH for cron is minimal; node lives at /usr/bin so this is enough.
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+
+# ---------------------------------------------------------------------------
+# CORE (enabled) — the hands-off essentials. Quiet, low wake-up count.
+# ---------------------------------------------------------------------------
+
+# Watchdog: alert via Telegram if the nightly heartbeat is missing. Weekdays.
+05 10 * * 1-5  /home/nigel/hybrid-turtle/deploy/ht-cron.sh watchdog
+
+# Midday sync: refresh prices + detect intraday stop-outs. Weekdays.
+00 13 * * 1-5  /home/nigel/hybrid-turtle/deploy/ht-cron.sh midday-sync
+
+# Nightly: the main run — scan, regrade, manage stops, send the daily report.
+30 21 * * 1-5  /home/nigel/hybrid-turtle/deploy/ht-cron.sh nightly --run-now
+
+# ---------------------------------------------------------------------------
+# OPTIONAL (commented) — uncomment any you want. Each adds wake-ups.
+# ---------------------------------------------------------------------------
+
+# Weekly digest (Telegram summary of the week). Sunday evening.
+# 00 18 * * 0  /home/nigel/hybrid-turtle/deploy/ht-cron.sh weekly-digest
+
+# Pre-market UK briefing (weekdays ~07:00).
+# 00 07 * * 1-5  /home/nigel/hybrid-turtle/deploy/ht-cron.sh uk-briefing
+
+# Pre-market US briefing (weekdays ~14:00 UK).
+# 00 14 * * 1-5  /home/nigel/hybrid-turtle/deploy/ht-cron.sh us-briefing
+
+# Monday week-ahead briefing.
+# 00 08 * * 1  /home/nigel/hybrid-turtle/deploy/ht-cron.sh monday-briefing
+
+# Ticker research refresh (heavier — runs Yahoo pulls). Weekly, off-hours.
+# 00 03 * * 6  /home/nigel/hybrid-turtle/deploy/ht-cron.sh research-refresh
+
+# ---------------------------------------------------------------------------
+# AUTO-TRADING (ENABLED) — places REAL Trading 212 orders. Requires
+# ENABLE_AUTO_TRADING=true in .env AND a connected T212 account.
+# Full cadence (matches the Windows register-auto-trade.bat schedule):
+#   scan 20:00, uk 08:20, uk-mid 10:30, us 14:45, us-mid 17:00, us-close 20:30.
+# Each session places at most AUTO_TRADE_MAX_PER_SESSION trades (default 2).
+# ---------------------------------------------------------------------------
+
+# Evening scan only (no trades) — weekdays 20:00 UK.
+00 20 * * 1-5  /home/nigel/hybrid-turtle/deploy/ht-cron.sh auto-trade --session=scan
+
+# UK/EU open entries — weekdays 08:20 UK.
+20 08 * * 1-5  /home/nigel/hybrid-turtle/deploy/ht-cron.sh auto-trade --session=uk
+
+# UK/EU mid-morning entries — weekdays 10:30 UK.
+30 10 * * 1-5  /home/nigel/hybrid-turtle/deploy/ht-cron.sh auto-trade --session=uk-mid
+
+# US open entries — weekdays 14:45 UK.
+45 14 * * 1-5  /home/nigel/hybrid-turtle/deploy/ht-cron.sh auto-trade --session=us
+
+# US midday entries — weekdays 17:00 UK.
+00 17 * * 1-5  /home/nigel/hybrid-turtle/deploy/ht-cron.sh auto-trade --session=us-mid
+
+# US near-close entries — weekdays 20:30 UK.
+30 20 * * 1-5  /home/nigel/hybrid-turtle/deploy/ht-cron.sh auto-trade --session=us-close
+
+# Hourly Telegram status — weekdays, top of each hour 08:00–21:00 UK.
+00 08-21 * * 1-5  /home/nigel/hybrid-turtle/deploy/ht-cron.sh hourly-status
