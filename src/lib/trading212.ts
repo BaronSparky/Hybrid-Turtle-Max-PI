@@ -365,7 +365,10 @@ export class Trading212Client {
       if (remaining !== null && limit !== null) {
         const rem = parseInt(remaining);
         const lim = parseInt(limit);
-        if (rem <= Math.ceil(lim * 0.2)) {
+        // Only warn on genuinely multi-request budgets (lim > 1). The `limit:1`
+        // (1 req/s) endpoints always report 0/1 remaining on a successful call,
+        // which otherwise produced ~555 false "Rate quota low" warnings/day.
+        if (lim > 1 && rem <= Math.ceil(lim * 0.2)) {
           console.warn(`[T212] Rate quota low: ${remaining}/${limit} remaining on ${method} ${path}`);
           // Fire-and-forget observability sink; never blocks or throws into the API path
           void import('./t212-quota-log')

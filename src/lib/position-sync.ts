@@ -124,7 +124,7 @@ function staleT212PriceResult(): Record<string, number> {
 let lastDropAlertAt = 0;
 const DROP_ALERT_COOLDOWN = 60 * 60_000; // max once per hour
 
-function checkT212ConnectionDrop(): void {
+function checkT212ConnectionDrop(authFailed = false): void {
   // Only alert during market hours when we expected prices
   if (!isAnyMarketOpen()) return;
   if (t212PriceCache.size > 0) return; // Cache still has data — no drop
@@ -133,11 +133,24 @@ function checkT212ConnectionDrop(): void {
   if (now - lastDropAlertAt < DROP_ALERT_COOLDOWN) return;
   lastDropAlertAt = now;
 
+  // Only blame credentials on a genuine auth failure (401/403). An
+  // authenticated-but-empty response means the account is simply flat —
+  // there is nothing to price, which is not a fault condition.
+  if (authFailed) {
+    sendAlert({
+      type: 'BROKER_SYNC_FAILURE',
+      title: 'T212 Prices Unavailable',
+      message: 'Trading 212 rejected the API credentials (401/403) during market hours. Portfolio prices are using Yahoo Finance (delayed). Check your T212 API key and secret in Settings.',
+      priority: 'WARNING',
+    }).catch(() => { /* best-effort */ });
+    return;
+  }
+
   sendAlert({
     type: 'BROKER_SYNC_FAILURE',
-    title: 'T212 Prices Unavailable',
-    message: 'Trading 212 returned no position data during market hours. Portfolio prices are using Yahoo Finance (delayed). Check T212 credentials and connection.',
-    priority: 'WARNING',
+    title: 'No Open Positions on Trading 212',
+    message: 'Trading 212 authenticated successfully but holds no open positions — the account is flat, so there is nothing to price. Portfolio values fall back to Yahoo Finance (delayed) where needed.',
+    priority: 'INFO',
   }).catch(() => { /* best-effort */ });
 }
 
@@ -301,6 +314,9 @@ async function fetchT212LivePricesInner(userId: string): Promise<Record<string, 
 
     // Fetch accounts SEQUENTIALLY with delay to avoid T212 rate limits (1 req/1s per account)
     const allPositions: T212Position[] = [];
+    // Track a genuine auth failure (401/403) so the connection-drop banner can
+    // distinguish "bad credentials" from "authenticated but flat".
+    let authFailed = false;
 
     if (investCreds && !isRateLimitBackedOff('Invest')) {
       recordT212ApiCall();
@@ -313,6 +329,8 @@ async function fetchT212LivePricesInner(userId: string): Promise<Record<string, 
           console.warn('[position-sync] T212 Invest rate-limited — serving stale cache');
           setRateLimitBackoff('Invest', err);
           sendRateLimitAlert('Invest');
+        } else if (err instanceof Trading212Error && (err.statusCode === 401 || err.statusCode === 403)) {
+          authFailed = true;
         }
       }
     }
@@ -331,6 +349,8 @@ async function fetchT212LivePricesInner(userId: string): Promise<Record<string, 
           console.warn('[position-sync] T212 ISA rate-limited — serving stale cache');
           setRateLimitBackoff('ISA', err);
           sendRateLimitAlert('ISA');
+        } else if (err instanceof Trading212Error && (err.statusCode === 401 || err.statusCode === 403)) {
+          authFailed = true;
         }
       }
     }
@@ -338,13 +358,13 @@ async function fetchT212LivePricesInner(userId: string): Promise<Record<string, 
     // If T212 returned no positions (rate-limited or error), serve stale cache
     if (allPositions.length === 0 && t212PriceCache.size > 0) {
       console.warn('[position-sync] T212 returned no positions — serving stale cache');
-      checkT212ConnectionDrop();
+      checkT212ConnectionDrop(authFailed);
       return staleT212PriceResult();
     }
 
     // If T212 returned nothing and no cache exists, alert
     if (allPositions.length === 0) {
-      checkT212ConnectionDrop();
+      checkT212ConnectionDrop(authFailed);
     }
 
     const prices: Record<string, number> = {};
@@ -467,10 +487,30 @@ export async function syncClosedPositions(userId: string = 'default-user', optio
   // Build set of T212 tickers currently held across both accounts
   const combinedPositions = dualClient.getCombinedPositions(dualResult);
 
-  // SAFETY: If T212 returns 0 positions across all accounts, suspect API error
+  // SAFETY: An empty positions list at this point means the fetch SUCCEEDED —
+  // genuine fetch failures were caught by the investFailed/isaFailed early
+  // return above. That makes the account genuinely flat (not an outage), so we
+  // MUST let the close-reconciliation loop run; otherwise a fully-sold account
+  // can never self-heal (the HON_US_EQ deadlock).
+  //
+  // Defence-in-depth: before allowing any closes, confirm the already-fetched
+  // account summary also reports zero invested value. If positions came back
+  // empty but the summary still shows holdings, treat it as a partial/transient
+  // outage of the positions endpoint and close nothing.
   if (combinedPositions.length === 0) {
-    result.errors.push('T212 returned 0 positions — possible API error. No positions auto-closed.');
-    return result;
+    const investValue = dualResult.invest?.summary.investmentsValue ?? 0;
+    const isaValue = dualResult.isa?.summary.investmentsValue ?? 0;
+    // A failed account is already protected per-position in the loop below, so
+    // for this gate it does not count as contradicting flatness.
+    const investContradicts = creds.hasInvest && !investFailed && investValue > 0;
+    const isaContradicts = creds.hasIsa && !isaFailed && isaValue > 0;
+
+    if (investContradicts || isaContradicts) {
+      result.errors.push('T212 returned 0 positions but account summary still shows invested value — suspected partial outage. No positions auto-closed.');
+      return result;
+    }
+    // Genuinely flat — fall through to the close-reconciliation loop so stale
+    // tracked positions are reconciled and closed.
   }
 
   // Map: t212Ticker → T212 position data (for price updates)
@@ -590,6 +630,20 @@ export async function syncClosedPositions(userId: string = 'default-user', optio
     } catch (err) {
       result.errors.push(`${pos.stock.ticker}: close failed — ${(err as Error).message}`);
     }
+  }
+
+  // Reconciliation alert: if we auto-closed any positions the engine and T212
+  // had diverged (sold in the T212 app but still open in the DB). Surface one
+  // summary Telegram alert so the divergence is reported, not silent.
+  if (result.closed > 0) {
+    await sendAlert({
+      type: 'SYSTEM',
+      title: `Auto-reconciled ${result.closed} closed position${result.closed === 1 ? '' : 's'}`,
+      message: `HybridTurtle auto-closed ${result.closed} position${result.closed === 1 ? '' : 's'} that Trading 212 no longer holds. The engine and broker have been reconciled. Review the closed trades and add journal notes.`,
+      data: { closed: result.closed, source: 'syncClosedPositions' },
+      priority: 'INFO',
+      telegramDedupeKey: `position-sync:auto-reconcile:${new Date().toISOString().slice(0, 10)}`,
+    }).catch(() => { /* best-effort — reconciliation already happened */ });
   }
 
   // 4. Detect untracked T212 sales — sells in order history that don't match any DB position

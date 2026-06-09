@@ -384,4 +384,41 @@ describe('syncClosedPositions order-history usage', () => {
       }),
     }));
   });
+
+  it('self-heals a fully-sold (flat) account: closes the stale tracked position when T212 returns 0 positions and the summary is flat', async () => {
+    mocks.positionFindMany.mockResolvedValue([makeDbPosition('HON')]);
+    mocks.getPositions.mockResolvedValue([]); // T212 Invest fully flat
+    mocks.getAccountSummary.mockResolvedValue({
+      ...makeAccountSummary(),
+      investments: { currentValue: 0, realizedProfitLoss: 0, totalCost: 0, unrealizedProfitLoss: 0 },
+    });
+    mocks.getOrderHistory.mockResolvedValue([makeSellOrder('HON')]);
+
+    const { syncClosedPositions } = await import('./position-sync');
+    const result = await syncClosedPositions('default-user', { detectUntrackedSales: false });
+
+    expect(result).toMatchObject({ checked: 1, closed: 1, skipped: 0, errors: [] });
+    expect(mocks.positionUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'position-HON' },
+      data: expect.objectContaining({ status: 'CLOSED', closedBy: 'AUTO_SYNC' }),
+    }));
+    // Reconciliation alert fired so the divergence is reported
+    expect(mocks.sendAlert).toHaveBeenCalledWith(expect.objectContaining({
+      title: expect.stringContaining('Auto-reconciled'),
+    }));
+  });
+
+  it('does NOT close when T212 returns 0 positions but the account summary still shows invested value (suspected partial outage)', async () => {
+    mocks.positionFindMany.mockResolvedValue([makeDbPosition('HON')]);
+    mocks.getPositions.mockResolvedValue([]); // positions endpoint empty
+    mocks.getAccountSummary.mockResolvedValue(makeAccountSummary()); // currentValue: 1000
+
+    const { syncClosedPositions } = await import('./position-sync');
+    const result = await syncClosedPositions('default-user', { detectUntrackedSales: false });
+
+    expect(result.closed).toBe(0);
+    expect(mocks.positionUpdate).not.toHaveBeenCalled();
+    expect(result.errors.some(e => e.includes('suspected partial outage'))).toBe(true);
+  });
 });
+
