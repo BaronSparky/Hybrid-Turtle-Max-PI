@@ -92,6 +92,15 @@ if ($LASTEXITCODE -ne 0) { throw "Remote extract failed." }
 Remove-Item $bundle -Force
 Write-Host "Extracted on Pi."
 
+# Restore the execute bit on shell scripts. The bundle is tarred from the
+# Windows working tree, which does not preserve the Unix +x bit, so the
+# extracted copies arrive as 0664. Cron invokes deploy/ht-cron.sh by path,
+# which requires +x — without this the wrapper fails with "Permission denied"
+# and every scheduled job goes silently dark (no log, output discarded).
+ssh $PiHost "chmod +x $RemoteDir/deploy/*.sh"
+if ($LASTEXITCODE -ne 0) { throw "Failed to restore +x on deploy scripts." }
+Write-Host "Restored +x on deploy/*.sh."
+
 # --- 5. Install native deps only when the lockfile changed -----------------
 Write-Step "Checking dependencies"
 $localHash = (Get-FileHash package-lock.json -Algorithm SHA256).Hash.ToLower()
@@ -107,10 +116,14 @@ if ($Deps -or $localHash -ne $remoteHash) {
   Write-Host "Dependencies unchanged — skipping npm ci."
 }
 
-# --- 6. Migrate DB and restart the service ---------------------------------
-Write-Step "Applying migrations and restarting service"
-ssh $PiHost "cd $RemoteDir && node scripts/auto-migrate.mjs --quiet && sudo systemctl restart hybridturtle"
-if ($LASTEXITCODE -ne 0) { throw "Migration or service restart failed." }
+# --- 6. Restart the service (migrations run in ExecStartPre) ----------------
+# Do NOT migrate here: the live service holds the SQLite DB lock, so a
+# standalone `prisma migrate`/auto-migrate fails with "database is locked".
+# The systemd unit's ExecStartPre runs scripts/auto-migrate.mjs at restart,
+# when the old process has released the lock and before the new one binds.
+Write-Step "Restarting service (migrations run in ExecStartPre)"
+ssh $PiHost "sudo systemctl restart hybridturtle"
+if ($LASTEXITCODE -ne 0) { throw "Service restart failed." }
 
 # --- 7. Health check -------------------------------------------------------
 Write-Step "Verifying service health"
